@@ -1,0 +1,15 @@
+services:
+  rssbot:
+    build: .
+    container_name: rss-discord-bot
+    restart: unless-stopped
+    env_file:
+      - .env
+    volumes:
+      - ./config:/app/config
+      - ./data:/app/data
+      - ./logs:/app/logs
+    environment:
+      CONFIG_PATH: /app/config/config.json
+      DATABASE_PATH: /app/data/rssbot.sqlite
+      LOG_LEVEL: INFO
