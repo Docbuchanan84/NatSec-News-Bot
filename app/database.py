@@ -1,16 +1,19 @@
 from __future__ import annotations
 
+import json
 import sqlite3
 import threading
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from typing import Any
 
 from app.models import ArticleCandidate, DedupeResult, PostJob
 from app.normalizer import isoformat, source_family, stable_hash, title_signature
 
 
 SCHEMA = """
-PRAGMA journal_mode = WAL;
+PRAGMA journal_mode = DELETE;
+PRAGMA synchronous = FULL;
 PRAGMA foreign_keys = ON;
 
 CREATE TABLE IF NOT EXISTS articles (
@@ -97,12 +100,55 @@ CREATE TABLE IF NOT EXISTS feed_status (
     next_poll_at TEXT
 );
 
+CREATE TABLE IF NOT EXISTS article_routing_decisions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    article_id INTEGER NOT NULL,
+    created_at TEXT NOT NULL,
+    content_mode TEXT NOT NULL,
+    selected_channel_keys TEXT NOT NULL,
+    selected_channel_ids TEXT NOT NULL,
+    decision_status TEXT NOT NULL,
+    top_score INTEGER NOT NULL,
+    score_details TEXT NOT NULL,
+    matched_entries TEXT NOT NULL,
+    emitted_tags TEXT NOT NULL,
+    expanded_tags TEXT NOT NULL,
+    explanation TEXT NOT NULL,
+    FOREIGN KEY(article_id) REFERENCES articles(id)
+);
+
+CREATE TABLE IF NOT EXISTS article_tags (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    article_id INTEGER NOT NULL,
+    tag TEXT NOT NULL,
+    source TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    UNIQUE(article_id, tag, source),
+    FOREIGN KEY(article_id) REFERENCES articles(id)
+);
+
+CREATE TABLE IF NOT EXISTS article_matches (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    article_id INTEGER NOT NULL,
+    knowledge_entry_id TEXT NOT NULL,
+    matched_alias TEXT NOT NULL,
+    match_start INTEGER,
+    match_end INTEGER,
+    created_at TEXT NOT NULL,
+    UNIQUE(article_id, knowledge_entry_id, matched_alias, match_start, match_end),
+    FOREIGN KEY(article_id) REFERENCES articles(id)
+);
+
 CREATE INDEX IF NOT EXISTS idx_articles_normalized_url ON articles(normalized_url);
 CREATE INDEX IF NOT EXISTS idx_articles_title_source_time ON articles(normalized_title, source_name, normalized_published_at);
 CREATE INDEX IF NOT EXISTS idx_feed_status_next_poll ON feed_status(next_poll_at);
 CREATE INDEX IF NOT EXISTS idx_channel_posts_channel ON channel_posts(channel_id, article_id);
 CREATE INDEX IF NOT EXISTS idx_channel_seen_titles_channel ON channel_seen_titles(channel_id, normalized_title);
 CREATE INDEX IF NOT EXISTS idx_channel_seen_title_signatures_channel ON channel_seen_title_signatures(channel_id, title_signature);
+CREATE INDEX IF NOT EXISTS idx_article_routing_decisions_article ON article_routing_decisions(article_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_article_routing_decisions_status ON article_routing_decisions(decision_status, created_at);
+CREATE INDEX IF NOT EXISTS idx_article_tags_tag ON article_tags(tag, article_id);
+CREATE INDEX IF NOT EXISTS idx_article_matches_entry ON article_matches(knowledge_entry_id, article_id);
 """
 
 
@@ -120,6 +166,7 @@ class Database:
             self._conn.executescript(SCHEMA)
             self._migrate()
             self._conn.commit()
+            self._conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
 
     def _migrate(self) -> None:
         columns = {
@@ -180,6 +227,10 @@ class Database:
 
     def close(self) -> None:
         with self._lock:
+            try:
+                self._conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+            except sqlite3.Error:
+                pass
             self._conn.close()
 
     def resolve_article(self, candidate: ArticleCandidate, title_window_hours: int) -> DedupeResult:
@@ -518,6 +569,123 @@ class Database:
                 "feeds": int(self._conn.execute("SELECT count(*) FROM feed_status").fetchone()[0]),
             }
 
+    def record_routing_decision(
+        self,
+        article_id: int,
+        decision: Any,
+        selected_channel_ids: list[str] | tuple[str, ...],
+    ) -> None:
+        data = decision.to_json_dict()
+        now = datetime.now(UTC).isoformat()
+        with self._lock:
+            self._conn.execute(
+                """
+                INSERT INTO article_routing_decisions (
+                    article_id, created_at, content_mode, selected_channel_keys, selected_channel_ids,
+                    decision_status, top_score, score_details, matched_entries, emitted_tags,
+                    expanded_tags, explanation
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    article_id,
+                    now,
+                    decision.content_mode,
+                    json.dumps(list(decision.selected_channel_keys), sort_keys=True),
+                    json.dumps(list(selected_channel_ids), sort_keys=True),
+                    decision.decision_status,
+                    int(decision.top_score),
+                    json.dumps(data["channel_scores"], sort_keys=True),
+                    json.dumps(data["matched_entries"], sort_keys=True),
+                    json.dumps(data["emitted_tags"], sort_keys=True),
+                    json.dumps(data["expanded_tags"], sort_keys=True),
+                    json.dumps(data["explanation"], sort_keys=True),
+                ),
+            )
+            for tag in decision.emitted_tags:
+                self._conn.execute(
+                    """
+                    INSERT OR IGNORE INTO article_tags (article_id, tag, source, created_at)
+                    VALUES (?, ?, 'emitted', ?)
+                    """,
+                    (article_id, tag, now),
+                )
+            emitted = set(decision.emitted_tags)
+            for tag in decision.expanded_tags:
+                if tag in emitted:
+                    continue
+                self._conn.execute(
+                    """
+                    INSERT OR IGNORE INTO article_tags (article_id, tag, source, created_at)
+                    VALUES (?, ?, 'taxonomy_expanded', ?)
+                    """,
+                    (article_id, tag, now),
+                )
+            for match in decision.matched_entries:
+                self._conn.execute(
+                    """
+                    INSERT OR IGNORE INTO article_matches (
+                        article_id, knowledge_entry_id, matched_alias, match_start, match_end, created_at
+                    )
+                    VALUES (?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        article_id,
+                        match.knowledge_entry_id,
+                        match.matched_alias,
+                        match.match_start,
+                        match.match_end,
+                        now,
+                    ),
+                )
+            self._conn.commit()
+
+    def get_article_for_routing(self, article_id: int) -> sqlite3.Row | None:
+        with self._lock:
+            return self._conn.execute(
+                """
+                SELECT id, title, normalized_title, url, source_name
+                FROM articles
+                WHERE id = ?
+                """,
+                (article_id,),
+            ).fetchone()
+
+    def recent_articles_for_routing(self, limit: int, days: int | None = None) -> list[sqlite3.Row]:
+        with self._lock:
+            params: list[object] = []
+            where = ""
+            if days is not None:
+                cutoff = datetime.now(UTC) - timedelta(days=days)
+                where = "WHERE coalesce(normalized_published_at, first_seen_at) >= ?"
+                params.append(cutoff.isoformat())
+            params.append(limit)
+            return list(
+                self._conn.execute(
+                    f"""
+                    SELECT id, title, normalized_title, url, source_name
+                    FROM articles
+                    {where}
+                    ORDER BY coalesce(normalized_published_at, first_seen_at) DESC, id DESC
+                    LIMIT ?
+                    """,
+                    tuple(params),
+                )
+            )
+
+    def recent_routing_error_count(self, hours: int = 24) -> int:
+        cutoff = datetime.now(UTC) - timedelta(hours=hours)
+        with self._lock:
+            row = self._conn.execute(
+                """
+                SELECT count(*)
+                FROM article_routing_decisions
+                WHERE decision_status = 'error' AND created_at >= ?
+                """,
+                (cutoff.isoformat(),),
+            ).fetchone()
+            return int(row[0])
+
     def get_post_job(self, article_id: int, channel_id: str) -> PostJob:
         with self._lock:
             row = self._conn.execute(
@@ -539,6 +707,20 @@ class Database:
                 normalized_published_at=datetime.fromisoformat(row["normalized_published_at"]),
                 timestamp_status=row["timestamp_status"] or "valid",
             )
+
+    def latest_routing_decision_for_article(self, article_id: int) -> sqlite3.Row | None:
+        with self._lock:
+            return self._conn.execute(
+                """
+                SELECT selected_channel_keys, decision_status, top_score, score_details,
+                       matched_entries, emitted_tags, expanded_tags, explanation, created_at
+                FROM article_routing_decisions
+                WHERE article_id = ?
+                ORDER BY id DESC
+                LIMIT 1
+                """,
+                (article_id,),
+            ).fetchone()
 
     def create_test_article(self, channel_id: str) -> PostJob:
         now = datetime.now(UTC)

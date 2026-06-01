@@ -6,6 +6,7 @@ from pathlib import Path
 from app.database import Database
 from app.models import FeedEntry, TimestampSettings
 from app.normalizer import build_candidate
+from app.routing.models import RoutingDecision
 
 
 def make_candidate(title: str, url: str, guid: str | None = None):
@@ -52,3 +53,22 @@ def test_channel_title_reservation_blocks_same_title_in_channel(tmp_path: Path) 
     assert db.reserve_channel_title(first.article_id, "111111111111111111", "same story", "same story", "queued") is True
     assert db.reserve_channel_title(second.article_id, "111111111111111111", "same story", "same story", "queued") is False
     assert db.reserve_channel_title(second.article_id, "222222222222222222", "same story", "same story", "queued") is True
+
+
+def test_records_routing_decision_tags_and_matches(tmp_path: Path) -> None:
+    db = Database(tmp_path / "rss.sqlite")
+    db.initialize()
+    article = db.resolve_article(make_candidate("Story", "https://example.com/a", "1"), 24)
+    decision = RoutingDecision(
+        content_mode="title_only",
+        matched_entries=(),
+        emitted_tags=("china",),
+        expanded_tags=("indo_pacific",),
+        channel_scores=(),
+        selected_channel_keys=("indo-pacific",),
+        decision_status="routed",
+        top_score=5,
+        explanation=("test",),
+    )
+    db.record_routing_decision(article.article_id, decision, ("111111111111111111",))
+    assert db.recent_routing_error_count() == 0

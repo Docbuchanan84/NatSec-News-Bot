@@ -34,6 +34,8 @@ def test_loads_minimal_valid_config(tmp_path: Path) -> None:
     assert config.settings.polling.default_interval_seconds == 300
     assert config.settings.polling.max_concurrent_feed_fetches == 10
     assert config.settings.timestamps.max_post_age_hours == 48
+    assert config.settings.routing.enabled is False
+    assert config.settings.routing.mode == "observe_only"
 
 
 def test_rejects_missing_feed_url(tmp_path: Path) -> None:
@@ -57,3 +59,11 @@ def test_rejects_duplicate_channel_ids(tmp_path: Path) -> None:
     with pytest.raises(ConfigError) as exc:
         load_config(write_config(tmp_path, data))
     assert "duplicates another channel ID" in str(exc.value)
+
+
+def test_rejects_unknown_routing_mode(tmp_path: Path) -> None:
+    data = minimal_config()
+    data["settings"] = {"routing": {"enabled": True, "mode": "automatic"}}
+    with pytest.raises(ConfigError) as exc:
+        load_config(write_config(tmp_path, data))
+    assert "settings.routing.mode" in str(exc.value)

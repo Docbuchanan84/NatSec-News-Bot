@@ -7,9 +7,10 @@ services:
       - .env
     volumes:
       - ./config:/app/config
-      - ./data:/app/data
+      - C:/Users/stacy/rssbot-runtime-data:/app/data
       - ./logs:/app/logs
     environment:
       CONFIG_PATH: /app/config/config.json
       DATABASE_PATH: /app/data/rssbot.sqlite
       LOG_LEVEL: INFO
+      ROUTING_DEBUG_EMBEDS: "true"

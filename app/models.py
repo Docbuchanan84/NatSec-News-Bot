@@ -55,12 +55,20 @@ class LoggingSettings:
 
 
 @dataclass(frozen=True)
+class RoutingSettings:
+    enabled: bool = False
+    mode: str = "observe_only"
+    config_dir: str = "config/routing"
+
+
+@dataclass(frozen=True)
 class Settings:
     polling: PollingSettings = field(default_factory=PollingSettings)
     dedupe: DedupeSettings = field(default_factory=DedupeSettings)
     timestamps: TimestampSettings = field(default_factory=TimestampSettings)
     publishing: PublishingSettings = field(default_factory=PublishingSettings)
     logging: LoggingSettings = field(default_factory=LoggingSettings)
+    routing: RoutingSettings = field(default_factory=RoutingSettings)
 
 
 @dataclass(frozen=True)

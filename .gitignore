@@ -1,5 +1,6 @@
 .env
 config/config.json
+config/config.pre-*.json
 __pycache__/
 *.py[cod]
 .pytest_cache/

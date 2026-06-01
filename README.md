@@ -9,6 +9,8 @@ Sharing this project with another operator? Send them `FRIEND_SETUP.md` after cl
 
 The config is channel-first: each Discord channel declares the feeds it watches.
 
+Structured routing is available as a safe first-pass classifier. It is configured in `config/routing/` and documented in `docs/routing.md`. The default example config leaves routing disabled; enable `settings.routing.enabled` with `mode: "observe_only"` before trying enforced routing.
+
 ## Quick Start With Docker Desktop
 
 1. Copy the example files:
@@ -79,6 +81,10 @@ If the config is invalid, the bot reports the errors and keeps the previous work
 - `/rss reload` validates and reloads `config/config.json` without restarting.
 - `/rss refresh` refreshes feeds for the Discord channel where the command is run.
 - `/rss testpost` sends one controlled test embed in the current configured channel.
+- `/rss route-test` previews routing for a supplied title and optional summary/source/url.
+- `/rss route-article` previews routing for an article already stored in SQLite.
+- `/rss route-backtest` runs routing against recent SQLite articles.
+- `/rss routing-status` shows routing mode, versions, rule counts, and validation status.
 
 ## Bot Permissions
 
@@ -127,6 +133,19 @@ Run tests:
 
 ```powershell
 pytest
+```
+
+Validate routing config:
+
+```powershell
+python -m app.main --validate-routing
+```
+
+Preview routing locally:
+
+```powershell
+python -m app.main --route-test-title "Chinese carrier Liaoning enters Philippine Sea"
+python -m app.main --route-backtest 25
 ```
 
 Initialize the database only:

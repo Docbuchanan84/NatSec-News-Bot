@@ -35,6 +35,11 @@
       "errorLogPath": "logs/rssbot-errors.log",
       "maxBytes": 10485760,
       "backupCount": 5
+    },
+    "routing": {
+      "enabled": false,
+      "mode": "observe_only",
+      "configDir": "config/routing"
     }
   },
   "channels": [
@@ -75,6 +80,22 @@
         {
           "name": "Defense News",
           "url": "https://example.com/defense/rss"
+        }
+      ]
+    },
+    {
+      "key": "science-technology",
+      "name": "Science Technology",
+      "discordChannelId": "444444444444444444",
+      "pollIntervalSeconds": 300,
+      "feeds": [
+        {
+          "name": "CBS Technology",
+          "url": "https://www.cbsnews.com/latest/rss/technology"
+        },
+        {
+          "name": "ABC Business",
+          "url": "http://feeds.abcnews.com/abcnews/moneyheadlines"
         }
       ]
     }

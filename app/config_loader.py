@@ -18,6 +18,7 @@ from app.models import (
     LoggingSettings,
     PollingSettings,
     PublishingSettings,
+    RoutingSettings,
     Settings,
     TimestampSettings,
 )
@@ -102,6 +103,7 @@ def _parse_settings(raw: dict[str, Any], errors: list[str]) -> Settings:
     timestamps_raw = _object(raw.get("timestamps", {}), "settings.timestamps", errors)
     publishing_raw = _object(raw.get("publishing", {}), "settings.publishing", errors)
     logging_raw = _object(raw.get("logging", {}), "settings.logging", errors)
+    routing_raw = _object(raw.get("routing", {}), "settings.routing", errors)
 
     polling = PollingSettings(
         default_interval_seconds=_int(
@@ -225,12 +227,27 @@ def _parse_settings(raw: dict[str, Any], errors: list[str]) -> Settings:
             max_value=50,
         ),
     )
+    routing = RoutingSettings(
+        enabled=_bool(routing_raw.get("enabled", False), "settings.routing.enabled", errors),
+        mode=_choice(
+            routing_raw.get("mode", "observe_only"),
+            "settings.routing.mode",
+            errors,
+            {"observe_only", "route_preview", "enforced"},
+        ),
+        config_dir=_string(
+            routing_raw.get("configDir", "config/routing"),
+            "settings.routing.configDir",
+            errors,
+        ),
+    )
     return Settings(
         polling=polling,
         dedupe=dedupe,
         timestamps=timestamps,
         publishing=publishing,
         logging=logging_settings,
+        routing=routing,
     )
 
 
@@ -347,3 +364,10 @@ def _bool(value: Any, path: str, errors: list[str]) -> bool:
         return value
     errors.append(f"{path} must be true or false.")
     return False
+
+
+def _choice(value: Any, path: str, errors: list[str], allowed: set[str]) -> str:
+    if isinstance(value, str) and value in allowed:
+        return value
+    errors.append(f"{path} must be one of: {', '.join(sorted(allowed))}.")
+    return sorted(allowed)[0]

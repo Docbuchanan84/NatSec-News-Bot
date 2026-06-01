@@ -12,6 +12,8 @@ from app.feed_fetcher import FeedFetchError, FeedFetchResult, FeedService
 from app.models import AppConfig, FeedRuntime
 from app.normalizer import build_candidate, normalize_feed_url, stable_hash
 from app.publisher import PublisherService
+from app.routing import RoutingConfigError, RoutingEngine, load_routing_config
+from app.routing.models import RoutingArticle, RoutingDecision
 
 logger = logging.getLogger(__name__)
 audit_logger = logging.getLogger("app.audit")
@@ -33,6 +35,9 @@ class SchedulerService:
         self.config: AppConfig | None = None
         self.feeds: dict[str, FeedRuntime] = {}
         self.channel_to_feed_keys: dict[str, tuple[str, ...]] = {}
+        self.channel_key_to_id: dict[str, str] = {}
+        self.routing_engine: RoutingEngine | None = None
+        self.routing_mode = "observe_only"
         self._next_due: dict[str, datetime] = {}
         self._task: asyncio.Task[None] | None = None
         self._stopping = False
@@ -40,6 +45,31 @@ class SchedulerService:
     def configure(self, config: AppConfig) -> None:
         self.config = config
         self.feeds = build_feed_runtime_map(config)
+        self.channel_key_to_id = {channel.key: channel.discord_channel_id for channel in config.channels}
+        self.routing_engine = None
+        self.routing_mode = config.settings.routing.mode
+        if config.settings.routing.enabled:
+            try:
+                routing_config = load_routing_config(config.settings.routing.config_dir, config)
+                self.routing_engine = RoutingEngine(routing_config)
+                logger.info(
+                    "Routing config loaded: %s tags, %s knowledge entries, %s channel rules, mode=%s",
+                    len(routing_config.taxonomy),
+                    len(routing_config.knowledge_entries),
+                    len(routing_config.channel_rules),
+                    self.routing_mode,
+                )
+                audit_logger.info(
+                    "routing_config_loaded taxonomy_version=%s knowledge_base_version=%s channels_version=%s mode=%s",
+                    routing_config.taxonomy_version,
+                    routing_config.knowledge_base_version,
+                    routing_config.channels_version,
+                    self.routing_mode,
+                )
+            except RoutingConfigError as exc:
+                self.routing_mode = "observe_only"
+                logger.error("Routing config failed validation; routing enforcement disabled: %s", "; ".join(exc.errors))
+                audit_logger.error("routing_config_invalid errors=%r", exc.errors)
         self.channel_to_feed_keys = {}
         for feed in self.feeds.values():
             for channel_id in feed.channel_ids:
@@ -173,7 +203,8 @@ class SchedulerService:
             else:
                 duplicates += 1
             if suppress_posts:
-                for channel_id in result.feed.channel_ids:
+                routing_decision = self._route_candidate(dedupe.article_id, candidate)
+                for channel_id in self._target_channel_ids(result.feed.channel_ids, routing_decision):
                     self.db.record_channel_suppressed(
                         dedupe.article_id,
                         channel_id,
@@ -186,9 +217,10 @@ class SchedulerService:
                         dedupe.article_id,
                         channel_id,
                         candidate.title,
-                    )
+                )
                 continue
-            for channel_id in result.feed.channel_ids:
+            routing_decision = self._route_candidate(dedupe.article_id, candidate)
+            for channel_id in self._target_channel_ids(result.feed.channel_ids, routing_decision):
                 if self._is_stale_for_posting(candidate.normalized_published_at, candidate.timestamp_status):
                     duplicates += 1
                     self.db.record_channel_skipped(
@@ -275,6 +307,52 @@ class SchedulerService:
             return False
         cutoff = datetime.now(UTC) - timedelta(hours=self.config.settings.timestamps.max_post_age_hours)
         return published_at < cutoff
+
+    def _route_candidate(self, article_id: int, candidate) -> RoutingDecision | None:
+        if self.routing_engine is None:
+            return None
+        try:
+            decision = self.routing_engine.route(
+                RoutingArticle(
+                    article_id=article_id,
+                    title=candidate.title,
+                    summary=candidate.summary,
+                    source_name=candidate.source_name,
+                    url=candidate.url,
+                    normalized_title=candidate.normalized_title,
+                )
+            )
+            selected_ids = [self.channel_key_to_id[key] for key in decision.selected_channel_keys if key in self.channel_key_to_id]
+            self.db.record_routing_decision(article_id, decision, selected_ids)
+            audit_logger.info(
+                "routing_decision article_id=%s status=%s selected_keys=%s top_score=%s title=%r",
+                article_id,
+                decision.decision_status,
+                list(decision.selected_channel_keys),
+                decision.top_score,
+                candidate.title,
+            )
+            return decision
+        except Exception as exc:
+            logger.exception("Routing failed for article %s", article_id)
+            audit_logger.exception("routing_exception article_id=%s title=%r error=%r", article_id, candidate.title, exc)
+            return None
+
+    def _target_channel_ids(
+        self,
+        existing_channel_ids: tuple[str, ...],
+        decision: RoutingDecision | None,
+    ) -> tuple[str, ...]:
+        if self.routing_mode != "enforced" or decision is None:
+            return existing_channel_ids
+        if decision.decision_status != "routed":
+            return tuple()
+        selected = tuple(
+            self.channel_key_to_id[key]
+            for key in decision.selected_channel_keys
+            if key in self.channel_key_to_id
+        )
+        return selected
 
 
 def build_feed_runtime_map(config: AppConfig) -> dict[str, FeedRuntime]:
