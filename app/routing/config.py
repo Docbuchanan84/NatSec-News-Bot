@@ -186,6 +186,16 @@ def _parse_channels(
         for excluded in excluded_any:
             if excluded not in taxonomy and not _valid_key(excluded):
                 errors.append(f"{path}.excluded_any has invalid entry: {excluded}")
+        required_source_any = _string_list(
+            _rule_value(rule_obj, defaults, "required_source_any", []),
+            f"{path}.required_source_any",
+            errors,
+        )
+        excluded_source_any = _string_list(
+            _rule_value(rule_obj, defaults, "excluded_source_any", []),
+            f"{path}.excluded_source_any",
+            errors,
+        )
         term_boosts = _merged_score_map(rule_obj, defaults, "term_boosts", path, errors)
         tag_boosts = _merged_score_map(rule_obj, defaults, "tag_boosts", path, errors)
         term_penalties = _merged_score_map(rule_obj, defaults, "term_penalties", path, errors)
@@ -206,6 +216,8 @@ def _parse_channels(
                 tag_penalties=tag_penalties,
                 required_any=tuple(required_any),
                 excluded_any=tuple(excluded_any),
+                required_source_any=tuple(required_source_any),
+                excluded_source_any=tuple(excluded_source_any),
                 source_biases=_merged_score_map(rule_obj, defaults, "source_biases", path, errors),
                 content_mode_adjustments=_merged_score_map(rule_obj, defaults, "content_mode_adjustments", path, errors),
                 notes=rule_obj.get("notes") if isinstance(rule_obj.get("notes"), str) else None,

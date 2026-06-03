@@ -284,6 +284,11 @@ def engine(tmp_path: Path) -> RoutingEngine:
     return RoutingEngine(load_routing_config(routing_dir(tmp_path), app_config(tmp_path)))
 
 
+def production_engine() -> RoutingEngine:
+    config = load_config(Path("config/config.json"))
+    return RoutingEngine(load_routing_config(Path("config/routing"), config))
+
+
 def test_taxonomy_parent_expansion(tmp_path: Path) -> None:
     config = load_routing_config(routing_dir(tmp_path), app_config(tmp_path))
     assert expand_tags({"carrier_strike_group"}, config.taxonomy) >= {"aircraft_carrier", "naval", "military", "world"}
@@ -389,6 +394,142 @@ def test_nuclear_arms_route_to_strategic_weapons(tmp_path: Path) -> None:
 def test_icbm_routes_to_strategic_weapons(tmp_path: Path) -> None:
     decision = engine(tmp_path).route(RoutingArticle(title="North Korea tests ICBM"))
     assert "strategic-weapons" in decision.selected_channel_keys
+
+
+def test_state_department_africa_routes_region_not_white_house() -> None:
+    decision = production_engine().route(
+        RoutingArticle(
+            title="Secretary Rubio visits Ghana to discuss security cooperation",
+            source_name="State Department Africa",
+        )
+    )
+    assert "africa" in decision.selected_channel_keys
+    assert "the-white-house" not in decision.selected_channel_keys
+
+
+def test_us_domestic_non_politics_routes_north_america() -> None:
+    decision = production_engine().route(
+        RoutingArticle(title="California wildfire forces evacuations near Los Angeles", source_name="BBC US and Canada")
+    )
+    assert "north-america" in decision.selected_channel_keys
+    assert "the-hill" not in decision.selected_channel_keys
+
+
+def test_us_politics_routes_the_hill_not_north_america() -> None:
+    decision = production_engine().route(
+        RoutingArticle(title="Congress passes border security legislation", source_name="The Hill")
+    )
+    assert "the-hill" in decision.selected_channel_keys
+    assert "north-america" not in decision.selected_channel_keys
+
+
+def test_brazil_economy_routes_region_not_science_technology() -> None:
+    decision = production_engine().route(
+        RoutingArticle(title="Brazil economy grows as inflation cools", source_name="Bloomberg")
+    )
+    assert "south-central-america" in decision.selected_channel_keys
+    assert "science-technology" not in decision.selected_channel_keys
+
+
+def test_defense_contract_routes_industrial_base() -> None:
+    decision = production_engine().route(
+        RoutingArticle(title="Lockheed wins Pentagon contract for missile interceptors", source_name="Defense News Industry")
+    )
+    assert "industrial-base" in decision.selected_channel_keys
+
+
+def test_generic_company_earnings_do_not_route_industrial_base() -> None:
+    decision = production_engine().route(
+        RoutingArticle(title="Apple shares rise after quarterly earnings beat forecasts", source_name="Bloomberg")
+    )
+    assert "industrial-base" not in decision.selected_channel_keys
+
+
+def test_source_gates_keep_source_channels_exclusive() -> None:
+    engine = production_engine()
+    state_decision = engine.route(
+        RoutingArticle(title="State Department announces talks with Ghana", source_name="State Department Press Releases")
+    )
+    defense_media_decision = engine.route(
+        RoutingArticle(title="Defense One reports on Army modernization", source_name="Defense One")
+    )
+    reuters_mention_decision = engine.route(
+        RoutingArticle(title="BBC cites Reuters report on China talks", source_name="BBC Asia")
+    )
+    ap_mention_decision = engine.route(
+        RoutingArticle(title="NPR discusses Associated Press election analysis", source_name="NPR")
+    )
+
+    assert "the-white-house" not in state_decision.selected_channel_keys
+    assert "dept-of-war" not in defense_media_decision.selected_channel_keys
+    assert "reuters" not in reuters_mention_decision.selected_channel_keys
+    assert "associated-press" not in ap_mention_decision.selected_channel_keys
+
+
+def test_official_dod_source_can_route_dept_of_war() -> None:
+    decision = production_engine().route(
+        RoutingArticle(title="Defense.gov announces new military readiness initiative", source_name="Defense.gov Top News")
+    )
+    assert "dept-of-war" in decision.selected_channel_keys
+
+
+def test_iran_war_missile_attack_routes_middle_east_not_domain_bucket() -> None:
+    decision = production_engine().route(
+        RoutingArticle(
+            title="Iran launches missiles at Israel as Gulf states brace for wider conflict",
+            source_name="Reuters",
+        )
+    )
+    assert "middle-east" in decision.selected_channel_keys
+    assert "air" not in decision.selected_channel_keys
+    assert "land" not in decision.selected_channel_keys
+    assert "sea" not in decision.selected_channel_keys
+
+
+def test_gulf_state_iran_conflict_routes_middle_east() -> None:
+    decision = production_engine().route(
+        RoutingArticle(
+            title="Bahrain and Kuwait raise alerts after Iranian drone attack near the Gulf",
+            source_name="Associated Press",
+        )
+    )
+    assert "middle-east" in decision.selected_channel_keys
+    assert "air" not in decision.selected_channel_keys
+
+
+def test_strait_of_hormuz_conflict_routes_middle_east_not_sea() -> None:
+    decision = production_engine().route(
+        RoutingArticle(
+            title="US Navy destroyer responds to Iranian missile attack in the Strait of Hormuz",
+            source_name="USNI News",
+        )
+    )
+    assert "middle-east" in decision.selected_channel_keys
+    assert "sea" not in decision.selected_channel_keys
+
+
+def test_russia_ukraine_missile_attack_routes_europe_not_domain_bucket() -> None:
+    decision = production_engine().route(
+        RoutingArticle(
+            title="Russia launches missile attack on Kyiv as Ukraine war intensifies",
+            source_name="Associated Press",
+        )
+    )
+    assert "europe" in decision.selected_channel_keys
+    assert "air" not in decision.selected_channel_keys
+    assert "land" not in decision.selected_channel_keys
+    assert "strategic-weapons" not in decision.selected_channel_keys
+
+
+def test_russian_drone_attack_routes_europe_not_air() -> None:
+    decision = production_engine().route(
+        RoutingArticle(
+            title="Russian drone attack hits Ukraine energy sites overnight",
+            source_name="BBC Europe",
+        )
+    )
+    assert "europe" in decision.selected_channel_keys
+    assert "air" not in decision.selected_channel_keys
 
 
 def test_debug_score_line_is_human_readable() -> None:

@@ -33,6 +33,8 @@ class ChannelRule:
     tag_penalties: dict[str, int] = field(default_factory=dict)
     required_any: tuple[str, ...] = ()
     excluded_any: tuple[str, ...] = ()
+    required_source_any: tuple[str, ...] = ()
+    excluded_source_any: tuple[str, ...] = ()
     source_biases: dict[str, int] = field(default_factory=dict)
     content_mode_adjustments: dict[str, int] = field(default_factory=dict)
     notes: str | None = None

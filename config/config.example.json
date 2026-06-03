@@ -22,7 +22,7 @@
       "allowedFutureSkewMinutes": 5,
       "useIngestedTimeWhenMissing": true,
       "storeRawTimestamps": true,
-      "maxPostAgeHours": 48
+      "maxPostAgeHours": 24
     },
     "publishing": {
       "secondsBetweenPostsPerChannel": 1.0,

@@ -13,4 +13,4 @@ services:
       CONFIG_PATH: /app/config/config.json
       DATABASE_PATH: /app/data/rssbot.sqlite
       LOG_LEVEL: INFO
-      ROUTING_DEBUG_EMBEDS: "true"
+      ROUTING_DEBUG_EMBEDS: "false"

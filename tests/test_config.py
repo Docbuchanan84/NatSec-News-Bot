@@ -32,10 +32,22 @@ def test_loads_minimal_valid_config(tmp_path: Path) -> None:
     config = load_config(write_config(tmp_path, minimal_config()))
     assert config.channels[0].key == "world-news"
     assert config.settings.polling.default_interval_seconds == 300
+    assert config.settings.polling.min_interval_seconds == 30
     assert config.settings.polling.max_concurrent_feed_fetches == 10
     assert config.settings.timestamps.max_post_age_hours == 48
     assert config.settings.routing.enabled is False
     assert config.settings.routing.mode == "observe_only"
+
+
+def test_min_poll_interval_floor_applies_to_channel_interval(tmp_path: Path) -> None:
+    data = minimal_config()
+    data["settings"] = {"polling": {"defaultIntervalSeconds": 300, "minIntervalSeconds": 900}}
+    data["channels"][0]["pollIntervalSeconds"] = 300
+
+    config = load_config(write_config(tmp_path, data))
+
+    assert config.settings.polling.min_interval_seconds == 900
+    assert config.channels[0].poll_interval_seconds == 900
 
 
 def test_rejects_missing_feed_url(tmp_path: Path) -> None:

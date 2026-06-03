@@ -34,6 +34,8 @@ def test_candidate_generates_guid_and_url_fingerprints() -> None:
         raw_title="Updated: Test - CBS News",
         raw_url="https://example.com/a?utm_campaign=x",
         summary="summary",
+        image_url="https://example.com/image.jpg",
+        image_source="media_thumbnail",
         raw_published_at=None,
         parsed={},
     )
@@ -41,3 +43,5 @@ def test_candidate_generates_guid_and_url_fingerprints() -> None:
     assert ("feed_guid", "feed_1:abc") in candidate.fingerprints
     assert ("normalized_url", "https://example.com/a") in candidate.fingerprints
     assert candidate.timestamp_status == "missing"
+    assert candidate.image_url == "https://example.com/image.jpg"
+    assert candidate.image_source == "media_thumbnail"

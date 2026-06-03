@@ -12,8 +12,8 @@ from app.normalizer import isoformat, source_family, stable_hash, title_signatur
 
 
 SCHEMA = """
-PRAGMA journal_mode = DELETE;
-PRAGMA synchronous = FULL;
+PRAGMA journal_mode = WAL;
+PRAGMA synchronous = NORMAL;
 PRAGMA foreign_keys = ON;
 
 CREATE TABLE IF NOT EXISTS articles (
@@ -25,6 +25,9 @@ CREATE TABLE IF NOT EXISTS articles (
     source_family TEXT,
     url TEXT,
     normalized_url TEXT,
+    summary TEXT,
+    image_url TEXT,
+    image_source TEXT,
     source_name TEXT,
     raw_published_at TEXT,
     normalized_published_at TEXT,
@@ -183,6 +186,12 @@ class Database:
             self._conn.execute("ALTER TABLE articles ADD COLUMN title_signature TEXT")
         if "source_family" not in article_columns:
             self._conn.execute("ALTER TABLE articles ADD COLUMN source_family TEXT")
+        if "summary" not in article_columns:
+            self._conn.execute("ALTER TABLE articles ADD COLUMN summary TEXT")
+        if "image_url" not in article_columns:
+            self._conn.execute("ALTER TABLE articles ADD COLUMN image_url TEXT")
+        if "image_source" not in article_columns:
+            self._conn.execute("ALTER TABLE articles ADD COLUMN image_source TEXT")
         self._conn.execute(
             """
             CREATE INDEX IF NOT EXISTS idx_articles_title_signature_time
@@ -317,10 +326,11 @@ class Database:
         cursor.execute(
             """
             INSERT INTO articles (
-                canonical_key, title, normalized_title, title_signature, source_family, url, normalized_url, source_name,
+                canonical_key, title, normalized_title, title_signature, source_family, url, normalized_url, summary,
+                image_url, image_source, source_name,
                 raw_published_at, normalized_published_at, ingested_at, timestamp_status, first_seen_at
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 canonical_key,
@@ -330,6 +340,9 @@ class Database:
                 candidate.source_family,
                 candidate.url,
                 candidate.normalized_url,
+                candidate.summary,
+                candidate.image_url,
+                candidate.image_source,
                 candidate.source_name,
                 candidate.raw_published_at,
                 isoformat(candidate.normalized_published_at),
@@ -547,19 +560,57 @@ class Database:
             ).fetchone()
             return row is None or row["last_success_at"] is None
 
-    def feed_status_rows(self, limit: int = 10) -> list[sqlite3.Row]:
+    def feed_status_rows(self, limit: int = 10, failures_first: bool = False) -> list[sqlite3.Row]:
+        order_by = (
+            "consecutive_failures DESC, coalesce(last_attempt_at, '') DESC"
+            if failures_first
+            else "coalesce(last_attempt_at, '') DESC"
+        )
         with self._lock:
             return list(
                 self._conn.execute(
-                    """
-                    SELECT feed_key, feed_name, last_success_at, consecutive_failures, last_error
+                    f"""
+                    SELECT feed_key, feed_name, feed_url, last_attempt_at, last_success_at,
+                           consecutive_failures, last_error, next_poll_at
                     FROM feed_status
-                    ORDER BY coalesce(last_attempt_at, '') DESC
+                    ORDER BY {order_by}
                     LIMIT ?
                     """,
                     (limit,),
                 )
             )
+
+    def feed_health_summary(self) -> dict[str, int]:
+        with self._lock:
+            row = self._conn.execute(
+                """
+                SELECT
+                    count(*) AS tracked,
+                    sum(CASE WHEN consecutive_failures = 0 AND last_success_at IS NOT NULL THEN 1 ELSE 0 END) AS healthy,
+                    sum(CASE WHEN consecutive_failures > 0 THEN 1 ELSE 0 END) AS failing,
+                    sum(CASE WHEN last_success_at IS NULL THEN 1 ELSE 0 END) AS never_succeeded
+                FROM feed_status
+                """
+            ).fetchone()
+            return {
+                "tracked": int(row["tracked"] or 0),
+                "healthy": int(row["healthy"] or 0),
+                "failing": int(row["failing"] or 0),
+                "never_succeeded": int(row["never_succeeded"] or 0),
+            }
+
+    def recent_post_count(self, hours: int = 24) -> int:
+        cutoff = datetime.now(UTC) - timedelta(hours=hours)
+        with self._lock:
+            row = self._conn.execute(
+                """
+                SELECT count(*)
+                FROM channel_posts
+                WHERE status = 'posted' AND posted_at >= ?
+                """,
+                (cutoff.isoformat(),),
+            ).fetchone()
+            return int(row[0])
 
     def counts(self) -> dict[str, int]:
         with self._lock:
@@ -690,7 +741,7 @@ class Database:
         with self._lock:
             row = self._conn.execute(
                 """
-                SELECT id, title, url, source_name, normalized_published_at, timestamp_status
+                SELECT id, title, url, summary, image_url, image_source, source_name, normalized_published_at, timestamp_status
                 FROM articles WHERE id = ?
                 """,
                 (article_id,),
@@ -702,7 +753,9 @@ class Database:
                 channel_id=channel_id,
                 title=row["title"],
                 url=row["url"],
-                summary=None,
+                summary=row["summary"],
+                image_url=row["image_url"],
+                image_source=row["image_source"],
                 source_name=row["source_name"] or "RSS",
                 normalized_published_at=datetime.fromisoformat(row["normalized_published_at"]),
                 timestamp_status=row["timestamp_status"] or "valid",
@@ -757,6 +810,8 @@ class Database:
             title=title,
             url=None,
             summary="This is a controlled test message from /rss testpost. RSS feeds and dedupe are still protected.",
+            image_url=None,
+            image_source=None,
             source_name="RSS Dispatch Bot",
             normalized_published_at=now,
         )

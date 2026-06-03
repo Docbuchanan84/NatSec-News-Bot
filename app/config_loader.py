@@ -113,6 +113,13 @@ def _parse_settings(raw: dict[str, Any], errors: list[str]) -> Settings:
             min_value=30,
             max_value=86400,
         ),
+        min_interval_seconds=_int(
+            polling_raw.get("minIntervalSeconds", 30),
+            "settings.polling.minIntervalSeconds",
+            errors,
+            min_value=30,
+            max_value=86400,
+        ),
         fetch_timeout_seconds=_int(
             polling_raw.get("fetchTimeoutSeconds", 10),
             "settings.polling.fetchTimeoutSeconds",
@@ -281,7 +288,8 @@ def _parse_channels(raw: Any, settings: Settings, errors: list[str]) -> list[Cha
         seen_discord_ids.add(discord_channel_id)
 
         interval_raw = channel_obj.get("pollIntervalSeconds", settings.polling.default_interval_seconds)
-        interval = _int(interval_raw, f"{path}.pollIntervalSeconds", errors, min_value=30, max_value=86400)
+        parsed_interval = _int(interval_raw, f"{path}.pollIntervalSeconds", errors, min_value=30, max_value=86400)
+        interval = max(parsed_interval, settings.polling.min_interval_seconds)
         feeds = _parse_feeds(channel_obj.get("feeds"), path, errors)
         channels.append(
             ChannelConfig(

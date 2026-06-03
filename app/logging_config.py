@@ -30,9 +30,11 @@ def configure_logging(config: AppConfig | None = None) -> None:
     _remove_named_handler(root, ERROR_HANDLER_NAME)
 
     if config is None or not config.settings.logging.audit_enabled:
+        logging.getLogger("app.audit").setLevel(logging.CRITICAL)
         return
 
     logging_settings = config.settings.logging
+    logging.getLogger("app.audit").setLevel(logging.INFO)
     audit_handler = _rotating_handler(
         logging_settings.audit_log_path,
         logging_settings.max_bytes,

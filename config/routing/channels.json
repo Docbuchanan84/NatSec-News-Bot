@@ -1,265 +1,1296 @@
 {
   "version": 1,
   "max_destinations": 2,
-  "review_tags": ["review_required", "ambiguous"],
-  "skip_tags": ["skip_candidate"],
+  "review_tags": [
+    "review_required",
+    "ambiguous"
+  ],
+  "skip_tags": [
+    "skip_candidate"
+  ],
   "rule_defaults": {
     "enabled": true,
     "minimum_score": 4,
     "priority": 0,
-    "tag_penalties": {"skip_candidate": 8},
-    "content_mode_adjustments": {"title_only": -1}
+    "tag_penalties": {
+      "skip_candidate": 8
+    },
+    "content_mode_adjustments": {
+      "title_only": -1
+    }
   },
   "channels": [
     {
       "channel_key": "africa",
       "priority": 90,
-      "tag_boosts": {"africa": 5, "ghana": 7, "south_africa": 4, "ethiopia": 4, "nigeria": 4, "dr_congo": 4, "kenya": 3, "sudan": 4, "south_sudan": 5, "tunisia": 4, "namibia": 4, "malawi": 4, "burkina_faso": 4, "zambia": 4, "uganda": 4, "madagascar": 4, "congo": 4, "election": 1, "civil_unrest": 2, "humanitarian": 1},
-      "tag_penalties": {"skip_candidate": 8, "north_america": 2, "latin_america": 2},
-      "required_any": ["africa", "ghana", "south_africa", "ethiopia", "nigeria", "dr_congo", "kenya", "sudan", "south_sudan", "tunisia", "namibia", "malawi", "burkina_faso", "zambia", "uganda", "madagascar", "congo"],
-      "source_biases": {"Africa": 2, "Crisis Group": 1, "State Department Africa": 2}
+      "tag_boosts": {
+        "africa": 5,
+        "ghana": 7,
+        "south_africa": 4,
+        "ethiopia": 4,
+        "nigeria": 4,
+        "dr_congo": 4,
+        "kenya": 4,
+        "sudan": 4,
+        "south_sudan": 5,
+        "tunisia": 4,
+        "namibia": 4,
+        "malawi": 4,
+        "burkina_faso": 4,
+        "zambia": 4,
+        "uganda": 4,
+        "madagascar": 4,
+        "congo": 4,
+        "election": 1,
+        "civil_unrest": 2,
+        "humanitarian": 1,
+        "economy": 1,
+        "finance": 1,
+        "diplomacy": 1
+      },
+      "tag_penalties": {
+        "skip_candidate": 8,
+        "north_america": 2,
+        "latin_america": 2
+      },
+      "required_any": [
+        "africa",
+        "ghana",
+        "south_africa",
+        "ethiopia",
+        "nigeria",
+        "dr_congo",
+        "kenya",
+        "sudan",
+        "south_sudan",
+        "tunisia",
+        "namibia",
+        "malawi",
+        "burkina_faso",
+        "zambia",
+        "uganda",
+        "madagascar",
+        "congo"
+      ],
+      "source_biases": {
+        "Africa": 2,
+        "Crisis Group": 1,
+        "State Department Africa": 2
+      }
     },
     {
       "channel_key": "europe",
       "priority": 90,
-      "term_boosts": {"ukraine_war": 2, "nato": 1},
-      "tag_boosts": {"europe": 5, "ukraine": 7, "russia": 5, "spain": 4, "italy": 4, "france": 4, "germany": 4, "sweden": 4, "slovenia": 4, "croatia": 4, "iceland": 4, "andorra": 4, "united_kingdom": 4, "turkey": 3, "military": 1, "diplomacy": 1},
-      "required_any": ["europe", "ukraine", "russia", "spain", "italy", "france", "germany", "sweden", "slovenia", "croatia", "iceland", "andorra", "united_kingdom", "turkey"],
-      "source_biases": {"Europe": 2, "Ukraine": 2, "Kyiv Independent": 3}
+      "term_boosts": {
+        "ukraine_war": 8,
+        "nato": 1
+      },
+      "tag_boosts": {
+        "europe": 5,
+        "ukraine": 7,
+        "russia": 5,
+        "spain": 4,
+        "italy": 4,
+        "france": 4,
+        "germany": 4,
+        "sweden": 4,
+        "slovenia": 4,
+        "croatia": 4,
+        "iceland": 4,
+        "andorra": 4,
+        "united_kingdom": 4,
+        "turkey": 4,
+        "military": 3,
+        "attack": 3,
+        "missile": 3,
+        "drone": 2,
+        "diplomacy": 1,
+        "economy": 1,
+        "finance": 1
+      },
+      "required_any": [
+        "europe",
+        "ukraine",
+        "russia",
+        "spain",
+        "italy",
+        "france",
+        "germany",
+        "sweden",
+        "slovenia",
+        "croatia",
+        "iceland",
+        "andorra",
+        "united_kingdom",
+        "turkey"
+      ],
+      "source_biases": {
+        "Europe": 2,
+        "Ukraine": 2,
+        "Kyiv Independent": 3
+      },
+      "minimum_score": 4,
+      "notes": "Russia-Ukraine war signals should beat military domain buckets."
     },
     {
       "channel_key": "indo-pacific",
       "priority": 90,
-      "term_boosts": {"taiwan_strait": 2, "south_china_sea": 2, "philippine_sea": 2},
-      "tag_boosts": {"indo_pacific": 5, "china": 6, "taiwan": 6, "japan": 4, "philippines": 5, "india": 4, "australia": 4, "south_korea": 4, "north_korea": 5, "vietnam": 3, "myanmar": 5, "laos": 3, "brunei": 3, "timor_leste": 3, "marshall_islands": 3, "new_caledonia": 3, "naval": 2},
-      "required_any": ["indo_pacific", "china", "taiwan", "japan", "philippines", "india", "australia", "south_korea", "north_korea", "vietnam", "myanmar", "laos", "brunei", "timor_leste", "marshall_islands", "new_caledonia"],
-      "source_biases": {"Asia": 2, "South and Central Asia": 1}
+      "term_boosts": {
+        "taiwan_strait": 2,
+        "south_china_sea": 2,
+        "philippine_sea": 2
+      },
+      "tag_boosts": {
+        "indo_pacific": 5,
+        "china": 6,
+        "taiwan": 6,
+        "japan": 4,
+        "philippines": 5,
+        "india": 4,
+        "australia": 4,
+        "south_korea": 4,
+        "north_korea": 5,
+        "vietnam": 4,
+        "myanmar": 5,
+        "laos": 4,
+        "brunei": 4,
+        "timor_leste": 4,
+        "marshall_islands": 4,
+        "new_caledonia": 4,
+        "naval": 2,
+        "economy": 1,
+        "finance": 1,
+        "diplomacy": 1
+      },
+      "required_any": [
+        "indo_pacific",
+        "china",
+        "taiwan",
+        "japan",
+        "philippines",
+        "india",
+        "australia",
+        "south_korea",
+        "north_korea",
+        "vietnam",
+        "myanmar",
+        "laos",
+        "brunei",
+        "timor_leste",
+        "marshall_islands",
+        "new_caledonia"
+      ],
+      "source_biases": {
+        "Asia": 2,
+        "South and Central Asia": 1
+      }
     },
     {
       "channel_key": "middle-east",
       "priority": 90,
-      "term_boosts": {"red_sea": 2, "strait_of_hormuz": 2, "bab_el_mandeb": 2, "centcom": 1},
-      "tag_boosts": {"middle_east": 5, "iran": 6, "israel": 6, "lebanon": 5, "yemen": 5, "oman": 3, "saudi_arabia": 4, "uae": 3, "qatar": 3, "naval": 1, "sanctions": 1},
-      "required_any": ["middle_east", "iran", "israel", "lebanon", "yemen", "oman", "saudi_arabia", "uae", "qatar"],
-      "source_biases": {"Middle East": 2, "Times of Israel": 2, "Iran": 2, "Near East": 2}
+      "term_boosts": {
+        "iran_war": 9,
+        "red_sea": 2,
+        "strait_of_hormuz": 5,
+        "bab_el_mandeb": 2,
+        "centcom": 1
+      },
+      "tag_boosts": {
+        "middle_east": 5,
+        "iran": 6,
+        "iraq": 5,
+        "israel": 6,
+        "lebanon": 5,
+        "yemen": 5,
+        "kuwait": 5,
+        "bahrain": 5,
+        "oman": 4,
+        "saudi_arabia": 4,
+        "uae": 4,
+        "qatar": 4,
+        "naval": 2,
+        "military": 3,
+        "attack": 3,
+        "missile": 3,
+        "drone": 2,
+        "sanctions": 1,
+        "economy": 1,
+        "finance": 1,
+        "diplomacy": 1
+      },
+      "required_any": [
+        "middle_east",
+        "iran",
+        "iraq",
+        "israel",
+        "lebanon",
+        "yemen",
+        "kuwait",
+        "bahrain",
+        "oman",
+        "saudi_arabia",
+        "uae",
+        "qatar"
+      ],
+      "source_biases": {
+        "Middle East": 2,
+        "Times of Israel": 2,
+        "Iran": 2,
+        "Near East": 2
+      },
+      "minimum_score": 4,
+      "notes": "Middle East conflict and Gulf-state signals should beat military domain buckets."
     },
     {
       "channel_key": "north-america",
       "minimum_score": 6,
       "priority": 45,
-      "tag_boosts": {"united_states": 7, "canada": 5, "north_america": 2, "government": 1, "legislation": 1, "election": 1, "disaster": 1},
-      "tag_penalties": {"latin_america": 7, "africa": 7, "middle_east": 6, "indo_pacific": 6, "europe": 6},
-      "required_any": ["united_states", "canada", "north_america"],
+      "tag_boosts": {
+        "united_states": 7,
+        "canada": 5,
+        "north_america": 2,
+        "government": 1,
+        "legislation": 1,
+        "election": 1,
+        "disaster": 1,
+        "economy": 1,
+        "finance": 1
+      },
+      "tag_penalties": {
+        "latin_america": 7,
+        "africa": 7,
+        "middle_east": 6,
+        "indo_pacific": 6,
+        "europe": 6,
+        "government": 3,
+        "legislation": 3,
+        "election": 3
+      },
+      "required_any": [
+        "united_states",
+        "canada",
+        "north_america"
+      ],
       "source_biases": {}
     },
     {
       "channel_key": "south-central-america",
       "minimum_score": 5,
       "priority": 70,
-      "tag_boosts": {"latin_america": 6, "argentina": 3, "brazil": 3, "chile": 3, "colombia": 5, "cuba": 3, "ecuador": 3, "peru": 3, "bolivia": 3, "paraguay": 3, "uruguay": 3, "haiti": 4, "guatemala": 3, "honduras": 3, "el_salvador": 3, "nicaragua": 3, "costa_rica": 3, "dominican_republic": 3, "dominica": 3, "anguilla": 3, "antigua_barbuda": 3, "british_virgin_islands": 3, "cayman_islands": 3, "mexico": 3, "panama": 3, "venezuela": 4, "government": 1, "election": 2, "civil_unrest": 2, "humanitarian": 1},
-      "tag_penalties": {"middle_east": 14, "indo_pacific": 14, "europe": 10, "africa": 8, "iran": 6, "israel": 6, "china": 6, "russia": 6, "ukraine": 6, "united_states": 4},
-      "term_penalties": {"presidential_nominations": 8},
-      "required_any": ["latin_america", "argentina", "brazil", "chile", "colombia", "cuba", "ecuador", "peru", "bolivia", "paraguay", "uruguay", "haiti", "guatemala", "honduras", "el_salvador", "nicaragua", "costa_rica", "dominican_republic", "dominica", "anguilla", "antigua_barbuda", "british_virgin_islands", "cayman_islands", "mexico", "panama", "venezuela"],
-      "source_biases": {"Latin America": 2, "Western Hemisphere": 2, "Americas": 2, "Miami Herald": 2, "NYT Americas": 2}
+      "tag_boosts": {
+        "latin_america": 6,
+        "argentina": 4,
+        "brazil": 4,
+        "chile": 4,
+        "colombia": 5,
+        "cuba": 4,
+        "ecuador": 4,
+        "peru": 4,
+        "bolivia": 4,
+        "paraguay": 4,
+        "uruguay": 4,
+        "haiti": 4,
+        "guatemala": 4,
+        "honduras": 4,
+        "el_salvador": 4,
+        "nicaragua": 4,
+        "costa_rica": 4,
+        "dominican_republic": 4,
+        "dominica": 4,
+        "anguilla": 4,
+        "antigua_barbuda": 4,
+        "british_virgin_islands": 4,
+        "cayman_islands": 4,
+        "mexico": 4,
+        "panama": 4,
+        "venezuela": 4,
+        "government": 1,
+        "election": 2,
+        "civil_unrest": 2,
+        "humanitarian": 1,
+        "economy": 1,
+        "finance": 1,
+        "diplomacy": 1
+      },
+      "tag_penalties": {
+        "middle_east": 14,
+        "indo_pacific": 14,
+        "europe": 10,
+        "africa": 8,
+        "iran": 6,
+        "israel": 6,
+        "china": 6,
+        "russia": 6,
+        "ukraine": 6,
+        "united_states": 4
+      },
+      "term_penalties": {
+        "presidential_nominations": 8
+      },
+      "required_any": [
+        "latin_america",
+        "argentina",
+        "brazil",
+        "chile",
+        "colombia",
+        "cuba",
+        "ecuador",
+        "peru",
+        "bolivia",
+        "paraguay",
+        "uruguay",
+        "haiti",
+        "guatemala",
+        "honduras",
+        "el_salvador",
+        "nicaragua",
+        "costa_rica",
+        "dominican_republic",
+        "dominica",
+        "anguilla",
+        "antigua_barbuda",
+        "british_virgin_islands",
+        "cayman_islands",
+        "mexico",
+        "panama",
+        "venezuela"
+      ],
+      "source_biases": {
+        "Latin America": 2,
+        "Western Hemisphere": 2,
+        "Americas": 2,
+        "Miami Herald": 2,
+        "NYT Americas": 2
+      }
     },
     {
       "channel_key": "sea",
       "priority": 100,
-      "term_boosts": {"carrier_strike_group": 2, "chinese_aircraft_carrier": 2, "chinese_carrier": 2},
-      "tag_boosts": {"naval": 6, "maritime": 1, "aircraft_carrier": 5, "carrier_strike_group": 6, "destroyer": 4, "submarine": 4, "military_movement": 2},
-      "tag_penalties": {"skip_candidate": 9, "middle_east": 6, "europe": 6, "iran": 5, "israel": 5, "lebanon": 5, "yemen": 5, "ukraine": 5, "russia": 5},
-      "term_penalties": {"ukraine_war": 5, "iran_war": 5, "gaza_war": 5, "lebanon_conflict": 5},
-      "required_any": ["naval", "aircraft_carrier", "carrier_strike_group", "destroyer", "submarine"],
-      "source_biases": {"Naval": 3, "USNI": 3, "Seapower": 3}
+      "term_boosts": {
+        "carrier_strike_group": 2,
+        "chinese_aircraft_carrier": 2,
+        "chinese_carrier": 2
+      },
+      "tag_boosts": {
+        "naval": 6,
+        "maritime": 1,
+        "aircraft_carrier": 5,
+        "carrier_strike_group": 6,
+        "destroyer": 4,
+        "submarine": 4,
+        "military_movement": 2
+      },
+      "tag_penalties": {
+        "skip_candidate": 9,
+        "middle_east": 8,
+        "europe": 8,
+        "iran": 6,
+        "israel": 5,
+        "lebanon": 5,
+        "yemen": 5,
+        "ukraine": 6,
+        "russia": 6
+      },
+      "term_penalties": {
+        "ukraine_war": 12,
+        "iran_war": 12,
+        "gaza_war": 5,
+        "lebanon_conflict": 5,
+        "strait_of_hormuz": 6
+      },
+      "required_any": [
+        "naval",
+        "aircraft_carrier",
+        "carrier_strike_group",
+        "destroyer",
+        "submarine"
+      ],
+      "source_biases": {
+        "Naval": 3,
+        "USNI": 3,
+        "Seapower": 3
+      }
     },
     {
       "channel_key": "air",
       "priority": 95,
-      "term_boosts": {"drone": 1, "strategic_bomber": 1},
-      "tag_boosts": {"air": 6, "fighter_aircraft": 5, "bomber_aircraft": 4, "strategic_bomber": 3, "drone": 4},
-      "tag_penalties": {"skip_candidate": 9, "air_defense": 6, "missile_defense": 5, "ground": 2, "middle_east": 6, "europe": 6, "iran": 5, "israel": 5, "lebanon": 5, "yemen": 5, "ukraine": 5, "russia": 5},
-      "term_penalties": {"ukraine_war": 5, "iran_war": 5, "gaza_war": 5, "lebanon_conflict": 5},
-      "required_any": ["air", "fighter_aircraft", "bomber_aircraft", "strategic_bomber", "drone"],
-      "source_biases": {"Air": 3, "FAA": -2, "Aerospace": 2}
+      "term_boosts": {
+        "drone": 1,
+        "strategic_bomber": 1
+      },
+      "tag_boosts": {
+        "air": 6,
+        "fighter_aircraft": 5,
+        "bomber_aircraft": 4,
+        "strategic_bomber": 3,
+        "drone": 4
+      },
+      "tag_penalties": {
+        "skip_candidate": 9,
+        "air_defense": 6,
+        "missile_defense": 5,
+        "ground": 2,
+        "middle_east": 8,
+        "europe": 8,
+        "iran": 6,
+        "israel": 5,
+        "lebanon": 5,
+        "yemen": 5,
+        "ukraine": 6,
+        "russia": 6
+      },
+      "term_penalties": {
+        "ukraine_war": 12,
+        "iran_war": 12,
+        "gaza_war": 5,
+        "lebanon_conflict": 5,
+        "strait_of_hormuz": 6
+      },
+      "required_any": [
+        "air",
+        "fighter_aircraft",
+        "bomber_aircraft",
+        "strategic_bomber",
+        "drone"
+      ],
+      "source_biases": {
+        "Air": 3,
+        "FAA": -2,
+        "Aerospace": 2
+      }
     },
     {
       "channel_key": "land",
       "priority": 95,
-      "term_boosts": {"air_defense": 1, "missile_defense": 1},
-      "tag_boosts": {"ground": 6, "air_defense": 7, "missile_defense": 6, "military": 2, "military_base": 2, "military_movement": 2, "exercise": 2},
-      "tag_penalties": {"skip_candidate": 9, "middle_east": 6, "europe": 6, "iran": 5, "israel": 5, "lebanon": 5, "yemen": 5, "ukraine": 5, "russia": 5},
-      "term_penalties": {"ukraine_war": 5, "iran_war": 5, "gaza_war": 5, "lebanon_conflict": 5},
-      "required_any": ["ground", "air_defense", "missile_defense", "military_base", "military_movement", "exercise"],
-      "source_biases": {"Land": 3, "Army": 2, "Military Times": 1}
+      "term_boosts": {
+        "air_defense": 1,
+        "missile_defense": 1
+      },
+      "tag_boosts": {
+        "ground": 6,
+        "air_defense": 7,
+        "missile_defense": 6,
+        "military": 2,
+        "military_base": 2,
+        "military_movement": 2,
+        "exercise": 2
+      },
+      "tag_penalties": {
+        "skip_candidate": 9,
+        "middle_east": 8,
+        "europe": 8,
+        "iran": 6,
+        "israel": 5,
+        "lebanon": 5,
+        "yemen": 5,
+        "ukraine": 6,
+        "russia": 6
+      },
+      "term_penalties": {
+        "ukraine_war": 12,
+        "iran_war": 12,
+        "gaza_war": 5,
+        "lebanon_conflict": 5,
+        "strait_of_hormuz": 6
+      },
+      "required_any": [
+        "ground",
+        "air_defense",
+        "missile_defense",
+        "military_base",
+        "military_movement",
+        "exercise"
+      ],
+      "source_biases": {
+        "Land": 3,
+        "Army": 2,
+        "Military Times": 1
+      }
     },
     {
       "channel_key": "space",
       "priority": 95,
-      "tag_boosts": {"space": 7, "military": 1, "company": 1},
-      "required_any": ["space"],
-      "source_biases": {"Space": 3}
+      "tag_boosts": {
+        "space": 7,
+        "military": 1,
+        "company": 1
+      },
+      "required_any": [
+        "space"
+      ],
+      "source_biases": {
+        "Space": 3
+      }
     },
     {
       "channel_key": "science-technology",
       "minimum_score": 5,
       "priority": 75,
-      "term_boosts": {"artificial_intelligence": 2, "semiconductors": 2, "major_tech_companies": 2, "chip_companies": 2, "stock_market": 1, "investing_advice": 1, "civilian_innovation": 1, "biotechnology": 1},
-      "tag_boosts": {"technology": 6, "civilian_technology": 6, "science": 5, "artificial_intelligence": 7, "semiconductor": 7, "consumer_technology": 5, "civilian_innovation": 5, "biotechnology": 4, "economy": 4, "finance": 5, "stock_market": 6, "investing": 5, "earnings": 4, "cryptocurrency": 4, "company": 2, "cyber": 2},
-      "tag_penalties": {"skip_candidate": 9, "military": 8, "defense_industry": 10, "procurement": 8, "military_organization": 6, "attack": 4, "drone": 5, "missile": 5, "air_defense": 5, "missile_defense": 5, "strategic_weapon": 8, "nuclear_weapon": 8, "middle_east": 3, "europe": 2, "indo_pacific": 2},
-      "term_penalties": {"ukraine_war": 6, "iran_war": 6, "gaza_war": 6, "lebanon_conflict": 6, "defense_industry": 8, "military_technology": 12, "air_defense": 5, "missile_defense": 5, "carrier_strike_group": 5},
-      "required_any": ["technology", "civilian_technology", "science", "artificial_intelligence", "semiconductor", "consumer_technology", "civilian_innovation", "biotechnology", "economy", "finance", "stock_market", "investing", "earnings", "cryptocurrency", "company"],
-      "source_biases": {"Technology": 3, "Science": 2, "CNBC": 3, "Bloomberg": 2, "MarketWatch": 3, "Wall Street Journal": 2, "WSJ": 2, "Business": 2, "Economy": 2, "Money": 3, "Investing": 3}
+      "term_boosts": {
+        "artificial_intelligence": 2,
+        "semiconductors": 2,
+        "major_tech_companies": 2,
+        "chip_companies": 2,
+        "civilian_innovation": 1,
+        "biotechnology": 1
+      },
+      "tag_boosts": {
+        "technology": 6,
+        "civilian_technology": 6,
+        "science": 5,
+        "artificial_intelligence": 7,
+        "semiconductor": 7,
+        "consumer_technology": 5,
+        "civilian_innovation": 5,
+        "biotechnology": 4,
+        "cryptocurrency": 4,
+        "cyber": 2
+      },
+      "tag_penalties": {
+        "skip_candidate": 9,
+        "military": 8,
+        "defense_industry": 10,
+        "procurement": 8,
+        "military_organization": 6,
+        "attack": 4,
+        "drone": 5,
+        "missile": 5,
+        "air_defense": 5,
+        "missile_defense": 5,
+        "strategic_weapon": 8,
+        "nuclear_weapon": 8,
+        "middle_east": 8,
+        "europe": 8,
+        "indo_pacific": 2,
+        "economy": 3,
+        "finance": 3,
+        "stock_market": 4,
+        "investing": 4,
+        "earnings": 4,
+        "iran": 6,
+        "ukraine": 6,
+        "russia": 6
+      },
+      "term_penalties": {
+        "ukraine_war": 12,
+        "iran_war": 12,
+        "gaza_war": 6,
+        "lebanon_conflict": 6,
+        "defense_industry": 8,
+        "military_technology": 12,
+        "air_defense": 5,
+        "missile_defense": 5,
+        "carrier_strike_group": 5,
+        "strait_of_hormuz": 6
+      },
+      "required_any": [
+        "technology",
+        "civilian_technology",
+        "science",
+        "artificial_intelligence",
+        "semiconductor",
+        "consumer_technology",
+        "civilian_innovation",
+        "biotechnology",
+        "cryptocurrency"
+      ],
+      "source_biases": {
+        "Technology": 3,
+        "Science": 2,
+        "Bluesky: Sheera Frenkel": 3,
+        "Bluesky: Renee Dudley": 3,
+        "Bluesky: Sean Lyngaas": 3,
+        "Bluesky: Rishi Iyengar": 3,
+        "Bluesky: Catalin Cimpanu": 4,
+        "Bluesky: Mia Sato": 3,
+        "Bluesky: Daryna Antoniuk": 4,
+        "Bluesky: Mathew J Schwartz": 4,
+        "Bluesky: Andy Greenberg": 4,
+        "Bluesky: Kim Zetter": 4,
+        "Bluesky: Lorenzo Franceschi-Bicchierai": 4,
+        "Bluesky: Tim Fernholz": 3
+      }
     },
     {
       "channel_key": "special-operations",
       "minimum_score": 5,
       "priority": 85,
-      "tag_boosts": {"military": 3, "drone": 2, "attack": 2, "non_state_actor": 2, "military_organization": 1},
-      "tag_penalties": {"skip_candidate": 9, "cyber": 5, "indo_pacific": 6, "north_korea": 4, "china": 4, "middle_east": 6, "europe": 6, "iran": 4, "israel": 4, "lebanon": 4, "yemen": 4, "ukraine": 4, "russia": 4},
-      "term_penalties": {"ukraine_war": 8, "iran_war": 8, "gaza_war": 8, "lebanon_conflict": 8, "centcom": 3, "strait_of_hormuz": 3, "bab_el_mandeb": 3},
-      "required_any": ["military", "drone", "attack", "non_state_actor"],
-      "source_biases": {"Task & Purpose": 2, "War Zone": 2, "Counterterrorism": 2}
+      "tag_boosts": {
+        "military": 3,
+        "drone": 2,
+        "attack": 2,
+        "non_state_actor": 2,
+        "military_organization": 1
+      },
+      "tag_penalties": {
+        "skip_candidate": 9,
+        "cyber": 5,
+        "indo_pacific": 6,
+        "north_korea": 4,
+        "china": 4,
+        "middle_east": 8,
+        "europe": 8,
+        "iran": 6,
+        "israel": 4,
+        "lebanon": 4,
+        "yemen": 4,
+        "ukraine": 6,
+        "russia": 6
+      },
+      "term_penalties": {
+        "ukraine_war": 12,
+        "iran_war": 12,
+        "gaza_war": 8,
+        "lebanon_conflict": 8,
+        "centcom": 3,
+        "strait_of_hormuz": 6,
+        "bab_el_mandeb": 3
+      },
+      "required_any": [
+        "military",
+        "drone",
+        "attack",
+        "non_state_actor"
+      ],
+      "source_biases": {
+        "Task & Purpose": 2,
+        "War Zone": 2,
+        "Counterterrorism": 2
+      }
     },
     {
       "channel_key": "training-and-doctrine",
       "minimum_score": 5,
       "priority": 80,
-      "tag_boosts": {"exercise": 4, "military": 3, "military_organization": 2, "procurement": 1},
-      "tag_penalties": {"skip_candidate": 9, "cyber": 5, "indo_pacific": 6, "north_korea": 4, "china": 4, "middle_east": 6, "europe": 6, "iran": 4, "israel": 4, "lebanon": 4, "yemen": 4, "ukraine": 4, "russia": 4},
-      "term_penalties": {"ukraine_war": 8, "iran_war": 8, "gaza_war": 8, "lebanon_conflict": 8, "centcom": 3},
-      "required_any": ["exercise", "military"],
-      "source_biases": {"War on the Rocks": 2, "Modern War Institute": 2, "War College": 2, "Training": 2}
+      "tag_boosts": {
+        "exercise": 4,
+        "military": 3,
+        "military_organization": 2,
+        "procurement": 1
+      },
+      "tag_penalties": {
+        "skip_candidate": 9,
+        "cyber": 5,
+        "indo_pacific": 6,
+        "north_korea": 4,
+        "china": 4,
+        "middle_east": 8,
+        "europe": 8,
+        "iran": 6,
+        "israel": 4,
+        "lebanon": 4,
+        "yemen": 4,
+        "ukraine": 6,
+        "russia": 6
+      },
+      "term_penalties": {
+        "ukraine_war": 12,
+        "iran_war": 12,
+        "gaza_war": 8,
+        "lebanon_conflict": 8,
+        "centcom": 3,
+        "strait_of_hormuz": 6
+      },
+      "required_any": [
+        "exercise",
+        "military"
+      ],
+      "source_biases": {
+        "War on the Rocks": 2,
+        "Modern War Institute": 2,
+        "War College": 2,
+        "Training": 2
+      }
     },
     {
       "channel_key": "strategic-weapons",
       "minimum_score": 6,
       "priority": 90,
-      "term_boosts": {"nuclear_weapons": 2, "nuclear_deterrence": 2, "icbm": 2, "slbm": 2, "strategic_bomber": 1, "hypersonic_weapon": 1, "arms_control": 1},
-      "tag_boosts": {"nuclear_weapon": 8, "nuclear_deterrence": 7, "icbm": 8, "slbm": 8, "strategic_bomber": 6, "strategic_weapon": 5, "hypersonic_weapon": 5, "arms_control": 5},
-      "tag_penalties": {"skip_candidate": 9, "air_defense": 8, "missile_defense": 8, "drone": 4, "fighter_aircraft": 4, "ground": 3},
-      "required_any": ["nuclear_weapon", "nuclear_deterrence", "icbm", "slbm", "strategic_bomber", "strategic_weapon", "hypersonic_weapon", "arms_control"],
-      "source_biases": {"Arms Control": 3, "SIPRI": 2}
+      "term_boosts": {
+        "nuclear_weapons": 2,
+        "nuclear_deterrence": 2,
+        "icbm": 2,
+        "slbm": 2,
+        "strategic_bomber": 1,
+        "hypersonic_weapon": 1,
+        "arms_control": 1
+      },
+      "tag_boosts": {
+        "nuclear_weapon": 8,
+        "nuclear_deterrence": 7,
+        "icbm": 8,
+        "slbm": 8,
+        "strategic_bomber": 6,
+        "strategic_weapon": 5,
+        "hypersonic_weapon": 5,
+        "arms_control": 5
+      },
+      "tag_penalties": {
+        "skip_candidate": 9,
+        "air_defense": 8,
+        "missile_defense": 8,
+        "drone": 4,
+        "fighter_aircraft": 4,
+        "ground": 3
+      },
+      "required_any": [
+        "nuclear_weapon",
+        "nuclear_deterrence",
+        "icbm",
+        "slbm",
+        "strategic_bomber",
+        "strategic_weapon",
+        "hypersonic_weapon",
+        "arms_control"
+      ],
+      "source_biases": {
+        "Arms Control": 3,
+        "SIPRI": 2
+      }
     },
     {
       "channel_key": "industrial-base",
       "priority": 90,
-      "term_boosts": {"defense_industry": 1},
-      "tag_boosts": {"defense_industry": 7, "procurement": 5, "company": 2, "legislation": 1, "military": 1},
-      "tag_penalties": {"skip_candidate": 9, "indo_pacific": 4, "north_korea": 3, "china": 3, "middle_east": 4, "europe": 4, "iran": 3, "israel": 3, "lebanon": 3, "yemen": 3, "ukraine": 3, "russia": 3},
-      "term_penalties": {"ukraine_war": 5, "iran_war": 5, "gaza_war": 5, "lebanon_conflict": 5},
-      "required_any": ["defense_industry", "procurement", "company"],
-      "source_biases": {"Industry": 3, "Contracts": 3, "Congress": 1}
+      "term_boosts": {
+        "defense_industry": 1
+      },
+      "tag_boosts": {
+        "defense_industry": 7,
+        "procurement": 5,
+        "legislation": 1,
+        "military": 1
+      },
+      "tag_penalties": {
+        "skip_candidate": 9,
+        "indo_pacific": 4,
+        "north_korea": 3,
+        "china": 3,
+        "middle_east": 8,
+        "europe": 8,
+        "iran": 6,
+        "israel": 3,
+        "lebanon": 3,
+        "yemen": 3,
+        "ukraine": 6,
+        "russia": 6
+      },
+      "term_penalties": {
+        "ukraine_war": 12,
+        "iran_war": 12,
+        "gaza_war": 5,
+        "lebanon_conflict": 5,
+        "strait_of_hormuz": 6
+      },
+      "required_any": [
+        "defense_industry",
+        "procurement"
+      ],
+      "source_biases": {
+        "Defense News Industry": 3,
+        "DefenseScoop": 3,
+        "Contracts": 3
+      },
+      "minimum_score": 6,
+      "notes": "Defense industrial base only; generic company/business news should route elsewhere."
     },
     {
       "channel_key": "wire-service",
       "minimum_score": 6,
       "priority": 20,
       "tag_boosts": {},
-      "source_biases": {"Top Stories": 2, "BBC": 2, "Google News": 2},
+      "source_biases": {
+        "Top Stories": 2,
+        "BBC": 2,
+        "Google News": 2,
+        "Bluesky: CNN": 3,
+        "Bluesky: Axios": 3,
+        "Bluesky: Financial Times": 2,
+        "Bluesky: Bloomberg": 2,
+        "Bluesky: The Guardian": 2,
+        "Bluesky: Boston Globe": 2,
+        "Bluesky: SCOTUSblog": 2,
+        "Bluesky: AFP Fact Check": 2,
+        "Bluesky: Meduza English": 2,
+        "Bluesky: ProPublica": 2,
+        "Bluesky: Semafor": 2,
+        "Bluesky: The Atlantic": 2,
+        "Bluesky: Los Angeles Times": 2,
+        "Bluesky: USA Today": 2,
+        "Bluesky: The Economist": 2,
+        "Bluesky: Liz Landers": 2,
+        "Bluesky: Peter Baker": 2,
+        "Bluesky: Edward Wong": 2,
+        "Bluesky: Prashant Rao": 2,
+        "Bluesky: The Connection": 2,
+        "Bluesky: Robert Reid": 2,
+        "Bluesky: Alex Panetta": 2,
+        "Bluesky: Carol J Williams": 2,
+        "Bluesky: Jacob Bogage": 2,
+        "Bluesky: Brian Stelter": 2,
+        "Bluesky: Asawin Suebsaeng": 2,
+        "Bluesky: Nikki McCann Ramirez": 2,
+        "Bluesky: Molly Redden": 2,
+        "Bluesky: Ben Mullin": 2,
+        "Bluesky: Erica Hellerstein": 2,
+        "Bluesky: Ken Vogel": 2,
+        "Bluesky: John Bresnahan": 2
+      },
       "notes": "Fallback source bucket only; country and region channels should win."
     },
     {
       "channel_key": "reuters",
-      "minimum_score": 6,
+      "minimum_score": 4,
       "priority": 20,
       "tag_boosts": {},
-      "source_biases": {"Reuters": 4},
-      "notes": "Source-oriented channel. Rules are intentionally neutral."
+      "source_biases": {
+        "Reuters": 6,
+        "Bluesky: Reuters": 6
+      },
+      "notes": "Source-only channel; source gate is required before scoring.",
+      "required_source_any": [
+        "Reuters",
+        "Bluesky: Reuters"
+      ]
     },
     {
       "channel_key": "associated-press",
-      "minimum_score": 6,
+      "minimum_score": 4,
       "priority": 20,
       "tag_boosts": {},
-      "source_biases": {"AP": 4, "Associated Press": 4},
-      "notes": "Source-oriented channel. Rules are intentionally neutral."
+      "source_biases": {
+        "AP": 6,
+        "Associated Press": 6,
+        "Bluesky: AP": 6
+      },
+      "notes": "Source-only channel; source gate is required before scoring.",
+      "required_source_any": [
+        "Associated Press",
+        "AP",
+        "Bluesky: AP"
+      ]
     },
     {
       "channel_key": "nyt",
-      "minimum_score": 6,
+      "minimum_score": 4,
       "priority": 20,
       "tag_boosts": {},
-      "source_biases": {"NYT": 4, "New York Times": 4},
-      "notes": "Source-oriented channel. Rules are intentionally neutral."
+      "source_biases": {
+        "NYT": 6,
+        "New York Times": 6,
+        "Bluesky: New York Times": 6
+      },
+      "notes": "Source-only channel; source gate is required before scoring.",
+      "required_source_any": [
+        "NYT",
+        "New York Times",
+        "Bluesky: New York Times"
+      ]
     },
     {
       "channel_key": "wapo",
-      "minimum_score": 6,
+      "minimum_score": 4,
       "priority": 20,
       "tag_boosts": {},
-      "source_biases": {"WaPo": 4, "Washington Post": 4},
-      "notes": "Source-oriented channel. Rules are intentionally neutral."
+      "source_biases": {
+        "WaPo": 6,
+        "Washington Post": 6,
+        "Bluesky: Washington Post": 6
+      },
+      "notes": "Source-only channel; source gate is required before scoring.",
+      "required_source_any": [
+        "WaPo",
+        "Washington Post",
+        "Bluesky: Washington Post"
+      ]
     },
     {
       "channel_key": "abc-cbs-fox-nbc",
-      "minimum_score": 6,
+      "minimum_score": 4,
       "priority": 20,
       "tag_boosts": {},
-      "source_biases": {"ABC": 4, "CBS": 4, "Fox": 4, "NBC": 4},
-      "notes": "Broadcast source bundle. Rules are intentionally neutral."
+      "source_biases": {
+        "ABC": 6,
+        "CBS": 6,
+        "Fox": 6,
+        "NBC": 6,
+        "Bluesky: NBC News": 6,
+        "Bluesky: CBS News": 6
+      },
+      "notes": "Source-only channel; source gate is required before scoring.",
+      "required_source_any": [
+        "ABC",
+        "CBS",
+        "Fox",
+        "NBC",
+        "Bluesky: NBC News",
+        "Bluesky: CBS News"
+      ]
     },
     {
       "channel_key": "newsweek",
-      "minimum_score": 6,
+      "minimum_score": 4,
       "priority": 20,
       "tag_boosts": {},
-      "source_biases": {"Newsweek": 4},
-      "notes": "Source-oriented channel. Rules are intentionally neutral."
+      "source_biases": {
+        "Newsweek": 6,
+        "Bluesky: Newsweek": 6
+      },
+      "notes": "Source-only channel; source gate is required before scoring.",
+      "required_source_any": [
+        "Newsweek",
+        "Bluesky: Newsweek"
+      ]
     },
     {
       "channel_key": "npr",
-      "minimum_score": 6,
+      "minimum_score": 4,
       "priority": 20,
       "tag_boosts": {},
-      "source_biases": {"NPR": 4},
-      "notes": "Source-oriented channel. Rules are intentionally neutral."
+      "source_biases": {
+        "NPR": 6,
+        "Bluesky: NPR": 6
+      },
+      "notes": "Source-only channel; source gate is required before scoring.",
+      "required_source_any": [
+        "NPR",
+        "Bluesky: NPR"
+      ]
     },
     {
       "channel_key": "the-hill",
       "priority": 65,
-      "tag_boosts": {"government": 4, "legislation": 5, "election": 4, "sanctions": 2, "north_america": 2},
-      "tag_penalties": {"latin_america": 6, "africa": 6, "middle_east": 5, "indo_pacific": 5, "europe": 3},
-      "required_any": ["united_states", "north_america"],
-      "source_biases": {"Hill": 3, "Politico": 2, "Congress": 2, "Politics": 2}
+      "tag_boosts": {
+        "government": 5,
+        "legislation": 6,
+        "election": 5,
+        "sanctions": 2,
+        "north_america": 2,
+        "united_states": 3
+      },
+      "tag_penalties": {
+        "latin_america": 6,
+        "africa": 6,
+        "middle_east": 5,
+        "indo_pacific": 5,
+        "europe": 3
+      },
+      "required_any": [
+        "united_states",
+        "north_america"
+      ],
+      "source_biases": {
+        "Hill": 3,
+        "Politico": 2,
+        "Congress": 2,
+        "Politics": 2,
+        "Bluesky: Politico": 3,
+        "Bluesky: The Hill": 3,
+        "Bluesky: Liz Landers": 2,
+        "Bluesky: Peter Baker": 2,
+        "Bluesky: Jacob Bogage": 2,
+        "Bluesky: Asawin Suebsaeng": 2,
+        "Bluesky: Nikki McCann Ramirez": 2,
+        "Bluesky: John Bresnahan": 3,
+        "Bluesky: Ken Vogel": 3,
+        "Bluesky: Anthony Adragna": 3
+      },
+      "minimum_score": 5
     },
     {
       "channel_key": "the-white-house",
-      "minimum_score": 8,
+      "minimum_score": 4,
       "priority": 75,
-      "term_boosts": {"presidential_nominations": 4},
-      "tag_boosts": {"government": 5, "diplomacy": 4, "sanctions": 3, "official_alert": 5, "legislation": 2, "energy_security": 1},
-      "tag_penalties": {"latin_america": 6, "africa": 6, "middle_east": 4, "indo_pacific": 4, "europe": 3},
-      "required_any": ["united_states", "north_america"],
-      "source_biases": {"White House": 4, "State Department": 4, "Travel Advisories": 3}
+      "term_boosts": {
+        "presidential_nominations": 4
+      },
+      "tag_boosts": {
+        "government": 5,
+        "diplomacy": 4,
+        "sanctions": 3,
+        "official_alert": 5,
+        "legislation": 2,
+        "energy_security": 1
+      },
+      "tag_penalties": {
+        "latin_america": 8,
+        "africa": 8,
+        "middle_east": 6,
+        "indo_pacific": 6,
+        "europe": 5
+      },
+      "required_any": [],
+      "source_biases": {
+        "White House": 6,
+        "White House News": 6
+      },
+      "required_source_any": [
+        "White House",
+        "White House News"
+      ],
+      "notes": "Official White House channel only; State Department routes by country/region/topic."
     },
     {
       "channel_key": "dept-of-war",
       "priority": 80,
-      "tag_boosts": {"military": 5, "government": 3, "official_alert": 3, "military_organization": 2, "procurement": 1},
-      "tag_penalties": {"skip_candidate": 9, "cyber": 5, "indo_pacific": 7, "north_korea": 5, "china": 5, "middle_east": 7, "europe": 7, "iran": 5, "israel": 5, "lebanon": 5, "yemen": 5, "ukraine": 5, "russia": 5},
-      "term_penalties": {"ukraine_war": 8, "iran_war": 8, "gaza_war": 8, "lebanon_conflict": 8, "presidential_nominations": 8, "centcom": 4, "strait_of_hormuz": 4, "bab_el_mandeb": 4},
-      "required_any": ["military", "military_organization", "official_alert", "procurement"],
-      "source_biases": {"Defense.gov": 4, "Defense": 2}
+      "tag_boosts": {
+        "military": 5,
+        "government": 3,
+        "official_alert": 3,
+        "military_organization": 2,
+        "procurement": 1
+      },
+      "tag_penalties": {
+        "skip_candidate": 9,
+        "cyber": 5,
+        "indo_pacific": 7,
+        "north_korea": 5,
+        "china": 5,
+        "middle_east": 8,
+        "europe": 8,
+        "iran": 6,
+        "israel": 5,
+        "lebanon": 5,
+        "yemen": 5,
+        "ukraine": 6,
+        "russia": 6
+      },
+      "term_penalties": {
+        "ukraine_war": 12,
+        "iran_war": 12,
+        "gaza_war": 8,
+        "lebanon_conflict": 8,
+        "presidential_nominations": 8,
+        "centcom": 4,
+        "strait_of_hormuz": 6,
+        "bab_el_mandeb": 4
+      },
+      "required_any": [],
+      "source_biases": {
+        "Defense.gov": 6,
+        "Department of Defense": 6,
+        "DoD": 6,
+        "DOD": 6,
+        "Navy": 5,
+        "Army": 5,
+        "Air Force": 5,
+        "Space Force": 5,
+        "Marine Corps": 5,
+        "Marines": 5,
+        "DVIDS": 5,
+        "CENTCOM": 5,
+        "AFRICOM": 5,
+        "EUCOM": 5,
+        "INDOPACOM": 5,
+        "NORTHCOM": 5,
+        "SOUTHCOM": 5,
+        "TRANSCOM": 5,
+        "Department of Defense YouTube": 6
+      },
+      "required_source_any": [
+        "Defense.gov",
+        "Department of Defense",
+        "DoD",
+        "DOD",
+        "Navy",
+        "Army",
+        "Air Force",
+        "Space Force",
+        "Marine Corps",
+        "Marines",
+        "DVIDS",
+        "CENTCOM",
+        "AFRICOM",
+        "EUCOM",
+        "INDOPACOM",
+        "NORTHCOM",
+        "SOUTHCOM",
+        "TRANSCOM",
+        "Fleet",
+        "U.S. Army",
+        "US Army",
+        "USAF",
+        "USMC",
+        "USS ",
+        "Department of Defense YouTube"
+      ],
+      "minimum_score": 4,
+      "notes": "Official Defense Department and subordinate command/service content only."
     },
     {
       "channel_key": "defense-media",
       "priority": 70,
-      "tag_boosts": {"military": 4, "defense_industry": 3, "procurement": 2, "naval": 1, "air": 1, "ground": 1},
-      "tag_penalties": {"skip_candidate": 9, "cyber": 5, "indo_pacific": 6, "north_korea": 4, "china": 4, "middle_east": 6, "europe": 6, "iran": 4, "israel": 4, "lebanon": 4, "yemen": 4, "ukraine": 4, "russia": 4},
-      "term_penalties": {"ukraine_war": 8, "iran_war": 8, "gaza_war": 8, "lebanon_conflict": 8, "centcom": 3, "strait_of_hormuz": 3, "bab_el_mandeb": 3},
-      "required_any": ["military", "defense_industry", "procurement", "naval", "air", "ground"],
-      "source_biases": {"Defense": 3, "Breaking Defense": 3}
+      "tag_boosts": {
+        "military": 4,
+        "defense_industry": 3,
+        "procurement": 2,
+        "naval": 1,
+        "air": 1,
+        "ground": 1
+      },
+      "tag_penalties": {
+        "skip_candidate": 9,
+        "cyber": 5,
+        "indo_pacific": 6,
+        "north_korea": 4,
+        "china": 4,
+        "middle_east": 8,
+        "europe": 8,
+        "iran": 6,
+        "israel": 4,
+        "lebanon": 4,
+        "yemen": 4,
+        "ukraine": 6,
+        "russia": 6
+      },
+      "term_penalties": {
+        "ukraine_war": 12,
+        "iran_war": 12,
+        "gaza_war": 8,
+        "lebanon_conflict": 8,
+        "centcom": 3,
+        "strait_of_hormuz": 6,
+        "bab_el_mandeb": 3
+      },
+      "required_any": [
+        "military",
+        "defense_industry",
+        "procurement",
+        "naval",
+        "air",
+        "ground"
+      ],
+      "source_biases": {
+        "Defense": 3,
+        "Breaking Defense": 3,
+        "Bluesky: Bellingcat": 4,
+        "Bluesky: Institute for the Study of War": 4,
+        "Bluesky: Critical Threats Project": 4,
+        "Bluesky: Jakub Janovsky": 3,
+        "Bluesky: Covert Shores": 3,
+        "Bluesky: War Mapper": 3,
+        "Bluesky: Liveuamap": 3,
+        "Bluesky: Faytuks Network": 3,
+        "Bluesky: NOELREPORTS": 3,
+        "Bellingcat": 4,
+        "Institute for the Study of War": 4,
+        "Critical Threats": 4,
+        "War Mapper": 3,
+        "Liveuamap": 3,
+        "Faytuks": 3,
+        "NOELREPORTS": 3,
+        "Covert Shores": 3,
+        "Bluesky: Natasha Bertrand": 3,
+        "Bluesky: Paul McLeary": 3,
+        "Bluesky: David Rohde": 3,
+        "Bluesky: Anthony Adragna": 3,
+        "Bluesky: Florian Flade": 3,
+        "Bluesky: Vera Bergengruen": 3,
+        "Bluesky: Sean Lyngaas": 2,
+        "Bluesky: Tim Mak": 3,
+        "Bluesky: Oz Katerji": 3,
+        "Bluesky: WarTranslated": 4,
+        "Bluesky: Tim Fernholz": 2,
+        "Bluesky: Jennifer Hansler": 3,
+        "Bluesky: Charlie Savage": 3,
+        "Bluesky: The War Monitor": 4,
+        "Bluesky: Euan MacDonald": 3,
+        "Bluesky: Jim Bronskill": 3,
+        "Bluesky: Drew FitzGerald": 3,
+        "Bluesky: Kevin Knodell": 3,
+        "Bluesky: Theresa Hitchens": 3,
+        "Bluesky: Zach Rosenberg": 3,
+        "Bluesky: Antoaneta Roussi": 3,
+        "Bluesky: Alex Plitsas": 3,
+        "Bluesky: Joby Warrick": 3,
+        "Bluesky: Marisa Taylor": 2,
+        "Bluesky: Eliot Higgins": 4,
+        "Bluesky: Christiaan Triebert": 4,
+        "Bluesky: Jake Godin": 4,
+        "Bluesky: Shane Harris": 3,
+        "Bluesky: Susan Glasser": 2,
+        "Bluesky: Nahal Toosi": 3,
+        "Bluesky: Ken Klippenstein": 2
+      }
     },
     {
       "channel_key": "think-tanks",
-      "minimum_score": 5,
+      "minimum_score": 4,
       "priority": 60,
-      "tag_boosts": {"world": 1, "military": 2, "diplomacy": 3, "sanctions": 2, "defense_industry": 1},
-      "tag_penalties": {"cyber": 4, "indo_pacific": 5, "north_korea": 3, "china": 3, "middle_east": 5, "europe": 5, "iran": 3, "israel": 3, "lebanon": 3, "yemen": 3, "ukraine": 3, "russia": 3},
-      "term_penalties": {"ukraine_war": 6, "iran_war": 6, "gaza_war": 6, "lebanon_conflict": 6, "centcom": 3},
-      "required_any": ["military", "diplomacy", "sanctions", "defense_industry"],
-      "source_biases": {"CSIS": 4, "RAND": 4, "Brookings": 4, "CFR": 4, "CNAS": 4, "RUSI": 4, "Atlantic Council": 4, "ASPI": 4},
-      "notes": "Analysis-source channel. Source bias is intentionally important."
+      "tag_boosts": {
+        "world": 1,
+        "military": 2,
+        "diplomacy": 3,
+        "sanctions": 2,
+        "defense_industry": 1
+      },
+      "tag_penalties": {
+        "cyber": 4,
+        "indo_pacific": 5,
+        "north_korea": 3,
+        "china": 3,
+        "middle_east": 8,
+        "europe": 8,
+        "iran": 6,
+        "israel": 3,
+        "lebanon": 3,
+        "yemen": 3,
+        "ukraine": 6,
+        "russia": 6
+      },
+      "term_penalties": {
+        "ukraine_war": 12,
+        "iran_war": 12,
+        "gaza_war": 6,
+        "lebanon_conflict": 6,
+        "centcom": 3,
+        "strait_of_hormuz": 6
+      },
+      "required_any": [],
+      "source_biases": {
+        "CSIS": 6,
+        "RAND": 6,
+        "Brookings": 6,
+        "CFR": 6,
+        "CNAS": 6,
+        "Heritage Foundation": 6,
+        "American Enterprise Institute": 6,
+        "AEI": 6,
+        "Hudson Institute": 6,
+        "FDD": 6,
+        "Stimson": 6,
+        "IISS": 6,
+        "Chatham House": 6,
+        "IFRI": 6,
+        "DGAP": 6,
+        "ISW": 6,
+        "RUSI": 6,
+        "Atlantic Council": 6,
+        "ASPI": 6,
+        "International Crisis Group": 6
+      },
+      "notes": "Think-tank-produced content only; source gate is required before scoring.",
+      "required_source_any": [
+        "CSIS",
+        "RAND",
+        "Brookings",
+        "CFR",
+        "CNAS",
+        "Heritage Foundation",
+        "American Enterprise Institute",
+        "AEI",
+        "Hudson Institute",
+        "FDD",
+        "Stimson",
+        "IISS",
+        "Chatham House",
+        "IFRI",
+        "DGAP",
+        "ISW",
+        "RUSI",
+        "Atlantic Council",
+        "ASPI",
+        "International Crisis Group"
+      ]
     }
   ]
 }

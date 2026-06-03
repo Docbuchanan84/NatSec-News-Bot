@@ -19,6 +19,7 @@ class DiscordSettings:
 @dataclass(frozen=True)
 class PollingSettings:
     default_interval_seconds: int = 300
+    min_interval_seconds: int = 30
     fetch_timeout_seconds: int = 10
     max_entries_per_feed: int = 30
     max_concurrent_feed_fetches: int = 10
@@ -116,6 +117,8 @@ class FeedEntry:
     raw_title: str
     raw_url: str | None
     summary: str | None
+    image_url: str | None
+    image_source: str | None
     raw_published_at: str | None
     parsed: dict[str, Any]
 
@@ -139,6 +142,8 @@ class ArticleCandidate:
     url: str | None
     normalized_url: str | None
     summary: str | None
+    image_url: str | None
+    image_source: str | None
     raw_guid: str | None
     raw_published_at: str | None
     normalized_published_at: datetime
@@ -160,6 +165,8 @@ class PostJob:
     title: str
     url: str | None
     summary: str | None
+    image_url: str | None
+    image_source: str | None
     source_name: str
     normalized_published_at: datetime
     timestamp_status: str = "valid"

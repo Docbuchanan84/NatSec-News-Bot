@@ -74,7 +74,7 @@ class PublisherService:
                 message_id = await self.adapter.send(job)
                 recorded = self.db.record_channel_post(job.article_id, job.channel_id, message_id)
                 if recorded:
-                    logger.info("Posted article %s to channel %s", job.article_id, job.channel_id)
+                    logger.debug("Posted article %s to channel %s", job.article_id, job.channel_id)
                     audit_logger.info(
                         "post_sent article_id=%s channel_id=%s message_id=%s title=%r",
                         job.article_id,

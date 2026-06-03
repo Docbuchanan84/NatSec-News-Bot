@@ -124,7 +124,7 @@ Privileged message content intent is not required.
 - `Invalid JSON`: check commas, quotes, and brackets in `config/config.json`.
 - `DISCORD_BOT_TOKEN is missing`: copy `.env.example` to `.env` and add the real token.
 - Slash commands do not appear: confirm `DISCORD_GUILD_ID` is the server ID and restart the bot.
-- Nothing posts on first run: this is expected when `postOldArticlesOnFirstRun` is `false`.
+- First run only posts recent backfill: when `postOldArticlesOnFirstRun` is `false`, valid feed timestamps under `maxPostAgeHours` can post, while stale or undated entries are skipped or suppressed.
 - A feed fails: check `/rss status` and logs for timeout, HTTP status, or parse errors.
 
 ## Development

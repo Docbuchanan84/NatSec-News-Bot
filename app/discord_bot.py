@@ -2,16 +2,19 @@ from __future__ import annotations
 
 import logging
 import os
-import time
 import json
+import re
+import time
 from datetime import UTC
 from datetime import datetime
+from urllib.parse import urlparse
 
 import discord
 from discord import app_commands
 
 from app.config_loader import ConfigError, ConfigService
 from app.database import Database
+from app.feed_fetcher import clean_html_text
 from app.logging_config import configure_logging
 from app.models import PostJob
 from app.publisher import PublisherAdapter, PublisherService
@@ -22,6 +25,8 @@ from app.scheduler import SchedulerService
 
 logger = logging.getLogger(__name__)
 audit_logger = logging.getLogger("app.audit")
+URLISH_RE = re.compile(r"^(https?://\S+|[\w.-]+\.[a-z]{2,}/\S*)$", re.IGNORECASE)
+LINK_LABEL_RE = re.compile(r"^(more|watch and subscribe|read more|full story|link)\s*:?\s*", re.IGNORECASE)
 
 
 class DiscordPublisherAdapter(PublisherAdapter):
@@ -34,6 +39,9 @@ class DiscordPublisherAdapter(PublisherAdapter):
             channel = await self.client.fetch_channel(int(job.channel_id))
         if not hasattr(channel, "send"):
             raise RuntimeError(f"Configured channel {job.channel_id} cannot receive messages.")
+        title = clean_html_text(job.title) or job.title
+        description = clean_html_text(job.summary) if job.summary else None
+        description = _dedupe_description(title, description)
         if job.timestamp_status in {"valid", "timezone_corrected"}:
             display_timestamp = job.normalized_published_at.astimezone(UTC)
             footer = f"{job.source_name} · published"
@@ -41,11 +49,13 @@ class DiscordPublisherAdapter(PublisherAdapter):
             display_timestamp = datetime.now(UTC)
             footer = f"{job.source_name} · detected"
         embed = discord.Embed(
-            title=job.title[:256],
+            title=title[:256],
             url=job.url,
-            description=(job.summary or "")[:4096] if job.summary else None,
+            description=description[:4096] if description else None,
             timestamp=display_timestamp,
         )
+        if job.image_url:
+            embed.set_image(url=job.image_url)
         embed.set_footer(text=footer)
         if getattr(self.client, "debug_mode_enabled", False):
             debug_text = _format_routing_debug_field(self.client.db, job.article_id)
@@ -58,7 +68,8 @@ class DiscordPublisherAdapter(PublisherAdapter):
                     job.title,
                     debug_text,
                 )
-        message = await channel.send(embed=embed)
+        content = job.url if _is_video_reference(job.url) else None
+        message = await channel.send(content=content, embed=embed)
         return str(message.id)
 
 
@@ -110,22 +121,31 @@ class RSSDiscordClient(discord.Client):
                 return
             uptime_seconds = int(time.monotonic() - self.started_at)
             queue_total = sum(stat.size for stat in self.publisher.queue_stats())
-            status_rows = self.db.feed_status_rows(limit=5)
+            health = self.db.feed_health_summary()
+            status_rows = self.db.feed_status_rows(limit=8, failures_first=True)
+            next_poll = self.scheduler.next_poll_at()
+            next_poll_text = _format_relative_seconds((next_poll - datetime.now(UTC)).total_seconds()) if next_poll else "unknown"
+            recent_posts = self.db.recent_post_count(hours=24)
+            routing_state = (
+                f"{config.settings.routing.mode}" if config.settings.routing.enabled else "off"
+            )
             lines = [
-                "RSS Dispatch Bot Status",
+                "**RSS Dispatch Bot Status**",
+                f"Uptime: {_format_duration(uptime_seconds)}",
+                f"Channels: {len(config.channels)} | Unique feeds: {len(self.scheduler.feeds)} | Tracked feeds: {health['tracked']}",
+                f"Feed health: {health['healthy']} healthy, {health['failing']} failing, {health['never_succeeded']} never succeeded",
+                f"Queue: {queue_total} pending | Posted last 24h: {recent_posts}",
+                f"Next poll: {next_poll_text} | Routing: {routing_state} | Debug embeds: {'on' if self.debug_mode_enabled else 'off'}",
                 "",
-                f"Uptime: {uptime_seconds // 60}m {uptime_seconds % 60}s",
-                f"Channels: {len(config.channels)} configured",
-                f"Unique feeds: {len(self.scheduler.feeds)}",
-                f"Queue: {queue_total} pending",
-                "",
-                "Recent feed status:",
+                "**Feed watchlist**",
             ]
             for row in status_rows:
-                state = "OK" if int(row["consecutive_failures"] or 0) == 0 else "FAILING"
-                detail = row["last_error"] or f"last success {row['last_success_at'] or 'never'}"
-                lines.append(f"{row['feed_name'] or row['feed_key']}: {state}, {detail}")
-            await interaction.response.send_message("\n".join(lines), ephemeral=True)
+                failures = int(row["consecutive_failures"] or 0)
+                state = "OK" if failures == 0 and row["last_success_at"] else ("NEW" if failures == 0 else f"FAIL x{failures}")
+                detail = row["last_error"] or f"success {row['last_success_at'] or 'never'}"
+                lines.append(f"{state}: {row['feed_name'] or row['feed_key']} - {truncate(str(detail), 160)}")
+            message = truncate("\n".join(lines), 1900)
+            await interaction.response.send_message(message, ephemeral=True)
 
         @group.command(name="reload", description="Reload and validate config/config.json")
         async def reload_config(interaction: discord.Interaction) -> None:
@@ -379,6 +399,34 @@ def _format_score_line(score: dict) -> str:
     return f"- {channel_key}: {score_value}/{minimum} ({reason_text})"
 
 
+def _same_display_text(left: str, right: str) -> bool:
+    return " ".join(left.split()).casefold() == " ".join(right.split()).casefold()
+
+
+def _dedupe_description(title: str, description: str | None) -> str | None:
+    if not description:
+        return None
+    if _same_display_text(title, description):
+        return None
+    if _starts_with_display_text(description, title):
+        remainder = description[len(title) :].strip()
+        if not remainder or _link_only_text(remainder):
+            return None
+        return remainder
+    return description
+
+
+def _starts_with_display_text(text: str, prefix: str) -> bool:
+    return " ".join(text.split()).casefold().startswith(" ".join(prefix.split()).casefold())
+
+
+def _link_only_text(value: str) -> bool:
+    normalized = LINK_LABEL_RE.sub("", " ".join(value.split())).strip()
+    if not normalized:
+        return True
+    return all(URLISH_RE.match(token) for token in normalized.split())
+
+
 def _fit_embed_field(lines: list[str], limit: int = 1024) -> str:
     output: list[str] = []
     current = 0
@@ -392,6 +440,38 @@ def _fit_embed_field(lines: list[str], limit: int = 1024) -> str:
         output.append(line)
         current += line_len
     return "\n".join(output)
+
+
+def _is_video_reference(url: str | None) -> bool:
+    if not url:
+        return False
+    parsed = urlparse(url)
+    host = parsed.netloc.casefold()
+    if host.startswith("www."):
+        host = host[4:]
+    return host in {"youtube.com", "youtu.be"} or host.endswith(".youtube.com")
+
+
+def _format_duration(seconds: int) -> str:
+    days, remainder = divmod(seconds, 86400)
+    hours, remainder = divmod(remainder, 3600)
+    minutes, secs = divmod(remainder, 60)
+    if days:
+        return f"{days}d {hours}h {minutes}m"
+    if hours:
+        return f"{hours}h {minutes}m"
+    return f"{minutes}m {secs}s"
+
+
+def _format_relative_seconds(seconds: float) -> str:
+    seconds = max(0, int(seconds))
+    if seconds < 60:
+        return f"in {seconds}s"
+    minutes, secs = divmod(seconds, 60)
+    if minutes < 60:
+        return f"in {minutes}m {secs}s"
+    hours, minutes = divmod(minutes, 60)
+    return f"in {hours}h {minutes}m"
 
 
 def _env_bool(name: str, default: bool = False) -> bool:

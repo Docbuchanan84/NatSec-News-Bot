@@ -58,7 +58,36 @@ def score_channels(
             )
             continue
 
+        required_source_matches = _matched_source_hints(rule.required_source_any, source_name)
+        if rule.required_source_any and not required_source_matches:
+            scores.append(
+                ChannelScore(
+                    channel_key=rule.channel_key,
+                    score=0,
+                    minimum_score=rule.minimum_score,
+                    priority=rule.priority,
+                    selected=False,
+                    reasons=("required_source_any not met",),
+                )
+            )
+            continue
+        excluded_source_matches = _matched_source_hints(rule.excluded_source_any, source_name)
+        if excluded_source_matches:
+            scores.append(
+                ChannelScore(
+                    channel_key=rule.channel_key,
+                    score=0,
+                    minimum_score=rule.minimum_score,
+                    priority=rule.priority,
+                    selected=False,
+                    reasons=(f"excluded_source_any met: {', '.join(excluded_source_matches)}",),
+                )
+            )
+            continue
+
         score = 0
+        for source_hint in required_source_matches:
+            reasons.append(f"source required: {source_hint}")
         for key, value in rule.term_boosts.items():
             if key in match_ids or key.casefold() in alias_keys:
                 score += value
@@ -118,6 +147,13 @@ def score_channels(
         )
         for item in ranked
     )
+
+
+def _matched_source_hints(values: tuple[str, ...], source_name: str | None) -> tuple[str, ...]:
+    if not values or not source_name:
+        return ()
+    source_folded = source_name.casefold()
+    return tuple(value for value in values if value.casefold() in source_folded)
 
 
 def _required_any_met(

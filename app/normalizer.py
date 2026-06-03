@@ -190,6 +190,8 @@ def build_candidate(entry: FeedEntry, timestamp_settings: TimestampSettings, now
         url=entry.raw_url,
         normalized_url=normalized_url,
         summary=html.unescape(entry.summary or "").strip() or None,
+        image_url=entry.image_url,
+        image_source=entry.image_source,
         raw_guid=entry.raw_guid,
         raw_published_at=timestamp.raw_published_at,
         normalized_published_at=timestamp.normalized_published_at,

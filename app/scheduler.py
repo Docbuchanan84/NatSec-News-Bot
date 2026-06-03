@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
+from urllib.parse import urlparse
 
 import aiohttp
 
@@ -39,8 +41,11 @@ class SchedulerService:
         self.routing_engine: RoutingEngine | None = None
         self.routing_mode = "observe_only"
         self._next_due: dict[str, datetime] = {}
+        self._host_locks: dict[str, asyncio.Lock] = {}
+        self._host_next_available: dict[str, datetime] = {}
         self._task: asyncio.Task[None] | None = None
         self._stopping = False
+        self._idle_sleep_seconds = 5
 
     def configure(self, config: AppConfig) -> None:
         self.config = config
@@ -112,7 +117,19 @@ class SchedulerService:
             due_feeds = [feed for feed_key, feed in self.feeds.items() if self._next_due.get(feed_key, now) <= now]
             if due_feeds:
                 await self.poll_feeds(due_feeds)
-            await asyncio.sleep(1)
+            await asyncio.sleep(self._seconds_until_next_poll())
+
+    def _seconds_until_next_poll(self) -> float:
+        if not self._next_due:
+            return float(self._idle_sleep_seconds)
+        now = datetime.now(UTC)
+        next_due = min(self._next_due.values())
+        return max(1.0, min(float(self._idle_sleep_seconds), (next_due - now).total_seconds()))
+
+    def next_poll_at(self) -> datetime | None:
+        if not self._next_due:
+            return None
+        return min(self._next_due.values())
 
     async def refresh_channel(self, channel_id: str) -> RefreshSummary:
         feed_keys = self.channel_to_feed_keys.get(channel_id)
@@ -131,16 +148,41 @@ class SchedulerService:
         semaphore = asyncio.Semaphore(self.config.settings.polling.max_concurrent_feed_fetches)
         summary = RefreshSummary()
 
-        async with aiohttp.ClientSession() as session:
-            tasks = [self._fetch_with_status(session, feed_service, semaphore, feed) for feed in feeds]
-            for completed in asyncio.as_completed(tasks):
-                try:
-                    result = await completed
-                except FeedFetchError:
-                    summary = _merge(summary, errors=1)
-                    continue
-                feed_summary = await self._process_feed_result(result)
-                summary = _combine(summary, feed_summary)
+        async with aiohttp.ClientSession(max_field_size=32768) as session:
+            tasks = [
+                asyncio.create_task(self._fetch_with_status(session, feed_service, semaphore, feed))
+                for feed in feeds
+            ]
+            try:
+                for completed in asyncio.as_completed(tasks):
+                    try:
+                        result = await completed
+                    except FeedFetchError:
+                        summary = _merge(summary, errors=1)
+                        continue
+                    except Exception:
+                        logger.exception("Unexpected feed fetch task failure")
+                        audit_logger.exception("feed_task_exception")
+                        summary = _merge(summary, errors=1)
+                        continue
+                    try:
+                        feed_summary = await self._process_feed_result(result)
+                    except Exception:
+                        logger.exception("Feed processing failed for %s", result.feed.display_name)
+                        audit_logger.exception(
+                            "feed_processing_exception feed_key=%s feed_name=%r",
+                            result.feed.feed_key,
+                            result.feed.display_name,
+                        )
+                        summary = _merge(summary, errors=1)
+                        continue
+                    summary = _combine(summary, feed_summary)
+            finally:
+                pending = [task for task in tasks if not task.done()]
+                for task in pending:
+                    task.cancel()
+                if pending:
+                    await asyncio.gather(*pending, return_exceptions=True)
         return summary
 
     async def _fetch_with_status(
@@ -152,6 +194,7 @@ class SchedulerService:
     ) -> FeedFetchResult:
         first_success = self.db.is_first_feed_success(feed.feed_key)
         self.db.mark_feed_attempt(feed.feed_key, feed.display_name, feed.url)
+        await self._throttle_feed_host(feed)
         async with semaphore:
             try:
                 result = await feed_service.fetch(session, feed)
@@ -159,8 +202,8 @@ class SchedulerService:
                 next_due = datetime.now(UTC) + timedelta(seconds=feed.interval_seconds)
                 self._next_due[feed.feed_key] = next_due
                 self.db.mark_feed_success(feed.feed_key, next_due)
-                logger.info("Fetched %s entries from %s", len(result.entries), feed.display_name)
-                audit_logger.info(
+                logger.debug("Fetched %s entries from %s", len(result.entries), feed.display_name)
+                audit_logger.debug(
                     "feed_success feed_key=%s feed_name=%r entries=%s first_success=%s next_poll_at=%s",
                     feed.feed_key,
                     feed.display_name,
@@ -170,7 +213,7 @@ class SchedulerService:
                 )
                 return result
             except FeedFetchError as exc:
-                next_due = datetime.now(UTC) + timedelta(seconds=feed.interval_seconds)
+                next_due = datetime.now(UTC) + timedelta(seconds=self._failure_retry_seconds(feed, exc))
                 self._next_due[feed.feed_key] = next_due
                 self.db.mark_feed_failure(feed.feed_key, str(exc), next_due)
                 if self.config and self.config.settings.logging.detailed_errors:
@@ -190,7 +233,9 @@ class SchedulerService:
     async def _process_feed_result(self, result: FeedFetchResult) -> RefreshSummary:
         if not self.config:
             return RefreshSummary()
-        suppress_posts = result.first_success and not self.config.settings.polling.post_old_articles_on_first_run
+        first_success_limited_backfill = (
+            result.first_success and not self.config.settings.polling.post_old_articles_on_first_run
+        )
         new_articles = 0
         duplicates = 0
         posts_queued = 0
@@ -202,25 +247,45 @@ class SchedulerService:
                 new_articles += 1
             else:
                 duplicates += 1
-            if suppress_posts:
-                routing_decision = self._route_candidate(dedupe.article_id, candidate)
-                for channel_id in self._target_channel_ids(result.feed.channel_ids, routing_decision):
-                    self.db.record_channel_suppressed(
-                        dedupe.article_id,
-                        channel_id,
-                        candidate.normalized_title,
-                        candidate.title_signature,
-                    )
-                    audit_logger.info(
-                        "post_suppressed_first_run feed_key=%s article_id=%s channel_id=%s title=%r",
-                        result.feed.feed_key,
-                        dedupe.article_id,
-                        channel_id,
-                        candidate.title,
-                )
-                continue
             routing_decision = self._route_candidate(dedupe.article_id, candidate)
             for channel_id in self._target_channel_ids(result.feed.channel_ids, routing_decision):
+                if first_success_limited_backfill and not self._is_recent_valid_for_first_success(
+                    candidate.normalized_published_at,
+                    candidate.timestamp_status,
+                ):
+                    duplicates += 1
+                    if candidate.timestamp_status in {"valid", "timezone_corrected"}:
+                        self.db.record_channel_skipped(
+                            dedupe.article_id,
+                            channel_id,
+                            candidate.normalized_title,
+                            candidate.title_signature,
+                            "skipped_stale",
+                        )
+                        audit_logger.debug(
+                            "post_skipped_stale feed_key=%s article_id=%s channel_id=%s published_at=%s title=%r",
+                            result.feed.feed_key,
+                            dedupe.article_id,
+                            channel_id,
+                            candidate.normalized_published_at.isoformat(),
+                            candidate.title,
+                        )
+                    else:
+                        self.db.record_channel_suppressed(
+                            dedupe.article_id,
+                            channel_id,
+                            candidate.normalized_title,
+                            candidate.title_signature,
+                        )
+                        audit_logger.debug(
+                            "post_suppressed_first_run feed_key=%s article_id=%s channel_id=%s timestamp_status=%s title=%r",
+                            result.feed.feed_key,
+                            dedupe.article_id,
+                            channel_id,
+                            candidate.timestamp_status,
+                            candidate.title,
+                        )
+                    continue
                 if self._is_stale_for_posting(candidate.normalized_published_at, candidate.timestamp_status):
                     duplicates += 1
                     self.db.record_channel_skipped(
@@ -230,7 +295,7 @@ class SchedulerService:
                         candidate.title_signature,
                         "skipped_stale",
                     )
-                    audit_logger.info(
+                    audit_logger.debug(
                         "post_skipped_stale feed_key=%s article_id=%s channel_id=%s published_at=%s title=%r",
                         result.feed.feed_key,
                         dedupe.article_id,
@@ -244,7 +309,7 @@ class SchedulerService:
                     continue
                 if self.db.has_channel_title(channel_id, candidate.normalized_title):
                     duplicates += 1
-                    audit_logger.info(
+                    audit_logger.debug(
                         "post_skipped_duplicate_title feed_key=%s article_id=%s channel_id=%s normalized_title=%r title=%r",
                         result.feed.feed_key,
                         dedupe.article_id,
@@ -255,7 +320,7 @@ class SchedulerService:
                     continue
                 if self.db.has_channel_title_signature(channel_id, candidate.title_signature):
                     duplicates += 1
-                    audit_logger.info(
+                    audit_logger.debug(
                         "post_skipped_duplicate_title_signature feed_key=%s article_id=%s channel_id=%s title_signature=%r title=%r",
                         result.feed.feed_key,
                         dedupe.article_id,
@@ -276,21 +341,21 @@ class SchedulerService:
                 job = self.db.get_post_job(dedupe.article_id, channel_id)
                 if await self.publisher.enqueue(job):
                     posts_queued += 1
-                    audit_logger.info(
+                    audit_logger.debug(
                         "post_queued feed_key=%s article_id=%s channel_id=%s title=%r",
                         result.feed.feed_key,
                         dedupe.article_id,
                         channel_id,
                         candidate.title,
                     )
-        audit_logger.info(
+        audit_logger.debug(
             "feed_processed feed_key=%s entries=%s new_articles=%s duplicates=%s posts_queued=%s suppressed=%s",
             result.feed.feed_key,
             len(result.entries),
             new_articles,
             duplicates,
             posts_queued,
-            suppress_posts,
+            first_success_limited_backfill,
         )
         return RefreshSummary(
             feeds_checked=1,
@@ -308,6 +373,33 @@ class SchedulerService:
         cutoff = datetime.now(UTC) - timedelta(hours=self.config.settings.timestamps.max_post_age_hours)
         return published_at < cutoff
 
+    def _is_recent_valid_for_first_success(self, published_at: datetime, timestamp_status: str) -> bool:
+        if timestamp_status not in {"valid", "timezone_corrected"}:
+            return False
+        return not self._is_stale_for_posting(published_at, timestamp_status)
+
+    async def _throttle_feed_host(self, feed: FeedRuntime) -> None:
+        host = urlparse(feed.url).netloc.casefold()
+        if host != "bsky.app":
+            return
+        lock = self._host_locks.setdefault(host, asyncio.Lock())
+        async with lock:
+            now = datetime.now(UTC)
+            next_available = self._host_next_available.get(host, now)
+            if next_available > now:
+                await asyncio.sleep((next_available - now).total_seconds())
+            self._host_next_available[host] = datetime.now(UTC) + timedelta(seconds=2)
+
+    def _failure_retry_seconds(self, feed: FeedRuntime, exc: FeedFetchError) -> int:
+        if urlparse(feed.url).netloc.casefold() != "bsky.app":
+            return max(feed.interval_seconds, 3600)
+        match = re.search(r"retry after (\d+)s", str(exc), re.IGNORECASE)
+        if match:
+            return max(feed.interval_seconds, int(match.group(1)))
+        if "rate limited" in str(exc).casefold():
+            return max(feed.interval_seconds, 900)
+        return feed.interval_seconds
+
     def _route_candidate(self, article_id: int, candidate) -> RoutingDecision | None:
         if self.routing_engine is None:
             return None
@@ -324,7 +416,7 @@ class SchedulerService:
             )
             selected_ids = [self.channel_key_to_id[key] for key in decision.selected_channel_keys if key in self.channel_key_to_id]
             self.db.record_routing_decision(article_id, decision, selected_ids)
-            audit_logger.info(
+            audit_logger.debug(
                 "routing_decision article_id=%s status=%s selected_keys=%s top_score=%s title=%r",
                 article_id,
                 decision.decision_status,
