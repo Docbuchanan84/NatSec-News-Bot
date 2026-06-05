@@ -10,7 +10,11 @@ def score_channels(
     expanded_tags: set[str],
     content_mode: str,
     source_name: str | None,
+    source_id: str | None,
+    source_class: str | None,
     max_destinations: int,
+    *,
+    mirror_mode: bool = False,
 ) -> tuple[ChannelScore, ...]:
     match_ids = {match.knowledge_entry_id for match in matches}
     alias_keys = {match.matched_alias.casefold() for match in matches}
@@ -22,6 +26,7 @@ def score_channels(
             scores.append(
                 ChannelScore(
                     channel_key=rule.channel_key,
+                    destination_class=rule.destination_class,
                     score=0,
                     minimum_score=rule.minimum_score,
                     priority=rule.priority,
@@ -36,6 +41,7 @@ def score_channels(
             scores.append(
                 ChannelScore(
                     channel_key=rule.channel_key,
+                    destination_class=rule.destination_class,
                     score=0,
                     minimum_score=rule.minimum_score,
                     priority=rule.priority,
@@ -49,6 +55,7 @@ def score_channels(
             scores.append(
                 ChannelScore(
                     channel_key=rule.channel_key,
+                    destination_class=rule.destination_class,
                     score=0,
                     minimum_score=rule.minimum_score,
                     priority=rule.priority,
@@ -58,11 +65,26 @@ def score_channels(
             )
             continue
 
+        source_gate_reason = _source_gate_reason(rule, source_id, source_class)
+        if source_gate_reason:
+            scores.append(
+                ChannelScore(
+                    channel_key=rule.channel_key,
+                    destination_class=rule.destination_class,
+                    score=0,
+                    minimum_score=rule.minimum_score,
+                    priority=rule.priority,
+                    selected=False,
+                    reasons=(source_gate_reason,),
+                )
+            )
+            continue
         required_source_matches = _matched_source_hints(rule.required_source_any, source_name)
         if rule.required_source_any and not required_source_matches:
             scores.append(
                 ChannelScore(
                     channel_key=rule.channel_key,
+                    destination_class=rule.destination_class,
                     score=0,
                     minimum_score=rule.minimum_score,
                     priority=rule.priority,
@@ -76,6 +98,7 @@ def score_channels(
             scores.append(
                 ChannelScore(
                     channel_key=rule.channel_key,
+                    destination_class=rule.destination_class,
                     score=0,
                     minimum_score=rule.minimum_score,
                     priority=rule.priority,
@@ -86,6 +109,10 @@ def score_channels(
             continue
 
         score = 0
+        if rule.required_source_ids:
+            reasons.append(f"source_id required: {source_id}")
+        if rule.required_source_classes:
+            reasons.append(f"source_class required: {source_class}")
         for source_hint in required_source_matches:
             reasons.append(f"source required: {source_hint}")
         for key, value in rule.term_boosts.items():
@@ -120,6 +147,7 @@ def score_channels(
         scores.append(
             ChannelScore(
                 channel_key=rule.channel_key,
+                destination_class=rule.destination_class,
                 score=score,
                 minimum_score=rule.minimum_score,
                 priority=rule.priority,
@@ -132,13 +160,14 @@ def score_channels(
     selected_ranked = [
         item
         for item in ranked
-        if item.score >= item.minimum_score and item.score > 0
+        if _selectable(item, mirror_mode=mirror_mode)
     ][: max(0, max_destinations)]
     selected_keys = {item.channel_key for item in selected_ranked}
 
     return tuple(
         ChannelScore(
             channel_key=item.channel_key,
+            destination_class=item.destination_class,
             score=item.score,
             minimum_score=item.minimum_score,
             priority=item.priority,
@@ -147,6 +176,35 @@ def score_channels(
         )
         for item in ranked
     )
+
+
+def _selectable(item: ChannelScore, *, mirror_mode: bool) -> bool:
+    if item.score >= item.minimum_score and item.score > 0:
+        return True
+    if not mirror_mode:
+        return False
+    return any(
+        reason.startswith("source_id required:") or reason.startswith("source_class required:")
+        for reason in item.reasons
+    )
+
+
+def _source_gate_reason(rule: ChannelRule, source_id: str | None, source_class: str | None) -> str | None:
+    source_id_value = (source_id or "unknown").casefold()
+    source_class_value = (source_class or "unknown").casefold()
+    required_ids = {value.casefold() for value in rule.required_source_ids}
+    excluded_ids = {value.casefold() for value in rule.excluded_source_ids}
+    required_classes = {value.casefold() for value in rule.required_source_classes}
+    excluded_classes = {value.casefold() for value in rule.excluded_source_classes}
+    if required_ids and source_id_value not in required_ids:
+        return "required_source_ids not met"
+    if source_id_value in excluded_ids:
+        return f"excluded_source_ids met: {source_id}"
+    if required_classes and source_class_value not in required_classes:
+        return "required_source_classes not met"
+    if source_class_value in excluded_classes:
+        return f"excluded_source_classes met: {source_class}"
+    return None
 
 
 def _matched_source_hints(values: tuple[str, ...], source_name: str | None) -> tuple[str, ...]:

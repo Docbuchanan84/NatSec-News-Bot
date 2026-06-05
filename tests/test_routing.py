@@ -431,11 +431,37 @@ def test_brazil_economy_routes_region_not_science_technology() -> None:
     assert "science-technology" not in decision.selected_channel_keys
 
 
+def test_routine_india_items_do_not_route_indo_pacific() -> None:
+    domestic_decision = production_engine().route(
+        RoutingArticle(title="BJP wins Uttarakhand local election", source_name="The Indian Express")
+    )
+    economy_decision = production_engine().route(
+        RoutingArticle(title="India economy grows as inflation cools", source_name="BBC Asia")
+    )
+
+    assert "indo-pacific" not in domestic_decision.selected_channel_keys
+    assert "indo-pacific" not in economy_decision.selected_channel_keys
+
+
+def test_high_importance_india_security_routes_indo_pacific() -> None:
+    decision = production_engine().route(
+        RoutingArticle(title="India-Pakistan missile strikes trigger Kashmir crisis", source_name="Reuters")
+    )
+    assert "indo-pacific" in decision.selected_channel_keys
+
+
 def test_defense_contract_routes_industrial_base() -> None:
     decision = production_engine().route(
         RoutingArticle(title="Lockheed wins Pentagon contract for missile interceptors", source_name="Defense News Industry")
     )
     assert "industrial-base" in decision.selected_channel_keys
+
+
+def test_generic_procurement_does_not_route_industrial_base() -> None:
+    decision = production_engine().route(
+        RoutingArticle(title="City procurement office selects new payroll vendor", source_name="Bloomberg")
+    )
+    assert "industrial-base" not in decision.selected_channel_keys
 
 
 def test_generic_company_earnings_do_not_route_industrial_base() -> None:
@@ -468,9 +494,68 @@ def test_source_gates_keep_source_channels_exclusive() -> None:
 
 def test_official_dod_source_can_route_dept_of_war() -> None:
     decision = production_engine().route(
-        RoutingArticle(title="Defense.gov announces new military readiness initiative", source_name="Defense.gov Top News")
+        RoutingArticle(
+            title="Defense.gov announces new military exercise readiness initiative",
+            source_name="Defense.gov Top News",
+            source_id="defense-gov",
+            source_class="official_us_defense",
+        )
     )
-    assert "dept-of-war" in decision.selected_channel_keys
+    assert "dept-of-war" in decision.mirror_channel_keys
+    assert "dept-of-war" in decision.final_channel_keys
+
+
+def test_no_match_drops_source_mirror() -> None:
+    decision = production_engine().route(
+        RoutingArticle(
+            title="Reuters publishes morning briefing",
+            source_name="Reuters",
+            source_id="reuters",
+            source_class="wire_service",
+        )
+    )
+    assert decision.decision_status == "no_match"
+    assert decision.final_channel_keys == ()
+
+
+def test_skip_suppresses_source_mirror() -> None:
+    decision = production_engine().route(
+        RoutingArticle(
+            title="Reuters sports roundup covers World Cup and tennis",
+            source_name="Reuters",
+            source_id="reuters",
+            source_class="wire_service",
+        )
+    )
+    assert decision.decision_status == "skipped"
+    assert "reuters" not in decision.final_channel_keys
+
+
+def test_review_routes_only_to_review() -> None:
+    decision = production_engine().route(
+        RoutingArticle(
+            title="Former Yemen president dies at 80",
+            source_name="Associated Press",
+            source_id="associated-press",
+            source_class="wire_service",
+        )
+    )
+    assert decision.decision_status == "review"
+    assert decision.final_channel_keys == ("review",)
+
+
+def test_source_mirror_is_additive_and_does_not_consume_primary_slot() -> None:
+    decision = production_engine().route(
+        RoutingArticle(
+            title="Reuters: Iran sanctions expand after missile attack",
+            source_name="Reuters",
+            source_id="reuters",
+            source_class="wire_service",
+        )
+    )
+    assert "middle-east" in decision.primary_channel_keys
+    assert "reuters" in decision.mirror_channel_keys
+    assert decision.final_channel_keys[: len(decision.primary_channel_keys)] == decision.primary_channel_keys
 
 
 def test_iran_war_missile_attack_routes_middle_east_not_domain_bucket() -> None:
@@ -541,4 +626,98 @@ def test_debug_score_line_is_human_readable() -> None:
             "reasons": ["tag +5: middle_east", "tag +6: iran", "title_only -1"],
         }
     )
-    assert line == "- middle-east: 11/4 (tag +5: middle_east; tag +6: iran; title_only -1)"
+    assert line == "- middle-east [primary]: 11/4 (tag +5: middle_east; tag +6: iran; title_only -1)"
+
+
+def test_patriot_contract_routes_industrial_base_and_europe() -> None:
+    decision = production_engine().route(
+        RoutingArticle(
+            title="Patriot contract driven by Ukraine demand expands production",
+            source_name="Defense News",
+            source_id="defense-news",
+            source_class="defense_media",
+        )
+    )
+    assert "industrial-base" in decision.primary_channel_keys
+    assert "europe" in decision.primary_channel_keys
+    assert "land" not in decision.primary_channel_keys
+
+
+def test_carrier_global_false_positive_does_not_route_sea() -> None:
+    decision = production_engine().route(
+        RoutingArticle(
+            title="Carrier Global shares rise after earnings",
+            source_name="Reuters",
+            source_id="reuters",
+            source_class="wire_service",
+        )
+    )
+    assert decision.decision_status == "skipped"
+    assert "sea" not in decision.final_channel_keys
+
+
+def test_naval_special_warfare_routes_special_operations() -> None:
+    decision = production_engine().route(
+        RoutingArticle(title="SEAL Team conducts maritime special operations exercise", source_name="DVIDS")
+    )
+    assert "special-operations" in decision.selected_channel_keys
+    assert "sea" not in decision.selected_channel_keys
+
+
+def test_marine_expeditionary_unit_routes_sea() -> None:
+    decision = production_engine().route(
+        RoutingArticle(title="Marine Expeditionary Unit sails with amphibious ready group", source_name="DVIDS")
+    )
+    assert "sea" in decision.selected_channel_keys
+
+
+def test_marine_littoral_regiment_routes_land() -> None:
+    decision = production_engine().route(
+        RoutingArticle(title="Marine Littoral Regiment trains in the Philippines", source_name="DVIDS")
+    )
+    assert "land" in decision.selected_channel_keys
+
+
+def test_army_force_tracking_routes_land() -> None:
+    decision = production_engine().route(
+        RoutingArticle(title="Army sustainment brigade opens logistics hub", source_name="DVIDS")
+    )
+    assert "land" in decision.selected_channel_keys
+
+
+def test_air_force_wing_routes_air() -> None:
+    decision = production_engine().route(
+        RoutingArticle(title="Air Force fighter wing deploys F-35s to Kadena", source_name="DVIDS")
+    )
+    assert "air" in decision.selected_channel_keys
+
+
+def test_military_sealift_routes_sea() -> None:
+    decision = production_engine().route(
+        RoutingArticle(title="Military Sealift Command oiler supports carrier strike group", source_name="DVIDS")
+    )
+    assert "sea" in decision.selected_channel_keys
+    assert "special-operations" not in decision.selected_channel_keys
+
+
+def test_naval_air_wing_routes_sea() -> None:
+    decision = production_engine().route(
+        RoutingArticle(title="Carrier Air Wing patrol squadron deploys P-8 aircraft", source_name="DVIDS")
+    )
+    assert "sea" in decision.selected_channel_keys
+    assert "special-operations" not in decision.selected_channel_keys
+
+
+def test_navy_destroyer_does_not_route_special_operations() -> None:
+    decision = production_engine().route(
+        RoutingArticle(title="Navy destroyer conducts freedom of navigation patrol", source_name="DVIDS")
+    )
+    assert "sea" in decision.selected_channel_keys
+    assert "special-operations" not in decision.selected_channel_keys
+
+
+def test_generic_attack_does_not_route_special_operations() -> None:
+    decision = production_engine().route(
+        RoutingArticle(title="Drone attack damages port facility", source_name="Associated Press")
+    )
+    assert "special-operations" not in decision.selected_channel_keys

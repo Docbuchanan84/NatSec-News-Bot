@@ -7,9 +7,9 @@ A portable Python 3.13 Discord bot that watches RSS/Atom feeds and posts new art
 
 Sharing this project with another operator? Send them `FRIEND_SETUP.md` after cloning the repo. It includes a full local setup walkthrough and a one-shot Codex prompt.
 
-The config is channel-first: each Discord channel declares the feeds it watches.
+The config is feed-first: top-level `feeds` are inputs, and `channels` are Discord destinations selected by routing. Legacy channel-scoped feeds are still accepted for compatibility.
 
-Structured routing is available as a safe first-pass classifier. It is configured in `config/routing/` and documented in `docs/routing.md`. The default example config leaves routing disabled; enable `settings.routing.enabled` with `mode: "observe_only"` before trying enforced routing.
+Structured routing is configured in `config/routing/` and documented in `docs/routing.md`. The example config enables routing in `observe_only` mode so operators can validate scoring before switching to enforced routing.
 
 ## Quick Start With Docker Desktop
 
@@ -58,12 +58,18 @@ python -m app.main
 
 ## Adding A Feed
 
-Open `config/config.json`, find the channel, and add a feed object to that channel's `feeds` array:
+Open `config/config.json` and add a feed object to the top-level `feeds` array:
 
 ```json
 {
+  "id": "new-feed",
+  "sourceId": "new-feed",
+  "sourceClass": "major_media",
   "name": "New Feed Name",
-  "url": "https://example.com/rss"
+  "url": "https://example.com/rss",
+  "pollIntervalSeconds": 300,
+  "routePolicy": "normal",
+  "legacyChannelKeys": []
 }
 ```
 
@@ -81,10 +87,21 @@ If the config is invalid, the bot reports the errors and keeps the previous work
 - `/rss reload` validates and reloads `config/config.json` without restarting.
 - `/rss refresh` refreshes feeds for the Discord channel where the command is run.
 - `/rss testpost` sends one controlled test embed in the current configured channel.
-- `/rss route-test` previews routing for a supplied title and optional summary/source/url.
+- `/rss route-test` previews routing for a supplied title and optional summary/source/source ID/source class/url.
 - `/rss route-article` previews routing for an article already stored in SQLite.
 - `/rss route-backtest` runs routing against recent SQLite articles.
 - `/rss routing-status` shows routing mode, versions, rule counts, and validation status.
+
+## Long-Running Maintenance
+
+Runtime maintenance is configured under `settings.maintenance`. The bot periodically prunes old non-post records, trims duplicate tracking tables, and runs SQLite `PRAGMA optimize` without changing the 5-minute polling cadence. For an operator-triggered cleanup:
+
+```powershell
+python -m app.main --maintain-db
+python -m app.main --maintain-db --vacuum-db
+```
+
+Use `--vacuum-db` only while the bot is stopped or during a planned restart; it can briefly lock and rewrite the SQLite file.
 
 ## Bot Permissions
 
@@ -99,12 +116,15 @@ Privileged message content intent is not required.
 
 ## Design Notes
 
-- The same feed URL can appear under multiple Discord channels. The bot normalizes feed URLs, fetches each unique feed once, and fans out new articles to subscribed channels.
+- The same feed URL can appear more than once. The bot normalizes feed URLs, fetches each unique feed once, and routes new articles to final destinations.
 - First run defaults to suppressing old visible feed entries. They are marked seen so the bot does not dump a backlog into Discord.
 - Articles are deduplicated globally using normalized URLs, feed GUIDs, and normalized title/source fingerprints.
 - `channel_posts` enforces one successful post per article per Discord channel.
 - Feed fetching is asynchronous with bounded concurrency and per-feed timeouts.
+- The scheduler reuses one HTTP session during normal operation to reduce connection churn.
+- Feed health writes are recorded once per completed fetch instead of once at attempt start plus once at completion.
 - Publishing uses one queue per configured Discord channel so one busy channel does not block another.
+- Shutdown drains queued publisher work for `settings.publishing.shutdownDrainSeconds` before worker tasks are cancelled.
 - RSS timestamps are treated as untrusted. The bot stores raw and normalized timestamps and corrects missing, invalid, timezone-naive, or future timestamps.
 - Optional audit logging writes detailed runtime events to `logs/rssbot-audit.log` and errors to `logs/rssbot-errors.log`.
 

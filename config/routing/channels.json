@@ -76,7 +76,8 @@
         "Africa": 2,
         "Crisis Group": 1,
         "State Department Africa": 2
-      }
+      },
+      "destination_class": "primary"
     },
     {
       "channel_key": "europe",
@@ -130,12 +131,14 @@
         "Kyiv Independent": 3
       },
       "minimum_score": 4,
-      "notes": "Russia-Ukraine war signals should beat military domain buckets."
+      "notes": "Russia-Ukraine war signals should beat military domain buckets.",
+      "destination_class": "primary"
     },
     {
       "channel_key": "indo-pacific",
       "priority": 90,
       "term_boosts": {
+        "india_security_crisis": 3,
         "taiwan_strait": 2,
         "south_china_sea": 2,
         "philippine_sea": 2
@@ -162,6 +165,9 @@
         "finance": 1,
         "diplomacy": 1
       },
+      "tag_penalties": {
+        "india": 7
+      },
       "required_any": [
         "indo_pacific",
         "china",
@@ -180,10 +186,8 @@
         "marshall_islands",
         "new_caledonia"
       ],
-      "source_biases": {
-        "Asia": 2,
-        "South and Central Asia": 1
-      }
+      "source_biases": {},
+      "destination_class": "primary"
     },
     {
       "channel_key": "middle-east",
@@ -239,7 +243,8 @@
         "Near East": 2
       },
       "minimum_score": 4,
-      "notes": "Middle East conflict and Gulf-state signals should beat military domain buckets."
+      "notes": "Middle East conflict and Gulf-state signals should beat military domain buckets.",
+      "destination_class": "primary"
     },
     {
       "channel_key": "north-america",
@@ -271,7 +276,8 @@
         "canada",
         "north_america"
       ],
-      "source_biases": {}
+      "source_biases": {},
+      "destination_class": "primary"
     },
     {
       "channel_key": "south-central-america",
@@ -361,7 +367,8 @@
         "Americas": 2,
         "Miami Herald": 2,
         "NYT Americas": 2
-      }
+      },
+      "destination_class": "primary"
     },
     {
       "channel_key": "sea",
@@ -378,7 +385,11 @@
         "carrier_strike_group": 6,
         "destroyer": 4,
         "submarine": 4,
-        "military_movement": 2
+        "military_movement": 2,
+        "amphibious": 5,
+        "military_sealift": 5,
+        "naval_air_wing": 4,
+        "maritime_patrol": 3
       },
       "tag_penalties": {
         "skip_candidate": 9,
@@ -389,7 +400,9 @@
         "lebanon": 5,
         "yemen": 5,
         "ukraine": 6,
-        "russia": 6
+        "russia": 6,
+        "active_conflict": 12,
+        "special_operations": 12
       },
       "term_penalties": {
         "ukraine_war": 12,
@@ -403,13 +416,22 @@
         "aircraft_carrier",
         "carrier_strike_group",
         "destroyer",
-        "submarine"
+        "submarine",
+        "amphibious",
+        "military_sealift",
+        "naval_air_wing",
+        "maritime_patrol"
       ],
       "source_biases": {
         "Naval": 3,
         "USNI": 3,
         "Seapower": 3
-      }
+      },
+      "destination_class": "primary",
+      "excluded_any": [
+        "active_conflict",
+        "special_operations"
+      ]
     },
     {
       "channel_key": "air",
@@ -423,7 +445,9 @@
         "fighter_aircraft": 5,
         "bomber_aircraft": 4,
         "strategic_bomber": 3,
-        "drone": 4
+        "drone": 4,
+        "naval_air_wing": 3,
+        "maritime_patrol": 4
       },
       "tag_penalties": {
         "skip_candidate": 9,
@@ -437,7 +461,8 @@
         "lebanon": 5,
         "yemen": 5,
         "ukraine": 6,
-        "russia": 6
+        "russia": 6,
+        "active_conflict": 12
       },
       "term_penalties": {
         "ukraine_war": 12,
@@ -451,13 +476,19 @@
         "fighter_aircraft",
         "bomber_aircraft",
         "strategic_bomber",
-        "drone"
+        "drone",
+        "naval_air_wing",
+        "maritime_patrol"
       ],
       "source_biases": {
         "Air": 3,
         "FAA": -2,
         "Aerospace": 2
-      }
+      },
+      "destination_class": "primary",
+      "excluded_any": [
+        "active_conflict"
+      ]
     },
     {
       "channel_key": "land",
@@ -473,7 +504,9 @@
         "military": 2,
         "military_base": 2,
         "military_movement": 2,
-        "exercise": 2
+        "exercise": 2,
+        "marine_littoral": 5,
+        "sustainment": 2
       },
       "tag_penalties": {
         "skip_candidate": 9,
@@ -484,7 +517,8 @@
         "lebanon": 5,
         "yemen": 5,
         "ukraine": 6,
-        "russia": 6
+        "russia": 6,
+        "active_conflict": 12
       },
       "term_penalties": {
         "ukraine_war": 12,
@@ -499,13 +533,18 @@
         "missile_defense",
         "military_base",
         "military_movement",
-        "exercise"
+        "exercise",
+        "marine_littoral"
       ],
       "source_biases": {
         "Land": 3,
         "Army": 2,
         "Military Times": 1
-      }
+      },
+      "destination_class": "primary",
+      "excluded_any": [
+        "active_conflict"
+      ]
     },
     {
       "channel_key": "space",
@@ -520,7 +559,8 @@
       ],
       "source_biases": {
         "Space": 3
-      }
+      },
+      "destination_class": "primary"
     },
     {
       "channel_key": "science-technology",
@@ -609,17 +649,15 @@
         "Bluesky: Kim Zetter": 4,
         "Bluesky: Lorenzo Franceschi-Bicchierai": 4,
         "Bluesky: Tim Fernholz": 3
-      }
+      },
+      "destination_class": "primary"
     },
     {
       "channel_key": "special-operations",
       "minimum_score": 5,
       "priority": 85,
       "tag_boosts": {
-        "military": 3,
-        "drone": 2,
-        "attack": 2,
-        "non_state_actor": 2,
+        "special_operations": 10,
         "military_organization": 1
       },
       "tag_penalties": {
@@ -647,16 +685,14 @@
         "bab_el_mandeb": 3
       },
       "required_any": [
-        "military",
-        "drone",
-        "attack",
-        "non_state_actor"
+        "special_operations"
       ],
       "source_biases": {
         "Task & Purpose": 2,
         "War Zone": 2,
         "Counterterrorism": 2
-      }
+      },
+      "destination_class": "primary"
     },
     {
       "channel_key": "training-and-doctrine",
@@ -700,7 +736,8 @@
         "Modern War Institute": 2,
         "War College": 2,
         "Training": 2
-      }
+      },
+      "destination_class": "primary"
     },
     {
       "channel_key": "strategic-weapons",
@@ -746,7 +783,8 @@
       "source_biases": {
         "Arms Control": 3,
         "SIPRI": 2
-      }
+      },
+      "destination_class": "primary"
     },
     {
       "channel_key": "industrial-base",
@@ -755,32 +793,22 @@
         "defense_industry": 1
       },
       "tag_boosts": {
-        "defense_industry": 7,
-        "procurement": 5,
+        "defense_industry": 8,
+        "procurement": 7,
         "legislation": 1,
-        "military": 1
+        "military": 1,
+        "production": 5,
+        "stockpile": 5
       },
       "tag_penalties": {
         "skip_candidate": 9,
         "indo_pacific": 4,
         "north_korea": 3,
         "china": 3,
-        "middle_east": 8,
-        "europe": 8,
-        "iran": 6,
-        "israel": 3,
         "lebanon": 3,
-        "yemen": 3,
-        "ukraine": 6,
-        "russia": 6
+        "yemen": 3
       },
-      "term_penalties": {
-        "ukraine_war": 12,
-        "iran_war": 12,
-        "gaza_war": 5,
-        "lebanon_conflict": 5,
-        "strait_of_hormuz": 6
-      },
+      "term_penalties": {},
       "required_any": [
         "defense_industry",
         "procurement"
@@ -791,7 +819,8 @@
         "Contracts": 3
       },
       "minimum_score": 6,
-      "notes": "Defense industrial base only; generic company/business news should route elsewhere."
+      "notes": "Defense procurement, contracts, production, stockpiles, acquisition, and industrial capacity.",
+      "destination_class": "primary"
     },
     {
       "channel_key": "wire-service",
@@ -835,7 +864,9 @@
         "Bluesky: Ken Vogel": 2,
         "Bluesky: John Bresnahan": 2
       },
-      "notes": "Fallback source bucket only; country and region channels should win."
+      "notes": "Disabled for now; wire sources remain inputs but this destination is not selected.",
+      "destination_class": "mirror",
+      "enabled": false
     },
     {
       "channel_key": "reuters",
@@ -846,11 +877,19 @@
         "Reuters": 6,
         "Bluesky: Reuters": 6
       },
-      "notes": "Source-only channel; source gate is required before scoring.",
+      "notes": "Source-only channel; source gate is required before scoring. Source mirror; added after primary routing and never for skipped/no-match items.",
       "required_source_any": [
         "Reuters",
         "Bluesky: Reuters"
-      ]
+      ],
+      "destination_class": "mirror",
+      "required_source_ids": [
+        "reuters"
+      ],
+      "required_source_classes": [
+        "wire_service"
+      ],
+      "required_any": []
     },
     {
       "channel_key": "associated-press",
@@ -862,12 +901,20 @@
         "Associated Press": 6,
         "Bluesky: AP": 6
       },
-      "notes": "Source-only channel; source gate is required before scoring.",
+      "notes": "Source-only channel; source gate is required before scoring. Source mirror; added after primary routing and never for skipped/no-match items.",
       "required_source_any": [
         "Associated Press",
         "AP",
         "Bluesky: AP"
-      ]
+      ],
+      "destination_class": "mirror",
+      "required_source_ids": [
+        "associated-press"
+      ],
+      "required_source_classes": [
+        "wire_service"
+      ],
+      "required_any": []
     },
     {
       "channel_key": "nyt",
@@ -879,12 +926,20 @@
         "New York Times": 6,
         "Bluesky: New York Times": 6
       },
-      "notes": "Source-only channel; source gate is required before scoring.",
+      "notes": "Source-only channel; source gate is required before scoring. Source mirror; added after primary routing and never for skipped/no-match items.",
       "required_source_any": [
         "NYT",
         "New York Times",
         "Bluesky: New York Times"
-      ]
+      ],
+      "destination_class": "mirror",
+      "required_source_ids": [
+        "nyt"
+      ],
+      "required_source_classes": [
+        "major_media"
+      ],
+      "required_any": []
     },
     {
       "channel_key": "wapo",
@@ -896,12 +951,20 @@
         "Washington Post": 6,
         "Bluesky: Washington Post": 6
       },
-      "notes": "Source-only channel; source gate is required before scoring.",
+      "notes": "Source-only channel; source gate is required before scoring. Source mirror; added after primary routing and never for skipped/no-match items.",
       "required_source_any": [
         "WaPo",
         "Washington Post",
         "Bluesky: Washington Post"
-      ]
+      ],
+      "destination_class": "mirror",
+      "required_source_ids": [
+        "wapo"
+      ],
+      "required_source_classes": [
+        "major_media"
+      ],
+      "required_any": []
     },
     {
       "channel_key": "abc-cbs-fox-nbc",
@@ -916,7 +979,7 @@
         "Bluesky: NBC News": 6,
         "Bluesky: CBS News": 6
       },
-      "notes": "Source-only channel; source gate is required before scoring.",
+      "notes": "Source-only channel; source gate is required before scoring. Source mirror; added after primary routing and never for skipped/no-match items.",
       "required_source_any": [
         "ABC",
         "CBS",
@@ -924,7 +987,18 @@
         "NBC",
         "Bluesky: NBC News",
         "Bluesky: CBS News"
-      ]
+      ],
+      "destination_class": "mirror",
+      "required_source_ids": [
+        "abc",
+        "cbs",
+        "fox",
+        "nbc"
+      ],
+      "required_source_classes": [
+        "major_media"
+      ],
+      "required_any": []
     },
     {
       "channel_key": "newsweek",
@@ -935,11 +1009,19 @@
         "Newsweek": 6,
         "Bluesky: Newsweek": 6
       },
-      "notes": "Source-only channel; source gate is required before scoring.",
+      "notes": "Source-only channel; source gate is required before scoring. Source mirror; added after primary routing and never for skipped/no-match items.",
       "required_source_any": [
         "Newsweek",
         "Bluesky: Newsweek"
-      ]
+      ],
+      "destination_class": "mirror",
+      "required_source_ids": [
+        "newsweek"
+      ],
+      "required_source_classes": [
+        "major_media"
+      ],
+      "required_any": []
     },
     {
       "channel_key": "npr",
@@ -950,11 +1032,19 @@
         "NPR": 6,
         "Bluesky: NPR": 6
       },
-      "notes": "Source-only channel; source gate is required before scoring.",
+      "notes": "Source-only channel; source gate is required before scoring. Source mirror; added after primary routing and never for skipped/no-match items.",
       "required_source_any": [
         "NPR",
         "Bluesky: NPR"
-      ]
+      ],
+      "destination_class": "mirror",
+      "required_source_ids": [
+        "npr"
+      ],
+      "required_source_classes": [
+        "major_media"
+      ],
+      "required_any": []
     },
     {
       "channel_key": "the-hill",
@@ -994,7 +1084,8 @@
         "Bluesky: Ken Vogel": 3,
         "Bluesky: Anthony Adragna": 3
       },
-      "minimum_score": 5
+      "minimum_score": 5,
+      "destination_class": "primary"
     },
     {
       "channel_key": "the-white-house",
@@ -1027,7 +1118,8 @@
         "White House",
         "White House News"
       ],
-      "notes": "Official White House channel only; State Department routes by country/region/topic."
+      "notes": "Official White House channel only; State Department routes by country/region/topic.",
+      "destination_class": "primary"
     },
     {
       "channel_key": "dept-of-war",
@@ -1114,7 +1206,11 @@
         "Department of Defense YouTube"
       ],
       "minimum_score": 4,
-      "notes": "Official Defense Department and subordinate command/service content only."
+      "notes": "Official Defense Department and subordinate command/service content only. Source mirror; added after primary routing and never for skipped/no-match items.",
+      "destination_class": "mirror",
+      "required_source_classes": [
+        "official_us_defense"
+      ]
     },
     {
       "channel_key": "defense-media",
@@ -1210,7 +1306,13 @@
         "Bluesky: Susan Glasser": 2,
         "Bluesky: Nahal Toosi": 3,
         "Bluesky: Ken Klippenstein": 2
-      }
+      },
+      "destination_class": "mirror",
+      "required_source_classes": [
+        "defense_media",
+        "osint"
+      ],
+      "notes": " Source mirror; added after primary routing and never for skipped/no-match items."
     },
     {
       "channel_key": "think-tanks",
@@ -1268,7 +1370,7 @@
         "ASPI": 6,
         "International Crisis Group": 6
       },
-      "notes": "Think-tank-produced content only; source gate is required before scoring.",
+      "notes": "Think-tank-produced content only; source gate is required before scoring. Source mirror; added after primary routing and never for skipped/no-match items.",
       "required_source_any": [
         "CSIS",
         "RAND",
@@ -1290,7 +1392,22 @@
         "Atlantic Council",
         "ASPI",
         "International Crisis Group"
+      ],
+      "destination_class": "mirror",
+      "required_source_classes": [
+        "think_tank"
       ]
+    },
+    {
+      "channel_key": "review",
+      "enabled": true,
+      "destination_class": "review",
+      "minimum_score": 0,
+      "priority": 1000,
+      "required_any": [],
+      "tag_boosts": {},
+      "notes": "Review-only destination for review_required and ambiguous articles."
     }
-  ]
+  ],
+  "max_primary_destinations": 2
 }

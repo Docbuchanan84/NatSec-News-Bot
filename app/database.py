@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import sqlite3
 import threading
 from datetime import UTC, datetime, timedelta
@@ -10,9 +11,11 @@ from typing import Any
 from app.models import ArticleCandidate, DedupeResult, PostJob
 from app.normalizer import isoformat, source_family, stable_hash, title_signature
 
+logger = logging.getLogger(__name__)
+
 
 SCHEMA = """
-PRAGMA journal_mode = WAL;
+PRAGMA journal_mode = DELETE;
 PRAGMA synchronous = NORMAL;
 PRAGMA foreign_keys = ON;
 
@@ -23,6 +26,9 @@ CREATE TABLE IF NOT EXISTS articles (
     normalized_title TEXT,
     title_signature TEXT,
     source_family TEXT,
+    source_id TEXT,
+    source_class TEXT,
+    story_cluster_key TEXT,
     url TEXT,
     normalized_url TEXT,
     summary TEXT,
@@ -59,6 +65,13 @@ CREATE TABLE IF NOT EXISTS feed_entries (
     FOREIGN KEY(article_id) REFERENCES articles(id)
 );
 
+CREATE TABLE IF NOT EXISTS feed_entry_seen (
+    feed_key TEXT NOT NULL,
+    entry_key TEXT NOT NULL,
+    seen_at TEXT NOT NULL,
+    PRIMARY KEY(feed_key, entry_key)
+);
+
 CREATE TABLE IF NOT EXISTS channel_posts (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     article_id INTEGER NOT NULL,
@@ -92,6 +105,42 @@ CREATE TABLE IF NOT EXISTS channel_seen_title_signatures (
     FOREIGN KEY(article_id) REFERENCES articles(id)
 );
 
+CREATE TABLE IF NOT EXISTS channel_seen_source_titles (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    channel_id TEXT NOT NULL,
+    source_id TEXT NOT NULL,
+    normalized_title TEXT NOT NULL,
+    article_id INTEGER NOT NULL,
+    first_seen_at TEXT NOT NULL,
+    status TEXT NOT NULL,
+    UNIQUE(channel_id, source_id, normalized_title),
+    FOREIGN KEY(article_id) REFERENCES articles(id)
+);
+
+CREATE TABLE IF NOT EXISTS channel_seen_source_title_signatures (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    channel_id TEXT NOT NULL,
+    source_id TEXT NOT NULL,
+    title_signature TEXT NOT NULL,
+    article_id INTEGER NOT NULL,
+    first_seen_at TEXT NOT NULL,
+    status TEXT NOT NULL,
+    UNIQUE(channel_id, source_id, title_signature),
+    FOREIGN KEY(article_id) REFERENCES articles(id)
+);
+
+CREATE TABLE IF NOT EXISTS channel_story_sources (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    channel_id TEXT NOT NULL,
+    story_cluster_key TEXT NOT NULL,
+    source_id TEXT NOT NULL,
+    article_id INTEGER NOT NULL,
+    first_seen_at TEXT NOT NULL,
+    status TEXT NOT NULL,
+    UNIQUE(channel_id, story_cluster_key, source_id),
+    FOREIGN KEY(article_id) REFERENCES articles(id)
+);
+
 CREATE TABLE IF NOT EXISTS feed_status (
     feed_key TEXT PRIMARY KEY,
     feed_name TEXT,
@@ -117,6 +166,11 @@ CREATE TABLE IF NOT EXISTS article_routing_decisions (
     emitted_tags TEXT NOT NULL,
     expanded_tags TEXT NOT NULL,
     explanation TEXT NOT NULL,
+    primary_channel_keys TEXT,
+    mirror_channel_keys TEXT,
+    review_channel_keys TEXT,
+    final_channel_keys TEXT,
+    reason TEXT,
     FOREIGN KEY(article_id) REFERENCES articles(id)
 );
 
@@ -145,9 +199,13 @@ CREATE TABLE IF NOT EXISTS article_matches (
 CREATE INDEX IF NOT EXISTS idx_articles_normalized_url ON articles(normalized_url);
 CREATE INDEX IF NOT EXISTS idx_articles_title_source_time ON articles(normalized_title, source_name, normalized_published_at);
 CREATE INDEX IF NOT EXISTS idx_feed_status_next_poll ON feed_status(next_poll_at);
+CREATE INDEX IF NOT EXISTS idx_feed_entry_seen_seen_at ON feed_entry_seen(seen_at);
 CREATE INDEX IF NOT EXISTS idx_channel_posts_channel ON channel_posts(channel_id, article_id);
 CREATE INDEX IF NOT EXISTS idx_channel_seen_titles_channel ON channel_seen_titles(channel_id, normalized_title);
 CREATE INDEX IF NOT EXISTS idx_channel_seen_title_signatures_channel ON channel_seen_title_signatures(channel_id, title_signature);
+CREATE INDEX IF NOT EXISTS idx_channel_seen_source_titles_channel ON channel_seen_source_titles(channel_id, source_id, normalized_title);
+CREATE INDEX IF NOT EXISTS idx_channel_seen_source_title_signatures_channel ON channel_seen_source_title_signatures(channel_id, source_id, title_signature);
+CREATE INDEX IF NOT EXISTS idx_channel_story_sources_cluster ON channel_story_sources(channel_id, story_cluster_key, source_id);
 CREATE INDEX IF NOT EXISTS idx_article_routing_decisions_article ON article_routing_decisions(article_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_article_routing_decisions_status ON article_routing_decisions(decision_status, created_at);
 CREATE INDEX IF NOT EXISTS idx_article_tags_tag ON article_tags(tag, article_id);
@@ -169,7 +227,10 @@ class Database:
             self._conn.executescript(SCHEMA)
             self._migrate()
             self._conn.commit()
-            self._conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+            try:
+                self._conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+            except sqlite3.OperationalError as exc:
+                logger.warning("SQLite WAL checkpoint failed during initialization: %s", exc)
 
     def _migrate(self) -> None:
         columns = {
@@ -186,6 +247,12 @@ class Database:
             self._conn.execute("ALTER TABLE articles ADD COLUMN title_signature TEXT")
         if "source_family" not in article_columns:
             self._conn.execute("ALTER TABLE articles ADD COLUMN source_family TEXT")
+        if "source_id" not in article_columns:
+            self._conn.execute("ALTER TABLE articles ADD COLUMN source_id TEXT")
+        if "source_class" not in article_columns:
+            self._conn.execute("ALTER TABLE articles ADD COLUMN source_class TEXT")
+        if "story_cluster_key" not in article_columns:
+            self._conn.execute("ALTER TABLE articles ADD COLUMN story_cluster_key TEXT")
         if "summary" not in article_columns:
             self._conn.execute("ALTER TABLE articles ADD COLUMN summary TEXT")
         if "image_url" not in article_columns:
@@ -198,19 +265,50 @@ class Database:
             ON articles(title_signature, source_family, normalized_published_at)
             """
         )
+        self._conn.execute(
+            """
+            INSERT OR IGNORE INTO feed_entry_seen (feed_key, entry_key, seen_at)
+            SELECT feed_key, entry_key, seen_at
+            FROM feed_entries
+            """
+        )
         rows = self._conn.execute(
             """
             SELECT id, title, source_name
             FROM articles
             WHERE title_signature IS NULL OR title_signature = ''
                OR source_family IS NULL OR source_family = ''
+               OR source_id IS NULL OR source_id = ''
+               OR source_class IS NULL OR source_class = ''
+               OR story_cluster_key IS NULL OR story_cluster_key = ''
             """
         ).fetchall()
         for row in rows:
+            signature = title_signature(row["title"])
+            family = source_family(row["source_name"])
             self._conn.execute(
-                "UPDATE articles SET title_signature = ?, source_family = ? WHERE id = ?",
-                (title_signature(row["title"]), source_family(row["source_name"]), row["id"]),
+                """
+                UPDATE articles
+                SET title_signature = ?, source_family = ?, source_id = coalesce(nullif(source_id, ''), ?),
+                    source_class = coalesce(nullif(source_class, ''), 'unknown'),
+                    story_cluster_key = coalesce(nullif(story_cluster_key, ''), ?)
+                WHERE id = ?
+                """,
+                (signature, family, family or "unknown", stable_hash(signature or row["title"], 24), row["id"]),
             )
+        routing_columns = {
+            row["name"]
+            for row in self._conn.execute("PRAGMA table_info(article_routing_decisions)").fetchall()
+        }
+        for column in (
+            "primary_channel_keys",
+            "mirror_channel_keys",
+            "review_channel_keys",
+            "final_channel_keys",
+            "reason",
+        ):
+            if column not in routing_columns:
+                self._conn.execute(f"ALTER TABLE article_routing_decisions ADD COLUMN {column} TEXT")
         self._conn.execute(
             """
             INSERT OR IGNORE INTO channel_seen_titles (
@@ -233,6 +331,42 @@ class Database:
             WHERE a.title_signature IS NOT NULL AND a.title_signature != ''
             """
         )
+        self._conn.execute(
+            """
+            INSERT OR IGNORE INTO channel_seen_source_titles (
+                channel_id, source_id, normalized_title, article_id, first_seen_at, status
+            )
+            SELECT cp.channel_id, coalesce(nullif(a.source_id, ''), 'unknown'), a.normalized_title, a.id,
+                   cp.posted_at, cp.status
+            FROM channel_posts cp
+            JOIN articles a ON a.id = cp.article_id
+            WHERE a.normalized_title IS NOT NULL AND a.normalized_title != ''
+            """
+        )
+        self._conn.execute(
+            """
+            INSERT OR IGNORE INTO channel_seen_source_title_signatures (
+                channel_id, source_id, title_signature, article_id, first_seen_at, status
+            )
+            SELECT cp.channel_id, coalesce(nullif(a.source_id, ''), 'unknown'), a.title_signature, a.id,
+                   cp.posted_at, cp.status
+            FROM channel_posts cp
+            JOIN articles a ON a.id = cp.article_id
+            WHERE a.title_signature IS NOT NULL AND a.title_signature != ''
+            """
+        )
+        self._conn.execute(
+            """
+            INSERT OR IGNORE INTO channel_story_sources (
+                channel_id, story_cluster_key, source_id, article_id, first_seen_at, status
+            )
+            SELECT cp.channel_id, coalesce(nullif(a.story_cluster_key, ''), a.title_signature, a.normalized_title),
+                   coalesce(nullif(a.source_id, ''), 'unknown'), a.id, cp.posted_at, cp.status
+            FROM channel_posts cp
+            JOIN articles a ON a.id = cp.article_id
+            WHERE coalesce(nullif(a.story_cluster_key, ''), a.title_signature, a.normalized_title) IS NOT NULL
+            """
+        )
 
     def close(self) -> None:
         with self._lock:
@@ -241,6 +375,12 @@ class Database:
             except sqlite3.Error:
                 pass
             self._conn.close()
+
+    def database_size_bytes(self) -> int:
+        try:
+            return self.path.stat().st_size
+        except FileNotFoundError:
+            return 0
 
     def resolve_article(self, candidate: ArticleCandidate, title_window_hours: int) -> DedupeResult:
         with self._lock:
@@ -284,36 +424,25 @@ class Database:
                 """
                 SELECT id FROM articles
                 WHERE normalized_title = ?
-                  AND lower(source_name) = lower(?)
+                  AND source_id = ?
                   AND normalized_published_at >= ?
                 ORDER BY id ASC LIMIT 1
                 """,
-                (candidate.normalized_title, candidate.source_name, cutoff.isoformat()),
+                (candidate.normalized_title, candidate.source_id, cutoff.isoformat()),
             ).fetchone()
             if row:
                 return int(row["id"])
-            row = cursor.execute(
-                """
-                SELECT id FROM articles
-                WHERE normalized_title = ?
-                  AND normalized_published_at >= ?
-                ORDER BY id ASC LIMIT 1
-                """,
-                (candidate.normalized_title, cutoff.isoformat()),
-            ).fetchone()
-            if row:
-                return int(row["id"])
-        if candidate.title_signature and candidate.source_family:
+        if candidate.title_signature and candidate.source_id:
             cutoff = datetime.now(UTC) - timedelta(hours=title_window_hours)
             row = cursor.execute(
                 """
                 SELECT id FROM articles
                 WHERE title_signature = ?
-                  AND source_family = ?
+                  AND source_id = ?
                   AND normalized_published_at >= ?
                 ORDER BY id ASC LIMIT 1
                 """,
-                (candidate.title_signature, candidate.source_family, cutoff.isoformat()),
+                (candidate.title_signature, candidate.source_id, cutoff.isoformat()),
             ).fetchone()
             if row:
                 return int(row["id"])
@@ -326,11 +455,12 @@ class Database:
         cursor.execute(
             """
             INSERT INTO articles (
-                canonical_key, title, normalized_title, title_signature, source_family, url, normalized_url, summary,
+                canonical_key, title, normalized_title, title_signature, source_family, source_id, source_class,
+                story_cluster_key, url, normalized_url, summary,
                 image_url, image_source, source_name,
                 raw_published_at, normalized_published_at, ingested_at, timestamp_status, first_seen_at
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 canonical_key,
@@ -338,6 +468,9 @@ class Database:
                 candidate.normalized_title,
                 candidate.title_signature,
                 candidate.source_family,
+                candidate.source_id,
+                candidate.source_class,
+                candidate.story_cluster_key,
                 candidate.url,
                 candidate.normalized_url,
                 candidate.summary,
@@ -367,8 +500,7 @@ class Database:
             )
 
     def _insert_feed_entry(self, cursor: sqlite3.Cursor, article_id: int, candidate: ArticleCandidate) -> None:
-        entry_seed = candidate.raw_guid or candidate.normalized_url or candidate.normalized_title
-        entry_key = stable_hash(entry_seed or f"{article_id}:{datetime.now(UTC).isoformat()}", 32)
+        entry_key = self._feed_entry_key(candidate)
         cursor.execute(
             """
             INSERT OR IGNORE INTO feed_entries (
@@ -386,6 +518,44 @@ class Database:
                 entry_key,
             ),
         )
+        cursor.execute(
+            """
+            INSERT OR IGNORE INTO feed_entry_seen (feed_key, entry_key, seen_at)
+            VALUES (?, ?, ?)
+            """,
+            (candidate.feed_key, entry_key, datetime.now(UTC).isoformat()),
+        )
+
+    def _feed_entry_key(self, candidate: ArticleCandidate) -> str:
+        entry_seed = candidate.raw_guid or candidate.normalized_url or candidate.normalized_title
+        return stable_hash(entry_seed or f"{candidate.feed_key}:{candidate.title}", 32)
+
+    def has_feed_entry_seen(self, candidate: ArticleCandidate) -> bool:
+        entry_key = self._feed_entry_key(candidate)
+        with self._lock:
+            row = self._conn.execute(
+                """
+                SELECT 1
+                FROM feed_entry_seen
+                WHERE feed_key = ? AND entry_key = ?
+                LIMIT 1
+                """,
+                (candidate.feed_key, entry_key),
+            ).fetchone()
+            return row is not None
+
+    def record_feed_entry_seen(self, candidate: ArticleCandidate) -> bool:
+        entry_key = self._feed_entry_key(candidate)
+        with self._lock:
+            cursor = self._conn.execute(
+                """
+                INSERT OR IGNORE INTO feed_entry_seen (feed_key, entry_key, seen_at)
+                VALUES (?, ?, ?)
+                """,
+                (candidate.feed_key, entry_key, datetime.now(UTC).isoformat()),
+            )
+            self._conn.commit()
+            return cursor.rowcount == 1
 
     def has_channel_post(self, article_id: int, channel_id: str) -> bool:
         with self._lock:
@@ -395,23 +565,61 @@ class Database:
             ).fetchone()
             return row is not None
 
-    def has_channel_title(self, channel_id: str, normalized_title: str | None) -> bool:
+    def has_channel_title(self, channel_id: str, normalized_title: str | None, source_id: str = "unknown") -> bool:
         if not normalized_title:
             return False
         with self._lock:
             row = self._conn.execute(
-                "SELECT 1 FROM channel_seen_titles WHERE channel_id = ? AND normalized_title = ?",
-                (channel_id, normalized_title),
+                """
+                SELECT 1 FROM channel_seen_source_titles
+                WHERE channel_id = ? AND source_id = ? AND normalized_title = ?
+                """,
+                (channel_id, source_id or "unknown", normalized_title),
             ).fetchone()
             return row is not None
 
-    def has_channel_title_signature(self, channel_id: str, title_signature: str | None) -> bool:
+    def has_channel_title_signature(
+        self,
+        channel_id: str,
+        title_signature: str | None,
+        source_id: str = "unknown",
+    ) -> bool:
         if not title_signature:
             return False
         with self._lock:
             row = self._conn.execute(
-                "SELECT 1 FROM channel_seen_title_signatures WHERE channel_id = ? AND title_signature = ?",
-                (channel_id, title_signature),
+                """
+                SELECT 1 FROM channel_seen_source_title_signatures
+                WHERE channel_id = ? AND source_id = ? AND title_signature = ?
+                """,
+                (channel_id, source_id or "unknown", title_signature),
+            ).fetchone()
+            return row is not None
+
+    def channel_story_source_count(self, channel_id: str, story_cluster_key: str | None) -> int:
+        if not story_cluster_key:
+            return 0
+        with self._lock:
+            row = self._conn.execute(
+                """
+                SELECT count(DISTINCT source_id)
+                FROM channel_story_sources
+                WHERE channel_id = ? AND story_cluster_key = ?
+                """,
+                (channel_id, story_cluster_key),
+            ).fetchone()
+            return int(row[0] or 0)
+
+    def has_channel_story_source(self, channel_id: str, story_cluster_key: str | None, source_id: str) -> bool:
+        if not story_cluster_key:
+            return False
+        with self._lock:
+            row = self._conn.execute(
+                """
+                SELECT 1 FROM channel_story_sources
+                WHERE channel_id = ? AND story_cluster_key = ? AND source_id = ?
+                """,
+                (channel_id, story_cluster_key, source_id or "unknown"),
             ).fetchone()
             return row is not None
 
@@ -422,35 +630,49 @@ class Database:
         normalized_title: str | None,
         title_signature: str | None,
         status: str,
+        source_id: str = "unknown",
+        story_cluster_key: str | None = None,
     ) -> bool:
         with self._lock:
             inserted_title = 1
             inserted_signature = 1
+            inserted_cluster = 1
             now = datetime.now(UTC).isoformat()
             if normalized_title:
                 cursor = self._conn.execute(
                     """
-                    INSERT OR IGNORE INTO channel_seen_titles (
-                        channel_id, normalized_title, article_id, first_seen_at, status
+                    INSERT OR IGNORE INTO channel_seen_source_titles (
+                        channel_id, source_id, normalized_title, article_id, first_seen_at, status
                     )
-                    VALUES (?, ?, ?, ?, ?)
+                    VALUES (?, ?, ?, ?, ?, ?)
                     """,
-                    (channel_id, normalized_title, article_id, now, status),
+                    (channel_id, source_id or "unknown", normalized_title, article_id, now, status),
                 )
                 inserted_title = cursor.rowcount
             if title_signature:
                 cursor = self._conn.execute(
                     """
-                    INSERT OR IGNORE INTO channel_seen_title_signatures (
-                        channel_id, title_signature, article_id, first_seen_at, status
+                    INSERT OR IGNORE INTO channel_seen_source_title_signatures (
+                        channel_id, source_id, title_signature, article_id, first_seen_at, status
                     )
-                    VALUES (?, ?, ?, ?, ?)
+                    VALUES (?, ?, ?, ?, ?, ?)
                     """,
-                    (channel_id, title_signature, article_id, now, status),
+                    (channel_id, source_id or "unknown", title_signature, article_id, now, status),
                 )
                 inserted_signature = cursor.rowcount
+            if story_cluster_key:
+                cursor = self._conn.execute(
+                    """
+                    INSERT OR IGNORE INTO channel_story_sources (
+                        channel_id, story_cluster_key, source_id, article_id, first_seen_at, status
+                    )
+                    VALUES (?, ?, ?, ?, ?, ?)
+                    """,
+                    (channel_id, story_cluster_key, source_id or "unknown", article_id, now, status),
+                )
+                inserted_cluster = cursor.rowcount
             self._conn.commit()
-            return inserted_title == 1 and inserted_signature == 1
+            return inserted_title == 1 and inserted_signature == 1 and inserted_cluster == 1
 
     def record_channel_skipped(
         self,
@@ -459,6 +681,9 @@ class Database:
         normalized_title: str | None,
         title_signature: str | None,
         status: str,
+        source_id: str = "unknown",
+        story_cluster_key: str | None = None,
+        reserve_seen: bool = True,
     ) -> bool:
         with self._lock:
             cursor = self._conn.execute(
@@ -468,7 +693,16 @@ class Database:
                 """,
                 (article_id, channel_id, datetime.now(UTC).isoformat(), status),
             )
-            self.reserve_channel_title(article_id, channel_id, normalized_title, title_signature, status)
+            if reserve_seen:
+                self.reserve_channel_title(
+                    article_id,
+                    channel_id,
+                    normalized_title,
+                    title_signature,
+                    status,
+                    source_id,
+                    story_cluster_key,
+                )
             self._conn.commit()
             return cursor.rowcount == 1
 
@@ -490,21 +724,26 @@ class Database:
         channel_id: str,
         normalized_title: str | None = None,
         title_signature: str | None = None,
+        source_id: str = "unknown",
+        story_cluster_key: str | None = None,
+        status: str = "suppressed_first_run",
     ) -> bool:
         with self._lock:
             cursor = self._conn.execute(
                 """
                 INSERT OR IGNORE INTO channel_posts (article_id, channel_id, discord_message_id, posted_at, status)
-                VALUES (?, ?, NULL, ?, 'suppressed_first_run')
+                VALUES (?, ?, NULL, ?, ?)
                 """,
-                (article_id, channel_id, datetime.now(UTC).isoformat()),
+                (article_id, channel_id, datetime.now(UTC).isoformat(), status),
             )
             self.reserve_channel_title(
                 article_id,
                 channel_id,
                 normalized_title,
                 title_signature,
-                "suppressed_first_run",
+                status,
+                source_id,
+                story_cluster_key,
             )
             self._conn.commit()
             return cursor.rowcount == 1
@@ -525,30 +764,68 @@ class Database:
             )
             self._conn.commit()
 
-    def mark_feed_success(self, feed_key: str, next_poll_at: datetime | None = None) -> None:
+    def mark_feed_success(
+        self,
+        feed_key: str,
+        feed_name: str,
+        feed_url: str,
+        next_poll_at: datetime | None = None,
+    ) -> None:
         now = datetime.now(UTC).isoformat()
         with self._lock:
             self._conn.execute(
                 """
-                UPDATE feed_status
-                SET last_success_at = ?, consecutive_failures = 0, last_error = NULL, next_poll_at = ?
-                WHERE feed_key = ?
+                INSERT INTO feed_status (
+                    feed_key, feed_name, feed_url, last_attempt_at, last_success_at,
+                    consecutive_failures, last_error, next_poll_at
+                )
+                VALUES (?, ?, ?, ?, ?, 0, NULL, ?)
+                ON CONFLICT(feed_key) DO UPDATE SET
+                    feed_name = excluded.feed_name,
+                    feed_url = excluded.feed_url,
+                    last_attempt_at = excluded.last_attempt_at,
+                    last_success_at = excluded.last_success_at,
+                    consecutive_failures = 0,
+                    last_error = NULL,
+                    next_poll_at = excluded.next_poll_at
                 """,
-                (now, isoformat(next_poll_at) if next_poll_at else None, feed_key),
+                (feed_key, feed_name, feed_url, now, now, isoformat(next_poll_at) if next_poll_at else None),
             )
             self._conn.commit()
 
-    def mark_feed_failure(self, feed_key: str, error: str, next_poll_at: datetime | None = None) -> None:
+    def mark_feed_failure(
+        self,
+        feed_key: str,
+        feed_name: str,
+        feed_url: str,
+        error: str,
+        next_poll_at: datetime | None = None,
+    ) -> None:
+        now = datetime.now(UTC).isoformat()
         with self._lock:
             self._conn.execute(
                 """
-                UPDATE feed_status
-                SET consecutive_failures = consecutive_failures + 1,
-                    last_error = ?,
-                    next_poll_at = ?
-                WHERE feed_key = ?
+                INSERT INTO feed_status (
+                    feed_key, feed_name, feed_url, last_attempt_at, consecutive_failures,
+                    last_error, next_poll_at
+                )
+                VALUES (?, ?, ?, ?, 1, ?, ?)
+                ON CONFLICT(feed_key) DO UPDATE SET
+                    feed_name = excluded.feed_name,
+                    feed_url = excluded.feed_url,
+                    last_attempt_at = excluded.last_attempt_at,
+                    consecutive_failures = feed_status.consecutive_failures + 1,
+                    last_error = excluded.last_error,
+                    next_poll_at = excluded.next_poll_at
                 """,
-                (error[:1000], isoformat(next_poll_at) if next_poll_at else None, feed_key),
+                (
+                    feed_key,
+                    feed_name,
+                    feed_url,
+                    now,
+                    error[:1000],
+                    isoformat(next_poll_at) if next_poll_at else None,
+                ),
             )
             self._conn.commit()
 
@@ -620,6 +897,110 @@ class Database:
                 "feeds": int(self._conn.execute("SELECT count(*) FROM feed_status").fetchone()[0]),
             }
 
+    def prune_runtime_history(
+        self,
+        *,
+        article_retention_days: int = 30,
+        posted_retention_days: int = 30,
+        non_post_retention_hours: int = 24,
+        seen_retention_days: int = 14,
+        feed_entry_seen_retention_days: int = 90,
+        article_batch_size: int = 500,
+    ) -> dict[str, int]:
+        now = datetime.now(UTC)
+        article_cutoff = (now - timedelta(days=article_retention_days)).isoformat()
+        posted_cutoff = (now - timedelta(days=posted_retention_days)).isoformat()
+        non_post_cutoff = (now - timedelta(hours=non_post_retention_hours)).isoformat()
+        seen_cutoff = (now - timedelta(days=seen_retention_days)).isoformat()
+        feed_seen_cutoff = (now - timedelta(days=feed_entry_seen_retention_days)).isoformat()
+        stats: dict[str, int] = {}
+        with self._lock:
+            cursor = self._conn.cursor()
+            cursor.execute("BEGIN IMMEDIATE")
+            try:
+                cursor.execute("DROP TABLE IF EXISTS temp.prune_article_ids")
+                stats["non_post_channel_posts"] = cursor.execute(
+                    """
+                    DELETE FROM channel_posts
+                    WHERE status != 'posted' AND posted_at < ?
+                    """,
+                    (non_post_cutoff,),
+                ).rowcount
+                stats["old_post_channel_posts"] = cursor.execute(
+                    """
+                    DELETE FROM channel_posts
+                    WHERE status = 'posted' AND posted_at < ?
+                    """,
+                    (posted_cutoff,),
+                ).rowcount
+                for table in (
+                    "channel_seen_titles",
+                    "channel_seen_title_signatures",
+                    "channel_seen_source_titles",
+                    "channel_seen_source_title_signatures",
+                    "channel_story_sources",
+                ):
+                    stats[table] = cursor.execute(
+                        f"DELETE FROM {table} WHERE first_seen_at < ?",
+                        (seen_cutoff,),
+                    ).rowcount
+                cursor.execute(
+                    """
+                    CREATE TEMP TABLE prune_article_ids AS
+                    SELECT id
+                    FROM articles
+                    WHERE coalesce(normalized_published_at, first_seen_at) < ?
+                       AND id NOT IN (
+                           SELECT article_id
+                           FROM channel_posts
+                           WHERE status = 'posted' AND posted_at >= ?
+                       )
+                    LIMIT ?
+                    """,
+                    (article_cutoff, posted_cutoff, article_batch_size),
+                )
+                old_article_count = int(cursor.execute("SELECT count(*) FROM prune_article_ids").fetchone()[0])
+                stats["old_articles"] = old_article_count
+                if old_article_count:
+                    for table in (
+                        "article_routing_decisions",
+                        "article_tags",
+                        "article_matches",
+                        "article_fingerprints",
+                        "feed_entries",
+                        "channel_posts",
+                        "channel_seen_titles",
+                        "channel_seen_title_signatures",
+                        "channel_seen_source_titles",
+                        "channel_seen_source_title_signatures",
+                        "channel_story_sources",
+                    ):
+                        stats[f"{table}_by_article"] = cursor.execute(
+                            f"DELETE FROM {table} WHERE article_id IN (SELECT id FROM prune_article_ids)"
+                        ).rowcount
+                    stats["articles_deleted"] = cursor.execute(
+                        "DELETE FROM articles WHERE id IN (SELECT id FROM prune_article_ids)"
+                    ).rowcount
+                cursor.execute("DROP TABLE IF EXISTS temp.prune_article_ids")
+                stats["old_feed_entry_seen"] = cursor.execute(
+                    "DELETE FROM feed_entry_seen WHERE seen_at < ?",
+                    (feed_seen_cutoff,),
+                ).rowcount
+                self._conn.commit()
+            except Exception:
+                self._conn.rollback()
+                raise
+        return stats
+
+    def optimize(self) -> None:
+        with self._lock:
+            self._conn.execute("PRAGMA optimize")
+
+    def vacuum(self) -> None:
+        with self._lock:
+            self._conn.commit()
+            self._conn.execute("VACUUM")
+
     def record_routing_decision(
         self,
         article_id: int,
@@ -634,15 +1015,16 @@ class Database:
                 INSERT INTO article_routing_decisions (
                     article_id, created_at, content_mode, selected_channel_keys, selected_channel_ids,
                     decision_status, top_score, score_details, matched_entries, emitted_tags,
-                    expanded_tags, explanation
+                    expanded_tags, explanation, primary_channel_keys, mirror_channel_keys,
+                    review_channel_keys, final_channel_keys, reason
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     article_id,
                     now,
                     decision.content_mode,
-                    json.dumps(list(decision.selected_channel_keys), sort_keys=True),
+                    json.dumps(list(decision.final_channel_keys), sort_keys=True),
                     json.dumps(list(selected_channel_ids), sort_keys=True),
                     decision.decision_status,
                     int(decision.top_score),
@@ -651,6 +1033,11 @@ class Database:
                     json.dumps(data["emitted_tags"], sort_keys=True),
                     json.dumps(data["expanded_tags"], sort_keys=True),
                     json.dumps(data["explanation"], sort_keys=True),
+                    json.dumps(data["primary_channel_keys"], sort_keys=True),
+                    json.dumps(data["mirror_channel_keys"], sort_keys=True),
+                    json.dumps(data["review_channel_keys"], sort_keys=True),
+                    json.dumps(data["final_channel_keys"], sort_keys=True),
+                    data.get("reason"),
                 ),
             )
             for tag in decision.emitted_tags:
@@ -691,11 +1078,24 @@ class Database:
                 )
             self._conn.commit()
 
+    def has_routing_decision(self, article_id: int) -> bool:
+        with self._lock:
+            row = self._conn.execute(
+                """
+                SELECT 1
+                FROM article_routing_decisions
+                WHERE article_id = ?
+                LIMIT 1
+                """,
+                (article_id,),
+            ).fetchone()
+            return row is not None
+
     def get_article_for_routing(self, article_id: int) -> sqlite3.Row | None:
         with self._lock:
             return self._conn.execute(
                 """
-                SELECT id, title, normalized_title, url, source_name
+                SELECT id, title, normalized_title, url, source_name, source_id, source_class, summary
                 FROM articles
                 WHERE id = ?
                 """,
@@ -715,6 +1115,7 @@ class Database:
                 self._conn.execute(
                     f"""
                     SELECT id, title, normalized_title, url, source_name
+                           , source_id, source_class, summary
                     FROM articles
                     {where}
                     ORDER BY coalesce(normalized_published_at, first_seen_at) DESC, id DESC
@@ -741,7 +1142,8 @@ class Database:
         with self._lock:
             row = self._conn.execute(
                 """
-                SELECT id, title, url, summary, image_url, image_source, source_name, normalized_published_at, timestamp_status
+                SELECT id, title, url, summary, image_url, image_source, source_name, source_id, source_class,
+                       normalized_published_at, timestamp_status
                 FROM articles WHERE id = ?
                 """,
                 (article_id,),
@@ -757,6 +1159,8 @@ class Database:
                 image_url=row["image_url"],
                 image_source=row["image_source"],
                 source_name=row["source_name"] or "RSS",
+                source_id=row["source_id"] or "unknown",
+                source_class=row["source_class"] or "unknown",
                 normalized_published_at=datetime.fromisoformat(row["normalized_published_at"]),
                 timestamp_status=row["timestamp_status"] or "valid",
             )
@@ -766,7 +1170,8 @@ class Database:
             return self._conn.execute(
                 """
                 SELECT selected_channel_keys, decision_status, top_score, score_details,
-                       matched_entries, emitted_tags, expanded_tags, explanation, created_at
+                       matched_entries, emitted_tags, expanded_tags, explanation, created_at,
+                       primary_channel_keys, mirror_channel_keys, review_channel_keys, final_channel_keys, reason
                 FROM article_routing_decisions
                 WHERE article_id = ?
                 ORDER BY id DESC

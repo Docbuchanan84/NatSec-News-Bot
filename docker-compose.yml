@@ -14,3 +14,8 @@ services:
       DATABASE_PATH: /app/data/rssbot.sqlite
       LOG_LEVEL: INFO
       ROUTING_DEBUG_EMBEDS: "false"
+    logging:
+      driver: json-file
+      options:
+        max-size: "5m"
+        max-file: "3"

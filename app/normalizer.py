@@ -170,6 +170,8 @@ def build_candidate(entry: FeedEntry, timestamp_settings: TimestampSettings, now
     normalized_title_value = normalize_title(entry.raw_title)
     title_signature_value = title_signature(entry.raw_title)
     source_family_value = source_family(entry.feed_name)
+    source_id_value = entry.source_id or source_family_value or "unknown"
+    story_cluster_key = stable_hash(title_signature_value or normalized_title_value or entry.raw_title, 24)
     fingerprints: list[tuple[str, str]] = []
 
     if normalized_url:
@@ -177,16 +179,19 @@ def build_candidate(entry: FeedEntry, timestamp_settings: TimestampSettings, now
     if entry.raw_guid:
         fingerprints.append(("feed_guid", f"{entry.feed_key}:{entry.raw_guid.strip()}"))
     if normalized_title_value:
-        source = normalize_title(entry.feed_name)
+        source = source_id_value
         fingerprints.append(("title_source", f"{source}:{normalized_title_value}"))
 
     return ArticleCandidate(
         feed_key=entry.feed_key,
         source_name=entry.feed_name,
+        source_id=source_id_value,
+        source_class=entry.source_class or "unknown",
         title=html.unescape(entry.raw_title).strip() or "Untitled article",
         normalized_title=normalized_title_value,
         title_signature=title_signature_value,
         source_family=source_family_value,
+        story_cluster_key=story_cluster_key,
         url=entry.raw_url,
         normalized_url=normalized_url,
         summary=html.unescape(entry.summary or "").strip() or None,

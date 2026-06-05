@@ -1,164 +1,876 @@
 {
   "version": 1,
   "tags": {
-    "world": {"parent_tags": []},
-    "military": {"parent_tags": ["world"]},
-    "naval": {"parent_tags": ["military"]},
-    "maritime": {"parent_tags": ["world"]},
-    "air": {"parent_tags": ["military"]},
-    "ground": {"parent_tags": ["military"]},
-    "cyber": {"parent_tags": ["technology"]},
-    "space": {"parent_tags": ["military"]},
-    "defense_industry": {"parent_tags": ["military"]},
-    "diplomacy": {"parent_tags": ["world"]},
-    "sanctions": {"parent_tags": ["diplomacy"]},
-    "humanitarian": {"parent_tags": ["world"]},
-    "energy_security": {"parent_tags": ["world"]},
-    "science": {"parent_tags": ["world"]},
-    "technology": {"parent_tags": ["world"]},
-    "civilian_technology": {"parent_tags": ["technology"]},
-    "artificial_intelligence": {"parent_tags": ["technology"]},
-    "semiconductor": {"parent_tags": ["technology"]},
-    "consumer_technology": {"parent_tags": ["technology"]},
-    "civilian_innovation": {"parent_tags": ["technology", "science"]},
-    "biotechnology": {"parent_tags": ["science", "technology"]},
-    "economy": {"parent_tags": ["world"]},
-    "finance": {"parent_tags": ["economy"]},
-    "stock_market": {"parent_tags": ["finance"]},
-    "investing": {"parent_tags": ["finance"]},
-    "earnings": {"parent_tags": ["finance", "company"]},
-    "cryptocurrency": {"parent_tags": ["finance", "technology"]},
-    "indo_pacific": {"parent_tags": ["world"]},
-    "middle_east": {"parent_tags": ["world"]},
-    "europe": {"parent_tags": ["world"]},
-    "africa": {"parent_tags": ["world"]},
-    "latin_america": {"parent_tags": ["world"]},
-    "north_america": {"parent_tags": ["world"]},
-    "arctic": {"parent_tags": ["world"]},
-    "argentina": {"parent_tags": ["latin_america"]},
-    "brazil": {"parent_tags": ["latin_america"]},
-    "chile": {"parent_tags": ["latin_america"]},
-    "colombia": {"parent_tags": ["latin_america"]},
-    "cuba": {"parent_tags": ["latin_america"]},
-    "ecuador": {"parent_tags": ["latin_america"]},
-    "peru": {"parent_tags": ["latin_america"]},
-    "bolivia": {"parent_tags": ["latin_america"]},
-    "paraguay": {"parent_tags": ["latin_america"]},
-    "uruguay": {"parent_tags": ["latin_america"]},
-    "haiti": {"parent_tags": ["latin_america"]},
-    "guatemala": {"parent_tags": ["latin_america"]},
-    "honduras": {"parent_tags": ["latin_america"]},
-    "el_salvador": {"parent_tags": ["latin_america"]},
-    "nicaragua": {"parent_tags": ["latin_america"]},
-    "costa_rica": {"parent_tags": ["latin_america"]},
-    "dominican_republic": {"parent_tags": ["latin_america"]},
-    "dominica": {"parent_tags": ["latin_america"]},
-    "anguilla": {"parent_tags": ["latin_america"]},
-    "antigua_barbuda": {"parent_tags": ["latin_america"]},
-    "british_virgin_islands": {"parent_tags": ["latin_america"]},
-    "cayman_islands": {"parent_tags": ["latin_america"]},
-    "mexico": {"parent_tags": ["latin_america", "north_america"]},
-    "panama": {"parent_tags": ["latin_america"]},
-    "venezuela": {"parent_tags": ["latin_america"]},
-    "china": {"parent_tags": ["indo_pacific"]},
-    "taiwan": {"parent_tags": ["indo_pacific"]},
-    "japan": {"parent_tags": ["indo_pacific"]},
-    "philippines": {"parent_tags": ["indo_pacific"]},
-    "india": {"parent_tags": ["indo_pacific"]},
-    "australia": {"parent_tags": ["indo_pacific"]},
-    "south_korea": {"parent_tags": ["indo_pacific"]},
-    "north_korea": {"parent_tags": ["indo_pacific"]},
-    "vietnam": {"parent_tags": ["indo_pacific"]},
-    "myanmar": {"parent_tags": ["indo_pacific"]},
-    "laos": {"parent_tags": ["indo_pacific"]},
-    "brunei": {"parent_tags": ["indo_pacific"]},
-    "timor_leste": {"parent_tags": ["indo_pacific"]},
-    "marshall_islands": {"parent_tags": ["indo_pacific"]},
-    "new_caledonia": {"parent_tags": ["indo_pacific"]},
-    "russia": {"parent_tags": ["europe"]},
-    "ukraine": {"parent_tags": ["europe"]},
-    "spain": {"parent_tags": ["europe"]},
-    "italy": {"parent_tags": ["europe"]},
-    "france": {"parent_tags": ["europe"]},
-    "germany": {"parent_tags": ["europe"]},
-    "sweden": {"parent_tags": ["europe"]},
-    "slovenia": {"parent_tags": ["europe"]},
-    "croatia": {"parent_tags": ["europe"]},
-    "iceland": {"parent_tags": ["europe"]},
-    "andorra": {"parent_tags": ["europe"]},
-    "united_kingdom": {"parent_tags": ["europe"]},
-    "turkey": {"parent_tags": ["europe", "middle_east"]},
-    "iran": {"parent_tags": ["middle_east"]},
-    "iraq": {"parent_tags": ["middle_east"]},
-    "israel": {"parent_tags": ["middle_east"]},
-    "lebanon": {"parent_tags": ["middle_east"]},
-    "yemen": {"parent_tags": ["middle_east"]},
-    "kuwait": {"parent_tags": ["middle_east"]},
-    "bahrain": {"parent_tags": ["middle_east"]},
-    "oman": {"parent_tags": ["middle_east"]},
-    "saudi_arabia": {"parent_tags": ["middle_east"]},
-    "uae": {"parent_tags": ["middle_east"]},
-    "qatar": {"parent_tags": ["middle_east"]},
-    "ghana": {"parent_tags": ["africa"]},
-    "south_africa": {"parent_tags": ["africa"]},
-    "ethiopia": {"parent_tags": ["africa"]},
-    "nigeria": {"parent_tags": ["africa"]},
-    "dr_congo": {"parent_tags": ["africa"]},
-    "kenya": {"parent_tags": ["africa"]},
-    "sudan": {"parent_tags": ["africa"]},
-    "south_sudan": {"parent_tags": ["africa"]},
-    "tunisia": {"parent_tags": ["africa"]},
-    "namibia": {"parent_tags": ["africa"]},
-    "malawi": {"parent_tags": ["africa"]},
-    "burkina_faso": {"parent_tags": ["africa"]},
-    "zambia": {"parent_tags": ["africa"]},
-    "uganda": {"parent_tags": ["africa"]},
-    "madagascar": {"parent_tags": ["africa"]},
-    "congo": {"parent_tags": ["africa"]},
-    "united_states": {"parent_tags": ["north_america"]},
-    "canada": {"parent_tags": ["north_america"]},
-    "military_movement": {"parent_tags": ["military"]},
-    "attack": {"parent_tags": ["world"]},
-    "exercise": {"parent_tags": ["military"]},
-    "procurement": {"parent_tags": ["defense_industry"]},
-    "legislation": {"parent_tags": ["government"]},
-    "election": {"parent_tags": ["government"]},
-    "civil_unrest": {"parent_tags": ["world"]},
-    "disaster": {"parent_tags": ["humanitarian"]},
-    "weather_alert": {"parent_tags": ["disaster"]},
-    "earthquake": {"parent_tags": ["disaster"]},
-    "wildfire": {"parent_tags": ["disaster"]},
-    "aircraft_carrier": {"parent_tags": ["naval", "military"]},
-    "carrier_strike_group": {"parent_tags": ["aircraft_carrier", "naval", "military"]},
-    "destroyer": {"parent_tags": ["naval", "military"]},
-    "submarine": {"parent_tags": ["naval", "military"]},
-    "fighter_aircraft": {"parent_tags": ["air", "military"]},
-    "bomber_aircraft": {"parent_tags": ["air", "military"]},
-    "drone": {"parent_tags": ["air", "military"]},
-    "missile": {"parent_tags": ["military"]},
-    "strategic_weapon": {"parent_tags": ["military"]},
-    "nuclear_weapon": {"parent_tags": ["strategic_weapon"]},
-    "nuclear_deterrence": {"parent_tags": ["nuclear_weapon"]},
-    "icbm": {"parent_tags": ["nuclear_weapon", "missile"]},
-    "slbm": {"parent_tags": ["nuclear_weapon", "missile", "submarine"]},
-    "strategic_bomber": {"parent_tags": ["nuclear_weapon", "bomber_aircraft"]},
-    "hypersonic_weapon": {"parent_tags": ["strategic_weapon", "missile"]},
-    "arms_control": {"parent_tags": ["diplomacy", "strategic_weapon"]},
-    "missile_defense": {"parent_tags": ["ground", "military"]},
-    "air_defense": {"parent_tags": ["ground", "missile_defense", "military"]},
-    "military_base": {"parent_tags": ["military"]},
-    "government": {"parent_tags": ["world"]},
-    "military_organization": {"parent_tags": ["military"]},
-    "non_state_actor": {"parent_tags": ["world"]},
-    "company": {"parent_tags": ["world"]},
-    "rss_article": {"parent_tags": []},
-    "social_post": {"parent_tags": []},
-    "youtube_video": {"parent_tags": ["social_post"]},
-    "official_alert": {"parent_tags": ["government"]},
-    "photo_gallery": {"parent_tags": ["rss_article"]},
-    "obituary": {"parent_tags": ["rss_article"]},
-    "review_required": {"parent_tags": []},
-    "skip_candidate": {"parent_tags": []},
-    "ambiguous": {"parent_tags": ["review_required"]}
+    "world": {
+      "parent_tags": []
+    },
+    "military": {
+      "parent_tags": [
+        "world"
+      ]
+    },
+    "naval": {
+      "parent_tags": [
+        "military"
+      ]
+    },
+    "maritime": {
+      "parent_tags": [
+        "world"
+      ]
+    },
+    "air": {
+      "parent_tags": [
+        "military"
+      ]
+    },
+    "ground": {
+      "parent_tags": [
+        "military"
+      ]
+    },
+    "cyber": {
+      "parent_tags": [
+        "technology"
+      ]
+    },
+    "space": {
+      "parent_tags": [
+        "military"
+      ]
+    },
+    "defense_industry": {
+      "parent_tags": [
+        "military"
+      ]
+    },
+    "diplomacy": {
+      "parent_tags": [
+        "world"
+      ]
+    },
+    "sanctions": {
+      "parent_tags": [
+        "diplomacy"
+      ]
+    },
+    "humanitarian": {
+      "parent_tags": [
+        "world"
+      ]
+    },
+    "energy_security": {
+      "parent_tags": [
+        "world"
+      ]
+    },
+    "science": {
+      "parent_tags": [
+        "world"
+      ]
+    },
+    "technology": {
+      "parent_tags": [
+        "world"
+      ]
+    },
+    "civilian_technology": {
+      "parent_tags": [
+        "technology"
+      ]
+    },
+    "artificial_intelligence": {
+      "parent_tags": [
+        "technology"
+      ]
+    },
+    "semiconductor": {
+      "parent_tags": [
+        "technology"
+      ]
+    },
+    "consumer_technology": {
+      "parent_tags": [
+        "technology"
+      ]
+    },
+    "civilian_innovation": {
+      "parent_tags": [
+        "technology",
+        "science"
+      ]
+    },
+    "biotechnology": {
+      "parent_tags": [
+        "science",
+        "technology"
+      ]
+    },
+    "economy": {
+      "parent_tags": [
+        "world"
+      ]
+    },
+    "finance": {
+      "parent_tags": [
+        "economy"
+      ]
+    },
+    "stock_market": {
+      "parent_tags": [
+        "finance"
+      ]
+    },
+    "investing": {
+      "parent_tags": [
+        "finance"
+      ]
+    },
+    "earnings": {
+      "parent_tags": [
+        "finance",
+        "company"
+      ]
+    },
+    "cryptocurrency": {
+      "parent_tags": [
+        "finance",
+        "technology"
+      ]
+    },
+    "indo_pacific": {
+      "parent_tags": [
+        "world"
+      ]
+    },
+    "middle_east": {
+      "parent_tags": [
+        "world"
+      ]
+    },
+    "europe": {
+      "parent_tags": [
+        "world"
+      ]
+    },
+    "africa": {
+      "parent_tags": [
+        "world"
+      ]
+    },
+    "latin_america": {
+      "parent_tags": [
+        "world"
+      ]
+    },
+    "north_america": {
+      "parent_tags": [
+        "world"
+      ]
+    },
+    "arctic": {
+      "parent_tags": [
+        "world"
+      ]
+    },
+    "argentina": {
+      "parent_tags": [
+        "latin_america"
+      ]
+    },
+    "brazil": {
+      "parent_tags": [
+        "latin_america"
+      ]
+    },
+    "chile": {
+      "parent_tags": [
+        "latin_america"
+      ]
+    },
+    "colombia": {
+      "parent_tags": [
+        "latin_america"
+      ]
+    },
+    "cuba": {
+      "parent_tags": [
+        "latin_america"
+      ]
+    },
+    "ecuador": {
+      "parent_tags": [
+        "latin_america"
+      ]
+    },
+    "peru": {
+      "parent_tags": [
+        "latin_america"
+      ]
+    },
+    "bolivia": {
+      "parent_tags": [
+        "latin_america"
+      ]
+    },
+    "paraguay": {
+      "parent_tags": [
+        "latin_america"
+      ]
+    },
+    "uruguay": {
+      "parent_tags": [
+        "latin_america"
+      ]
+    },
+    "haiti": {
+      "parent_tags": [
+        "latin_america"
+      ]
+    },
+    "guatemala": {
+      "parent_tags": [
+        "latin_america"
+      ]
+    },
+    "honduras": {
+      "parent_tags": [
+        "latin_america"
+      ]
+    },
+    "el_salvador": {
+      "parent_tags": [
+        "latin_america"
+      ]
+    },
+    "nicaragua": {
+      "parent_tags": [
+        "latin_america"
+      ]
+    },
+    "costa_rica": {
+      "parent_tags": [
+        "latin_america"
+      ]
+    },
+    "dominican_republic": {
+      "parent_tags": [
+        "latin_america"
+      ]
+    },
+    "dominica": {
+      "parent_tags": [
+        "latin_america"
+      ]
+    },
+    "anguilla": {
+      "parent_tags": [
+        "latin_america"
+      ]
+    },
+    "antigua_barbuda": {
+      "parent_tags": [
+        "latin_america"
+      ]
+    },
+    "british_virgin_islands": {
+      "parent_tags": [
+        "latin_america"
+      ]
+    },
+    "cayman_islands": {
+      "parent_tags": [
+        "latin_america"
+      ]
+    },
+    "mexico": {
+      "parent_tags": [
+        "latin_america",
+        "north_america"
+      ]
+    },
+    "panama": {
+      "parent_tags": [
+        "latin_america"
+      ]
+    },
+    "venezuela": {
+      "parent_tags": [
+        "latin_america"
+      ]
+    },
+    "china": {
+      "parent_tags": [
+        "indo_pacific"
+      ]
+    },
+    "taiwan": {
+      "parent_tags": [
+        "indo_pacific"
+      ]
+    },
+    "japan": {
+      "parent_tags": [
+        "indo_pacific"
+      ]
+    },
+    "philippines": {
+      "parent_tags": [
+        "indo_pacific"
+      ]
+    },
+    "india": {
+      "parent_tags": [
+        "indo_pacific"
+      ]
+    },
+    "australia": {
+      "parent_tags": [
+        "indo_pacific"
+      ]
+    },
+    "south_korea": {
+      "parent_tags": [
+        "indo_pacific"
+      ]
+    },
+    "north_korea": {
+      "parent_tags": [
+        "indo_pacific"
+      ]
+    },
+    "vietnam": {
+      "parent_tags": [
+        "indo_pacific"
+      ]
+    },
+    "myanmar": {
+      "parent_tags": [
+        "indo_pacific"
+      ]
+    },
+    "laos": {
+      "parent_tags": [
+        "indo_pacific"
+      ]
+    },
+    "brunei": {
+      "parent_tags": [
+        "indo_pacific"
+      ]
+    },
+    "timor_leste": {
+      "parent_tags": [
+        "indo_pacific"
+      ]
+    },
+    "marshall_islands": {
+      "parent_tags": [
+        "indo_pacific"
+      ]
+    },
+    "new_caledonia": {
+      "parent_tags": [
+        "indo_pacific"
+      ]
+    },
+    "russia": {
+      "parent_tags": [
+        "europe"
+      ]
+    },
+    "ukraine": {
+      "parent_tags": [
+        "europe"
+      ]
+    },
+    "spain": {
+      "parent_tags": [
+        "europe"
+      ]
+    },
+    "italy": {
+      "parent_tags": [
+        "europe"
+      ]
+    },
+    "france": {
+      "parent_tags": [
+        "europe"
+      ]
+    },
+    "germany": {
+      "parent_tags": [
+        "europe"
+      ]
+    },
+    "sweden": {
+      "parent_tags": [
+        "europe"
+      ]
+    },
+    "slovenia": {
+      "parent_tags": [
+        "europe"
+      ]
+    },
+    "croatia": {
+      "parent_tags": [
+        "europe"
+      ]
+    },
+    "iceland": {
+      "parent_tags": [
+        "europe"
+      ]
+    },
+    "andorra": {
+      "parent_tags": [
+        "europe"
+      ]
+    },
+    "united_kingdom": {
+      "parent_tags": [
+        "europe"
+      ]
+    },
+    "turkey": {
+      "parent_tags": [
+        "europe",
+        "middle_east"
+      ]
+    },
+    "iran": {
+      "parent_tags": [
+        "middle_east"
+      ]
+    },
+    "iraq": {
+      "parent_tags": [
+        "middle_east"
+      ]
+    },
+    "israel": {
+      "parent_tags": [
+        "middle_east"
+      ]
+    },
+    "lebanon": {
+      "parent_tags": [
+        "middle_east"
+      ]
+    },
+    "yemen": {
+      "parent_tags": [
+        "middle_east"
+      ]
+    },
+    "kuwait": {
+      "parent_tags": [
+        "middle_east"
+      ]
+    },
+    "bahrain": {
+      "parent_tags": [
+        "middle_east"
+      ]
+    },
+    "oman": {
+      "parent_tags": [
+        "middle_east"
+      ]
+    },
+    "saudi_arabia": {
+      "parent_tags": [
+        "middle_east"
+      ]
+    },
+    "uae": {
+      "parent_tags": [
+        "middle_east"
+      ]
+    },
+    "qatar": {
+      "parent_tags": [
+        "middle_east"
+      ]
+    },
+    "ghana": {
+      "parent_tags": [
+        "africa"
+      ]
+    },
+    "south_africa": {
+      "parent_tags": [
+        "africa"
+      ]
+    },
+    "ethiopia": {
+      "parent_tags": [
+        "africa"
+      ]
+    },
+    "nigeria": {
+      "parent_tags": [
+        "africa"
+      ]
+    },
+    "dr_congo": {
+      "parent_tags": [
+        "africa"
+      ]
+    },
+    "kenya": {
+      "parent_tags": [
+        "africa"
+      ]
+    },
+    "sudan": {
+      "parent_tags": [
+        "africa"
+      ]
+    },
+    "south_sudan": {
+      "parent_tags": [
+        "africa"
+      ]
+    },
+    "tunisia": {
+      "parent_tags": [
+        "africa"
+      ]
+    },
+    "namibia": {
+      "parent_tags": [
+        "africa"
+      ]
+    },
+    "malawi": {
+      "parent_tags": [
+        "africa"
+      ]
+    },
+    "burkina_faso": {
+      "parent_tags": [
+        "africa"
+      ]
+    },
+    "zambia": {
+      "parent_tags": [
+        "africa"
+      ]
+    },
+    "uganda": {
+      "parent_tags": [
+        "africa"
+      ]
+    },
+    "madagascar": {
+      "parent_tags": [
+        "africa"
+      ]
+    },
+    "congo": {
+      "parent_tags": [
+        "africa"
+      ]
+    },
+    "united_states": {
+      "parent_tags": [
+        "north_america"
+      ]
+    },
+    "canada": {
+      "parent_tags": [
+        "north_america"
+      ]
+    },
+    "military_movement": {
+      "parent_tags": [
+        "military"
+      ]
+    },
+    "attack": {
+      "parent_tags": [
+        "world"
+      ]
+    },
+    "exercise": {
+      "parent_tags": [
+        "military"
+      ]
+    },
+    "procurement": {
+      "parent_tags": [
+        "defense_industry"
+      ]
+    },
+    "legislation": {
+      "parent_tags": [
+        "government"
+      ]
+    },
+    "election": {
+      "parent_tags": [
+        "government"
+      ]
+    },
+    "civil_unrest": {
+      "parent_tags": [
+        "world"
+      ]
+    },
+    "disaster": {
+      "parent_tags": [
+        "humanitarian"
+      ]
+    },
+    "weather_alert": {
+      "parent_tags": [
+        "disaster"
+      ]
+    },
+    "earthquake": {
+      "parent_tags": [
+        "disaster"
+      ]
+    },
+    "wildfire": {
+      "parent_tags": [
+        "disaster"
+      ]
+    },
+    "aircraft_carrier": {
+      "parent_tags": [
+        "naval",
+        "military"
+      ]
+    },
+    "carrier_strike_group": {
+      "parent_tags": [
+        "aircraft_carrier",
+        "naval",
+        "military"
+      ]
+    },
+    "destroyer": {
+      "parent_tags": [
+        "naval",
+        "military"
+      ]
+    },
+    "submarine": {
+      "parent_tags": [
+        "naval",
+        "military"
+      ]
+    },
+    "fighter_aircraft": {
+      "parent_tags": [
+        "air",
+        "military"
+      ]
+    },
+    "bomber_aircraft": {
+      "parent_tags": [
+        "air",
+        "military"
+      ]
+    },
+    "drone": {
+      "parent_tags": [
+        "air",
+        "military"
+      ]
+    },
+    "missile": {
+      "parent_tags": [
+        "military"
+      ]
+    },
+    "strategic_weapon": {
+      "parent_tags": [
+        "military"
+      ]
+    },
+    "nuclear_weapon": {
+      "parent_tags": [
+        "strategic_weapon"
+      ]
+    },
+    "nuclear_deterrence": {
+      "parent_tags": [
+        "nuclear_weapon"
+      ]
+    },
+    "icbm": {
+      "parent_tags": [
+        "nuclear_weapon",
+        "missile"
+      ]
+    },
+    "slbm": {
+      "parent_tags": [
+        "nuclear_weapon",
+        "missile",
+        "submarine"
+      ]
+    },
+    "strategic_bomber": {
+      "parent_tags": [
+        "nuclear_weapon",
+        "bomber_aircraft"
+      ]
+    },
+    "hypersonic_weapon": {
+      "parent_tags": [
+        "strategic_weapon",
+        "missile"
+      ]
+    },
+    "arms_control": {
+      "parent_tags": [
+        "diplomacy",
+        "strategic_weapon"
+      ]
+    },
+    "missile_defense": {
+      "parent_tags": [
+        "ground",
+        "military"
+      ]
+    },
+    "air_defense": {
+      "parent_tags": [
+        "ground",
+        "missile_defense",
+        "military"
+      ]
+    },
+    "military_base": {
+      "parent_tags": [
+        "military"
+      ]
+    },
+    "government": {
+      "parent_tags": [
+        "world"
+      ]
+    },
+    "military_organization": {
+      "parent_tags": [
+        "military"
+      ]
+    },
+    "non_state_actor": {
+      "parent_tags": [
+        "world"
+      ]
+    },
+    "company": {
+      "parent_tags": [
+        "world"
+      ]
+    },
+    "rss_article": {
+      "parent_tags": []
+    },
+    "social_post": {
+      "parent_tags": []
+    },
+    "youtube_video": {
+      "parent_tags": [
+        "social_post"
+      ]
+    },
+    "official_alert": {
+      "parent_tags": [
+        "government"
+      ]
+    },
+    "photo_gallery": {
+      "parent_tags": [
+        "rss_article"
+      ]
+    },
+    "obituary": {
+      "parent_tags": [
+        "rss_article"
+      ]
+    },
+    "review_required": {
+      "parent_tags": []
+    },
+    "skip_candidate": {
+      "parent_tags": []
+    },
+    "ambiguous": {
+      "parent_tags": [
+        "review_required"
+      ]
+    },
+    "active_conflict": {
+      "parent_tags": [
+        "world"
+      ],
+      "description": "Active war or conflict reporting that should route by region before global military domain buckets."
+    },
+    "production": {
+      "parent_tags": [
+        "defense_industry"
+      ],
+      "description": "Defense production or manufacturing capacity."
+    },
+    "stockpile": {
+      "parent_tags": [
+        "defense_industry"
+      ],
+      "description": "Munitions, weapons, or defense stockpile levels."
+    },
+    "special_operations": {
+      "parent_tags": [
+        "military"
+      ]
+    },
+    "amphibious": {
+      "parent_tags": [
+        "naval",
+        "ground",
+        "military"
+      ]
+    },
+    "marine_littoral": {
+      "parent_tags": [
+        "ground",
+        "naval",
+        "military"
+      ]
+    },
+    "military_sealift": {
+      "parent_tags": [
+        "naval",
+        "maritime",
+        "military"
+      ]
+    },
+    "naval_air_wing": {
+      "parent_tags": [
+        "naval",
+        "air",
+        "military"
+      ]
+    },
+    "maritime_patrol": {
+      "parent_tags": [
+        "naval",
+        "air",
+        "military"
+      ]
+    },
+    "sustainment": {
+      "parent_tags": [
+        "military"
+      ]
+    }
   }
 }

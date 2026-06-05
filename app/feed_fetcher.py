@@ -4,6 +4,7 @@ import asyncio
 import html
 import json
 import logging
+import os
 import re
 from dataclasses import dataclass, replace
 from html.parser import HTMLParser
@@ -25,6 +26,10 @@ URL_RE = re.compile(r"(?:https?://|www\.)\S+|(?<!@)\b[a-z0-9][a-z0-9.-]+\.[a-z]{
 HTML_TAG_RE = re.compile(r"<[^>]+>")
 IMAGE_EXTENSIONS = (".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp", ".avif")
 BLUESKY_POST_THREAD_URL = "https://public.api.bsky.app/xrpc/app.bsky.feed.getPostThread"
+DVIDS_HOST = "www.dvidshub.net"
+DVIDS_API_HOST = "api.dvidshub.net"
+DVIDS_SEARCH_URL = "https://api.dvidshub.net/search"
+DVIDS_MAX_ENTRIES_PER_FEED = 50
 
 
 @dataclass(frozen=True)
@@ -57,6 +62,14 @@ class FeedService:
                     if retry_after:
                         detail = f"{detail}; retry after {retry_after}s"
                     raise FeedFetchError(detail)
+                if _is_dvids_rss(feed.url) and response.status == 202:
+                    action = response.headers.get("x-amzn-waf-action")
+                    if fallback := await self._fetch_dvids_api_fallback(session, feed, action):
+                        return fallback
+                    detail = "DVIDS returned empty HTTP 202 response"
+                    if action:
+                        detail = f"{detail}; waf action={action}"
+                    raise FeedFetchError(detail)
                 response.raise_for_status()
                 body = await response.read()
         except (aiohttp.ClientError, asyncio.TimeoutError) as exc:
@@ -68,7 +81,7 @@ class FeedService:
             logger.warning("Feed parse warning for %s: %s", feed.display_name, parsed.bozo_exception)
         if parsed.bozo and not parsed.entries:
             raise FeedFetchError(f"feed parse failed: {parsed.bozo_exception}")
-        raw_entries = parsed.entries[: self.max_entries_per_feed]
+        raw_entries = parsed.entries[: _entry_limit(feed, self.max_entries_per_feed)]
         entries = tuple(self._entry_from_parsed(feed, raw) for raw in raw_entries)
         if _is_bluesky_rss(feed.url):
             entries = await self._enrich_bluesky_entries(session, entries)
@@ -97,6 +110,8 @@ class FeedService:
             image_source=image[1],
             raw_published_at=str(published) if published else None,
             parsed=raw_dict,
+            source_id=feed.source_id,
+            source_class=feed.source_class,
         )
 
     async def _enrich_bluesky_entries(
@@ -138,6 +153,50 @@ class FeedService:
             image_url=image_url or entry.image_url,
             image_source=image_source or entry.image_source,
         )
+
+    async def _fetch_dvids_api_fallback(
+        self,
+        session: aiohttp.ClientSession,
+        feed: FeedRuntime,
+        waf_action: str | None,
+    ) -> FeedFetchResult | None:
+        api_key = os.environ.get("DVIDS_API_KEY", "").strip()
+        unit_id = _dvids_unit_id(feed.url)
+        if not api_key or not unit_id:
+            return None
+        timeout = aiohttp.ClientTimeout(total=self.timeout_seconds)
+        params = {
+            "api_key": api_key,
+            "unit_id": unit_id,
+            "max_results": str(_entry_limit(feed, self.max_entries_per_feed)),
+            "sort": "publishdate",
+            "sortdir": "desc",
+            "thumb_width": "800",
+            "thumb_quality": "95",
+        }
+        try:
+            async with session.get(
+                DVIDS_SEARCH_URL,
+                timeout=timeout,
+                params=params,
+                headers={"User-Agent": DEFAULT_USER_AGENT, "Accept": "application/json"},
+            ) as response:
+                if response.status == 429:
+                    raise FeedFetchError("DVIDS API rate limited")
+                response.raise_for_status()
+                payload = await response.json()
+        except (aiohttp.ClientError, asyncio.TimeoutError, json.JSONDecodeError) as exc:
+            detail = f"DVIDS RSS fallback failed after HTTP 202"
+            if waf_action:
+                detail = f"{detail}; waf action={waf_action}"
+            raise FeedFetchError(f"{detail}; api error={exc}") from exc
+
+        results = payload.get("results") if isinstance(payload, dict) else None
+        if not isinstance(results, list):
+            raise FeedFetchError("DVIDS API fallback returned invalid payload")
+        entries = tuple(_dvids_api_entry(feed, raw) for raw in results if isinstance(raw, dict))
+        logger.debug("Fetched %s DVIDS entries for %s via API fallback", len(entries), feed.display_name)
+        return FeedFetchResult(feed=feed, entries=entries)
 
 
 class _TextExtractor(HTMLParser):
@@ -244,6 +303,33 @@ def _bluesky_media_from_post(post: dict[str, Any]) -> tuple[str | None, str | No
         if isinstance(embed, dict):
             return _bluesky_media_from_embed(embed, in_record=False)
     return None
+
+
+def _entry_limit(feed: FeedRuntime, configured_limit: int) -> int:
+    if _is_dvids_rss(feed.url):
+        return max(configured_limit, DVIDS_MAX_ENTRIES_PER_FEED)
+    return configured_limit
+
+
+def _dvids_api_entry(feed: FeedRuntime, raw: dict[str, Any]) -> FeedEntry:
+    title = clean_html_text(raw.get("title")) or "Untitled DVIDS asset"
+    summary = clean_html_text(raw.get("short_description") or raw.get("description"))
+    published = raw.get("publishdate") or raw.get("date_published") or raw.get("timestamp") or raw.get("date")
+    image_url = _clean_image_url(raw.get("thumbnail"), trusted=True)
+    return FeedEntry(
+        feed_key=feed.feed_key,
+        feed_name=feed.display_name,
+        raw_guid=str(raw.get("id")) if raw.get("id") else None,
+        raw_title=title,
+        raw_url=str(raw.get("url")) if raw.get("url") else None,
+        summary=summary,
+        image_url=image_url,
+        image_source="dvids_api_thumbnail" if image_url else None,
+        raw_published_at=str(published) if published else None,
+        parsed=raw,
+        source_id=feed.source_id,
+        source_class=feed.source_class,
+    )
 
 
 def _bluesky_media_from_embed(embed: dict[str, Any], in_record: bool) -> tuple[str | None, str | None, str | None] | None:
@@ -460,6 +546,19 @@ def _is_rss_boilerplate(line: str) -> bool:
 def _is_bluesky_rss(url: str) -> bool:
     parsed = urlparse(url)
     return parsed.netloc.casefold() == BLUESKY_PROFILE_HOST and parsed.path.endswith("/rss")
+
+
+def _is_dvids_rss(url: str) -> bool:
+    parsed = urlparse(url)
+    return parsed.netloc.casefold() == DVIDS_HOST and parsed.path.startswith("/rss/")
+
+
+def _dvids_unit_id(url: str) -> str | None:
+    parsed = urlparse(url)
+    match = re.fullmatch(r"/rss/unit/(\d+)", parsed.path.rstrip("/"))
+    if not match:
+        return None
+    return match.group(1)
 
 
 def _is_bluesky_post_uri(value: str | None) -> bool:

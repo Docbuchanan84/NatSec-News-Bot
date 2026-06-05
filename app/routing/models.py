@@ -27,12 +27,17 @@ class ChannelRule:
     enabled: bool
     minimum_score: int
     priority: int
+    destination_class: str = "primary"
     term_boosts: dict[str, int] = field(default_factory=dict)
     tag_boosts: dict[str, int] = field(default_factory=dict)
     term_penalties: dict[str, int] = field(default_factory=dict)
     tag_penalties: dict[str, int] = field(default_factory=dict)
     required_any: tuple[str, ...] = ()
     excluded_any: tuple[str, ...] = ()
+    required_source_ids: tuple[str, ...] = ()
+    excluded_source_ids: tuple[str, ...] = ()
+    required_source_classes: tuple[str, ...] = ()
+    excluded_source_classes: tuple[str, ...] = ()
     required_source_any: tuple[str, ...] = ()
     excluded_source_any: tuple[str, ...] = ()
     source_biases: dict[str, int] = field(default_factory=dict)
@@ -49,6 +54,7 @@ class RoutingConfig:
     knowledge_entries: tuple[KnowledgeEntry, ...]
     channel_rules: tuple[ChannelRule, ...]
     max_destinations: int = 3
+    max_primary_destinations: int | None = None
     review_tags: tuple[str, ...] = ("review_required", "ambiguous")
     skip_tags: tuple[str, ...] = ("skip_candidate",)
 
@@ -58,6 +64,8 @@ class RoutingArticle:
     title: str
     summary: str | None = None
     source_name: str | None = None
+    source_id: str | None = None
+    source_class: str | None = None
     url: str | None = None
     article_id: int | None = None
     normalized_title: str | None = None
@@ -77,6 +85,7 @@ class KnowledgeMatch:
 @dataclass(frozen=True)
 class ChannelScore:
     channel_key: str
+    destination_class: str
     score: int
     minimum_score: int
     priority: int
@@ -95,6 +104,17 @@ class RoutingDecision:
     decision_status: str
     top_score: int
     explanation: tuple[str, ...]
+    primary_channel_keys: tuple[str, ...] = ()
+    mirror_channel_keys: tuple[str, ...] = ()
+    review_channel_keys: tuple[str, ...] = ()
+    final_channel_keys: tuple[str, ...] = ()
+    reason: str | None = None
+
+    def __post_init__(self) -> None:
+        if not self.final_channel_keys:
+            object.__setattr__(self, "final_channel_keys", self.selected_channel_keys)
+        if not self.selected_channel_keys and self.final_channel_keys:
+            object.__setattr__(self, "selected_channel_keys", self.final_channel_keys)
 
     def to_json_dict(self) -> dict[str, Any]:
         return {
@@ -116,6 +136,7 @@ class RoutingDecision:
             "channel_scores": [
                 {
                     "channel_key": score.channel_key,
+                    "destination_class": score.destination_class,
                     "score": score.score,
                     "minimum_score": score.minimum_score,
                     "priority": score.priority,
@@ -125,7 +146,12 @@ class RoutingDecision:
                 for score in self.channel_scores
             ],
             "selected_channel_keys": list(self.selected_channel_keys),
+            "primary_channel_keys": list(self.primary_channel_keys),
+            "mirror_channel_keys": list(self.mirror_channel_keys),
+            "review_channel_keys": list(self.review_channel_keys),
+            "final_channel_keys": list(self.final_channel_keys),
             "decision_status": self.decision_status,
+            "reason": self.reason,
             "top_score": self.top_score,
             "explanation": list(self.explanation),
         }

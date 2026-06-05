@@ -165,9 +165,10 @@ async def process_first_run_entry(tmp_path: Path, raw_published_at: str | None):
 @pytest.mark.asyncio
 async def test_first_run_suppresses_missing_timestamps(tmp_path: Path) -> None:
     summary, db = await process_first_run_entry(tmp_path, None)
-    assert summary.new_articles == 1
+    assert summary.new_articles == 0
     assert summary.posts_queued == 0
-    assert db.counts()["channel_posts"] == 1
+    assert db.counts()["channel_posts"] == 0
+    assert db._conn.execute("SELECT count(*) FROM feed_entry_seen").fetchone()[0] == 1
 
 
 @pytest.mark.asyncio
@@ -184,10 +185,10 @@ async def test_first_run_skips_stale_valid_timestamps(tmp_path: Path) -> None:
     raw_published_at = format_datetime(datetime.now(UTC) - timedelta(days=3))
     summary, db = await process_first_run_entry(tmp_path, raw_published_at)
 
-    assert summary.new_articles == 1
+    assert summary.new_articles == 0
     assert summary.posts_queued == 0
-    row = db._conn.execute("SELECT status FROM channel_posts").fetchone()
-    assert row["status"] == "skipped_stale"
+    assert db.counts()["channel_posts"] == 0
+    assert db._conn.execute("SELECT count(*) FROM feed_entry_seen").fetchone()[0] == 1
 
 
 @pytest.mark.asyncio

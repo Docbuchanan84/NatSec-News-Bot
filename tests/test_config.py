@@ -37,6 +37,8 @@ def test_loads_minimal_valid_config(tmp_path: Path) -> None:
     assert config.settings.timestamps.max_post_age_hours == 48
     assert config.settings.routing.enabled is False
     assert config.settings.routing.mode == "observe_only"
+    assert config.settings.maintenance.enabled is True
+    assert config.settings.maintenance.article_retention_days == 30
 
 
 def test_min_poll_interval_floor_applies_to_channel_interval(tmp_path: Path) -> None:
@@ -79,3 +81,71 @@ def test_rejects_unknown_routing_mode(tmp_path: Path) -> None:
     with pytest.raises(ConfigError) as exc:
         load_config(write_config(tmp_path, data))
     assert "settings.routing.mode" in str(exc.value)
+
+
+def test_loads_top_level_feeds_and_destination_only_channels(tmp_path: Path) -> None:
+    data = {
+        "version": 1,
+        "feeds": [
+            {
+                "id": "reuters-world",
+                "sourceId": "reuters",
+                "sourceClass": "wire_service",
+                "name": "Reuters World",
+                "url": "https://example.com/reuters.rss",
+                "pollIntervalSeconds": 300,
+                "legacyChannelKeys": ["middle-east"],
+            }
+        ],
+        "channels": [
+            {
+                "key": "middle-east",
+                "name": "Middle East",
+                "discordChannelId": "111111111111111111",
+            },
+            {
+                "key": "review",
+                "name": "Review",
+                "discordChannelId": "1511541774642843789",
+            },
+        ],
+    }
+
+    config = load_config(write_config(tmp_path, data))
+
+    assert config.feeds[0].source_id == "reuters"
+    assert config.feeds[0].source_class == "wire_service"
+    assert config.feeds[0].legacy_channel_keys == ("middle-east",)
+    assert config.channels[1].feeds == ()
+
+
+def test_loads_publishing_and_maintenance_runtime_settings(tmp_path: Path) -> None:
+    data = minimal_config()
+    data["settings"] = {
+        "publishing": {"shutdownDrainSeconds": 45},
+        "maintenance": {
+            "enabled": True,
+            "intervalHours": 6,
+            "articleRetentionDays": 21,
+            "postedRetentionDays": 45,
+            "nonPostRetentionHours": 12,
+            "seenRetentionDays": 10,
+            "feedEntrySeenRetentionDays": 120,
+            "articleBatchSize": 750,
+            "optimizeOnMaintenance": False,
+            "vacuumOnStartup": True,
+        },
+    }
+
+    config = load_config(write_config(tmp_path, data))
+
+    assert config.settings.publishing.shutdown_drain_seconds == 45
+    assert config.settings.maintenance.interval_hours == 6
+    assert config.settings.maintenance.article_retention_days == 21
+    assert config.settings.maintenance.posted_retention_days == 45
+    assert config.settings.maintenance.non_post_retention_hours == 12
+    assert config.settings.maintenance.seen_retention_days == 10
+    assert config.settings.maintenance.feed_entry_seen_retention_days == 120
+    assert config.settings.maintenance.article_batch_size == 750
+    assert config.settings.maintenance.optimize_on_maintenance is False
+    assert config.settings.maintenance.vacuum_on_startup is True

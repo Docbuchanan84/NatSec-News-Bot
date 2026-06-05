@@ -20,36 +20,83 @@ class RoutingEngine:
         matches = match_knowledge_entries(match_text, self.config.knowledge_entries)
         emitted_tags = {tag for match in matches for tag in match.emitted_tags}
         expanded_tags = expand_tags(emitted_tags, self.config.taxonomy)
-        scores = score_channels(
-            self.config.channel_rules,
+        all_tags = emitted_tags | expanded_tags
+        primary_rules = tuple(rule for rule in self.config.channel_rules if rule.destination_class == "primary")
+        mirror_rules = tuple(rule for rule in self.config.channel_rules if rule.destination_class == "mirror")
+        review_rules = tuple(rule for rule in self.config.channel_rules if rule.destination_class == "review")
+        primary_scores = score_channels(
+            primary_rules,
             matches,
             emitted_tags,
             expanded_tags,
             content_mode,
             article.source_name,
-            self.config.max_destinations,
+            article.source_id,
+            article.source_class,
+            self.config.max_primary_destinations or self.config.max_destinations,
         )
-        selected_channel_keys = tuple(score.channel_key for score in scores if score.selected)
+        mirror_scores = score_channels(
+            mirror_rules,
+            matches,
+            emitted_tags,
+            expanded_tags,
+            content_mode,
+            article.source_name,
+            article.source_id,
+            article.source_class,
+            25,
+            mirror_mode=True,
+        )
+        review_scores = _review_scores(review_rules, selected=False)
+        scores = primary_scores + mirror_scores + review_scores
         top_score = max((score.score for score in scores), default=0)
-        status = _decision_status(
-            matched=bool(matches),
-            selected=bool(selected_channel_keys),
-            emitted_tags=emitted_tags,
-            expanded_tags=expanded_tags,
-            review_tags=set(self.config.review_tags),
-            skip_tags=set(self.config.skip_tags),
-        )
-        if status != "routed":
-            selected_channel_keys = ()
+        primary_keys = tuple(score.channel_key for score in primary_scores if score.selected)
+        mirror_keys = tuple(score.channel_key for score in mirror_scores if score.selected)
+        review_keys: tuple[str, ...] = ()
+        final_keys: tuple[str, ...] = ()
+        status = "no_match"
+        reason = "no_match"
+
+        if all_tags & set(self.config.skip_tags):
+            status = "skipped"
+            reason = "skipped_candidate"
             scores = _clear_score_selections(scores)
+            primary_keys = ()
+            mirror_keys = ()
+        elif all_tags & set(self.config.review_tags):
+            status = "review"
+            reason = "review_required"
+            primary_keys = ()
+            mirror_keys = ()
+            review_keys = tuple(rule.channel_key for rule in review_rules if rule.enabled)
+            final_keys = review_keys
+            scores = _clear_score_selections(primary_scores + mirror_scores) + _review_scores(review_rules, selected=True)
+        elif not matches:
+            status = "no_match"
+            reason = "no_match"
+            scores = _clear_score_selections(scores)
+            primary_keys = ()
+            mirror_keys = ()
+        else:
+            final_keys = _dedupe_keys(primary_keys + mirror_keys)
+            status = "routed" if final_keys else "no_match"
+            reason = None if final_keys else "no_destination"
+            if not final_keys:
+                scores = _clear_score_selections(scores)
         explanation = _build_explanation(
             content_mode,
+            article.source_id,
+            article.source_class,
             matches,
             emitted_tags,
             expanded_tags,
             scores,
-            selected_channel_keys,
+            primary_keys,
+            mirror_keys,
+            review_keys,
+            final_keys,
             status,
+            reason,
         )
         return RoutingDecision(
             content_mode=content_mode,
@@ -57,10 +104,15 @@ class RoutingEngine:
             emitted_tags=tuple(sorted(emitted_tags)),
             expanded_tags=tuple(sorted(expanded_tags)),
             channel_scores=scores,
-            selected_channel_keys=selected_channel_keys,
+            selected_channel_keys=final_keys,
             decision_status=status,
             top_score=top_score,
             explanation=tuple(explanation),
+            primary_channel_keys=primary_keys,
+            mirror_channel_keys=mirror_keys,
+            review_channel_keys=review_keys,
+            final_channel_keys=final_keys,
+            reason=reason,
         )
 
 
@@ -68,6 +120,7 @@ def _clear_score_selections(scores: tuple[ChannelScore, ...]) -> tuple[ChannelSc
     return tuple(
         ChannelScore(
             channel_key=score.channel_key,
+            destination_class=score.destination_class,
             score=score.score,
             minimum_score=score.minimum_score,
             priority=score.priority,
@@ -76,6 +129,32 @@ def _clear_score_selections(scores: tuple[ChannelScore, ...]) -> tuple[ChannelSc
         )
         for score in scores
     )
+
+
+def _review_scores(rules, *, selected: bool) -> tuple[ChannelScore, ...]:
+    return tuple(
+        ChannelScore(
+            channel_key=rule.channel_key,
+            destination_class=rule.destination_class,
+            score=0,
+            minimum_score=rule.minimum_score,
+            priority=rule.priority,
+            selected=selected and rule.enabled,
+            reasons=("review destination",) if rule.enabled else ("disabled",),
+        )
+        for rule in rules
+    )
+
+
+def _dedupe_keys(keys: tuple[str, ...]) -> tuple[str, ...]:
+    seen: set[str] = set()
+    deduped: list[str] = []
+    for key in keys:
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(key)
+    return tuple(deduped)
 
 
 def _content_mode(article: RoutingArticle) -> str:
@@ -102,36 +181,24 @@ def _url_slug_text(url: str | None) -> str:
     return path
 
 
-def _decision_status(
-    matched: bool,
-    selected: bool,
-    emitted_tags: set[str],
-    expanded_tags: set[str],
-    review_tags: set[str],
-    skip_tags: set[str],
-) -> str:
-    all_tags = emitted_tags | expanded_tags
-    if all_tags & skip_tags:
-        return "skipped"
-    if all_tags & review_tags:
-        return "review"
-    if selected:
-        return "routed"
-    if not matched:
-        return "no_match"
-    return "review"
-
-
 def _build_explanation(
     content_mode: str,
+    source_id: str | None,
+    source_class: str | None,
     matches,
     emitted_tags: set[str],
     expanded_tags: set[str],
     scores,
-    selected_channel_keys: tuple[str, ...],
+    primary_channel_keys: tuple[str, ...],
+    mirror_channel_keys: tuple[str, ...],
+    review_channel_keys: tuple[str, ...],
+    final_channel_keys: tuple[str, ...],
     status: str,
+    reason: str | None,
 ) -> list[str]:
     lines: list[str] = [f"content_mode={content_mode}"]
+    lines.append(f"source_id={source_id or 'unknown'}")
+    lines.append(f"source_class={source_class or 'unknown'}")
     if matches:
         match_text = ", ".join(f"{match.knowledge_entry_id} ({match.matched_alias})" for match in matches[:12])
         if len(matches) > 12:
@@ -142,10 +209,10 @@ def _build_explanation(
     lines.append(f"emitted_tags={', '.join(sorted(emitted_tags)) or 'none'}")
     parent_only = sorted(expanded_tags - emitted_tags)
     lines.append(f"expanded_parent_tags={', '.join(parent_only) or 'none'}")
-    if selected_channel_keys:
-        lines.append(f"selected_channels={', '.join(selected_channel_keys)}")
-    else:
-        lines.append("selected_channels=none")
+    lines.append(f"primary_channels={', '.join(primary_channel_keys) or 'none'}")
+    lines.append(f"mirror_channels={', '.join(mirror_channel_keys) or 'none'}")
+    lines.append(f"review_channels={', '.join(review_channel_keys) or 'none'}")
+    lines.append(f"final_channels={', '.join(final_channel_keys) or 'none'}")
     top_scores = [score for score in scores if score.score > 0][:8]
     if top_scores:
         lines.append(
@@ -157,4 +224,6 @@ def _build_explanation(
     else:
         lines.append("top_scores=none")
     lines.append(f"decision={status}")
+    if reason:
+        lines.append(f"reason={reason}")
     return lines

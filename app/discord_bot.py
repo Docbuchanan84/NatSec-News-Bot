@@ -27,6 +27,7 @@ logger = logging.getLogger(__name__)
 audit_logger = logging.getLogger("app.audit")
 URLISH_RE = re.compile(r"^(https?://\S+|[\w.-]+\.[a-z]{2,}/\S*)$", re.IGNORECASE)
 LINK_LABEL_RE = re.compile(r"^(more|watch and subscribe|read more|full story|link)\s*:?\s*", re.IGNORECASE)
+REVIEW_CHANNEL_ID = "1511541774642843789"
 
 
 class DiscordPublisherAdapter(PublisherAdapter):
@@ -57,7 +58,7 @@ class DiscordPublisherAdapter(PublisherAdapter):
         if job.image_url:
             embed.set_image(url=job.image_url)
         embed.set_footer(text=footer)
-        if getattr(self.client, "debug_mode_enabled", False):
+        if getattr(self.client, "debug_mode_enabled", False) or job.channel_id == REVIEW_CHANNEL_ID:
             debug_text = _format_routing_debug_field(self.client.db, job.article_id)
             if debug_text:
                 embed.add_field(name="Routing Debug", value=debug_text[:1024], inline=False)
@@ -209,6 +210,8 @@ class RSSDiscordClient(discord.Client):
             title="Article title to test",
             summary="Optional article summary or stub",
             source="Optional source/feed name",
+            source_id="Optional stable source ID",
+            source_class="Optional source class",
             url="Optional article URL",
         )
         async def route_test(
@@ -216,6 +219,8 @@ class RSSDiscordClient(discord.Client):
             title: str,
             summary: str | None = None,
             source: str | None = None,
+            source_id: str | None = None,
+            source_class: str | None = None,
             url: str | None = None,
         ) -> None:
             try:
@@ -223,7 +228,16 @@ class RSSDiscordClient(discord.Client):
             except RoutingConfigError as exc:
                 await self._send_routing_config_error(interaction, exc)
                 return
-            decision = engine.route(RoutingArticle(title=title, summary=summary, source_name=source, url=url))
+            decision = engine.route(
+                RoutingArticle(
+                    title=title,
+                    summary=summary,
+                    source_name=source,
+                    source_id=source_id,
+                    source_class=source_class,
+                    url=url,
+                )
+            )
             await interaction.response.send_message(format_decision(decision), ephemeral=True)
 
         @group.command(name="route-article", description="Preview routing for an article already in SQLite")
@@ -242,8 +256,10 @@ class RSSDiscordClient(discord.Client):
                 RoutingArticle(
                     article_id=int(row["id"]),
                     title=row["title"],
-                    summary=None,
+                    summary=row["summary"],
                     source_name=row["source_name"],
+                    source_id=row["source_id"],
+                    source_class=row["source_class"],
                     url=row["url"],
                     normalized_title=row["normalized_title"],
                 )
@@ -266,8 +282,10 @@ class RSSDiscordClient(discord.Client):
                     RoutingArticle(
                         article_id=int(row["id"]),
                         title=row["title"],
-                        summary=None,
+                        summary=row["summary"],
                         source_name=row["source_name"],
+                        source_id=row["source_id"],
+                        source_class=row["source_class"],
                         url=row["url"],
                         normalized_title=row["normalized_title"],
                     )
@@ -304,6 +322,15 @@ class RSSDiscordClient(discord.Client):
                     truncate("\n".join(exc.errors), 1500),
                 ]
             await interaction.response.send_message("\n".join(detail), ephemeral=True)
+
+        @group.command(name="explain", description="Show the latest persisted routing explanation for an article")
+        @app_commands.describe(article_id="Article ID from the SQLite articles table")
+        async def explain(interaction: discord.Interaction, article_id: int) -> None:
+            row = self.db.latest_routing_decision_for_article(article_id)
+            if row is None:
+                await interaction.response.send_message(f"No routing decision recorded for article {article_id}.", ephemeral=True)
+                return
+            await interaction.response.send_message(_format_persisted_routing_explanation(row), ephemeral=True)
 
         self.tree.add_command(group)
 
@@ -346,10 +373,11 @@ def _format_routing_debug_field(db: Database, article_id: int) -> str | None:
     if row is None:
         return None
     try:
-        selected = json.loads(row["selected_channel_keys"] or "[]")
+        selected = json.loads(row["final_channel_keys"] or row["selected_channel_keys"] or "[]")
         scores = json.loads(row["score_details"] or "[]")
         matches = json.loads(row["matched_entries"] or "[]")
         tags = json.loads(row["emitted_tags"] or "[]")
+        expanded_tags = json.loads(row["expanded_tags"] or "[]")
     except (TypeError, json.JSONDecodeError):
         return None
 
@@ -363,6 +391,7 @@ def _format_routing_debug_field(db: Database, article_id: int) -> str | None:
 
     lines = [
         f"Decision: {str(row['decision_status']).upper()} -> {', '.join(selected) or 'none'}",
+        f"Reason: {row['reason'] or 'none'}",
         f"Top score: {row['top_score']}",
     ]
     if matches:
@@ -377,6 +406,11 @@ def _format_routing_debug_field(db: Database, article_id: int) -> str | None:
         if len(tags) > 10:
             tag_text += f", +{len(tags) - 10} more"
         lines.append(f"Tags: {tag_text}")
+    if expanded_tags:
+        expanded_text = ", ".join(expanded_tags[:10])
+        if len(expanded_tags) > 10:
+            expanded_text += f", +{len(expanded_tags) - 10} more"
+        lines.append(f"Expanded: {expanded_text}")
     if selected_scores:
         lines.append("Selected because:")
         for score in selected_scores[:2]:
@@ -388,15 +422,54 @@ def _format_routing_debug_field(db: Database, article_id: int) -> str | None:
     return _fit_embed_field(lines)
 
 
+def _format_persisted_routing_explanation(row) -> str:
+    try:
+        final = json.loads(row["final_channel_keys"] or row["selected_channel_keys"] or "[]")
+        primary = json.loads(row["primary_channel_keys"] or "[]")
+        mirrors = json.loads(row["mirror_channel_keys"] or "[]")
+        review = json.loads(row["review_channel_keys"] or "[]")
+        scores = json.loads(row["score_details"] or "[]")
+        matches = json.loads(row["matched_entries"] or "[]")
+        emitted = json.loads(row["emitted_tags"] or "[]")
+        expanded = json.loads(row["expanded_tags"] or "[]")
+        explanation = json.loads(row["explanation"] or "[]")
+    except (TypeError, json.JSONDecodeError):
+        return "Routing decision exists, but stored JSON could not be parsed."
+    lines = [
+        f"Decision: {row['decision_status']}",
+        f"Reason: {row['reason'] or 'none'}",
+        f"Final: {', '.join(final) or 'none'}",
+        f"Primary: {', '.join(primary) or 'none'}",
+        f"Mirrors: {', '.join(mirrors) or 'none'}",
+        f"Review: {', '.join(review) or 'none'}",
+        f"Emitted tags: {', '.join(emitted) or 'none'}",
+        f"Expanded tags: {', '.join(expanded) or 'none'}",
+        "Matches: "
+        + (
+            ", ".join(f"{match.get('knowledge_entry_id')} ({match.get('matched_alias')})" for match in matches[:8])
+            if matches
+            else "none"
+        ),
+        "Top scores:",
+    ]
+    for score in scores[:8]:
+        lines.append(_format_score_line(score))
+    if explanation:
+        lines.append("Explanation:")
+        lines.extend(str(item) for item in explanation[:8])
+    return truncate("\n".join(lines), 1900)
+
+
 def _format_score_line(score: dict) -> str:
     channel_key = score.get("channel_key", "unknown")
+    destination_class = score.get("destination_class", "primary")
     score_value = score.get("score", 0)
     minimum = score.get("minimum_score", 0)
     reasons = [reason for reason in score.get("reasons", []) if not str(reason).startswith("required_any")]
     reason_text = "; ".join(str(reason) for reason in reasons[:3]) or "no score contributions"
     if len(reasons) > 3:
         reason_text += "; ..."
-    return f"- {channel_key}: {score_value}/{minimum} ({reason_text})"
+    return f"- {channel_key} [{destination_class}]: {score_value}/{minimum} ({reason_text})"
 
 
 def _same_display_text(left: str, right: str) -> bool:

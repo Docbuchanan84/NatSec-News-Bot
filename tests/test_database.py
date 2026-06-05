@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import sqlite3
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from app.database import Database
@@ -10,11 +10,19 @@ from app.normalizer import build_candidate
 from app.routing.models import RoutingDecision
 
 
-def make_candidate(title: str, url: str, guid: str | None = None):
+def make_candidate(
+    title: str,
+    url: str,
+    guid: str | None = None,
+    *,
+    source_id: str = "cbs",
+    source_class: str = "major_media",
+    feed_name: str = "CBS World",
+):
     return build_candidate(
         FeedEntry(
             feed_key="feed_1",
-            feed_name="CBS World",
+            feed_name=feed_name,
             raw_guid=guid,
             raw_title=title,
             raw_url=url,
@@ -23,6 +31,8 @@ def make_candidate(title: str, url: str, guid: str | None = None):
             image_source=None,
             raw_published_at=None,
             parsed={},
+            source_id=source_id,
+            source_class=source_class,
         ),
         TimestampSettings(),
         now=datetime(2026, 5, 28, tzinfo=UTC),
@@ -75,6 +85,90 @@ def test_channel_title_reservation_blocks_same_title_in_channel(tmp_path: Path) 
     assert db.reserve_channel_title(first.article_id, "111111111111111111", "same story", "same story", "queued") is True
     assert db.reserve_channel_title(second.article_id, "111111111111111111", "same story", "same story", "queued") is False
     assert db.reserve_channel_title(second.article_id, "222222222222222222", "same story", "same story", "queued") is True
+
+
+def test_same_story_different_sources_can_share_channel_until_cap(tmp_path: Path) -> None:
+    db = Database(tmp_path / "rss.sqlite")
+    db.initialize()
+    first = db.resolve_article(
+        make_candidate("Same Story", "https://example.com/reuters", "1", source_id="reuters", feed_name="Reuters"),
+        24,
+    )
+    second = db.resolve_article(
+        make_candidate(
+            "Same Story",
+            "https://example.com/ap",
+            "2",
+            source_id="associated-press",
+            feed_name="Associated Press",
+        ),
+        24,
+    )
+    assert first.article_id != second.article_id
+    assert db.reserve_channel_title(
+        first.article_id,
+        "111111111111111111",
+        "same story",
+        "same story",
+        "queued",
+        "reuters",
+        "cluster-1",
+    ) is True
+    assert db.reserve_channel_title(
+        second.article_id,
+        "111111111111111111",
+        "same story",
+        "same story",
+        "queued",
+        "associated-press",
+        "cluster-1",
+    ) is True
+    assert db.channel_story_source_count("111111111111111111", "cluster-1") == 2
+
+
+def test_same_source_later_duplicate_is_blocked(tmp_path: Path) -> None:
+    db = Database(tmp_path / "rss.sqlite")
+    db.initialize()
+    first = db.resolve_article(make_candidate("Same Story", "https://example.com/a", "1", source_id="reuters"), 24)
+    second = db.resolve_article(make_candidate("Same Story", "https://example.com/b", "2", source_id="reuters"), 24)
+    assert db.reserve_channel_title(
+        first.article_id,
+        "111111111111111111",
+        "same story",
+        "same story",
+        "queued",
+        "reuters",
+        "cluster-1",
+    ) is True
+    assert db.reserve_channel_title(
+        second.article_id,
+        "111111111111111111",
+        "same story",
+        "same story",
+        "queued",
+        "reuters",
+        "cluster-1",
+    ) is False
+
+
+def test_story_cluster_cap_counts_unique_sources(tmp_path: Path) -> None:
+    db = Database(tmp_path / "rss.sqlite")
+    db.initialize()
+    for index in range(5):
+        article = db.resolve_article(
+            make_candidate(f"Variant {index}", f"https://example.com/{index}", str(index), source_id=f"source-{index}"),
+            24,
+        )
+        assert db.reserve_channel_title(
+            article.article_id,
+            "111111111111111111",
+            f"variant {index}",
+            f"variant {index}",
+            "queued",
+            f"source-{index}",
+            "cluster-1",
+        ) is True
+    assert db.channel_story_source_count("111111111111111111", "cluster-1") == 5
 
 
 def test_records_routing_decision_tags_and_matches(tmp_path: Path) -> None:
@@ -139,3 +233,54 @@ def test_initialize_migrates_existing_articles_with_image_columns(tmp_path: Path
 
     assert "image_url" in columns
     assert "image_source" in columns
+
+
+def test_feed_status_success_and_failure_upsert_once_per_completion(tmp_path: Path) -> None:
+    db = Database(tmp_path / "rss.sqlite")
+    db.initialize()
+    next_poll = datetime(2026, 5, 28, tzinfo=UTC)
+
+    db.mark_feed_failure("feed_1", "Feed", "https://example.com/rss", "timeout", next_poll)
+    db.mark_feed_success("feed_1", "Feed", "https://example.com/rss", next_poll)
+    row = db.feed_status_rows(limit=1)[0]
+
+    assert row["feed_key"] == "feed_1"
+    assert row["consecutive_failures"] == 0
+    assert row["last_error"] is None
+    assert row["next_poll_at"] == next_poll.isoformat()
+
+
+def test_prune_runtime_history_preserves_recent_posted_articles(tmp_path: Path) -> None:
+    db = Database(tmp_path / "rss.sqlite")
+    db.initialize()
+    article = db.resolve_article(make_candidate("Recent Posted", "https://example.com/recent", "recent"), 24)
+    db.record_channel_post(article.article_id, "111111111111111111", "m1")
+    old_timestamp = (datetime.now(UTC) - timedelta(days=60)).isoformat()
+    db._conn.execute(
+        "UPDATE articles SET normalized_published_at = ?, first_seen_at = ? WHERE id = ?",
+        (old_timestamp, old_timestamp, article.article_id),
+    )
+    db._conn.commit()
+
+    stats = db.prune_runtime_history(article_retention_days=30, posted_retention_days=90)
+
+    assert stats["old_articles"] == 0
+    assert db.get_post_job(article.article_id, "111111111111111111").title == "Recent Posted"
+
+
+def test_prune_runtime_history_removes_old_article_even_with_recent_feed_entry(tmp_path: Path) -> None:
+    db = Database(tmp_path / "rss.sqlite")
+    db.initialize()
+    article = db.resolve_article(make_candidate("Old Feed Item", "https://example.com/old", "old"), 24)
+    old_timestamp = (datetime.now(UTC) - timedelta(days=60)).isoformat()
+    db._conn.execute(
+        "UPDATE articles SET normalized_published_at = ?, first_seen_at = ? WHERE id = ?",
+        (old_timestamp, old_timestamp, article.article_id),
+    )
+    db._conn.commit()
+
+    stats = db.prune_runtime_history(article_retention_days=30, posted_retention_days=30)
+
+    assert stats["old_articles"] == 1
+    assert stats["articles_deleted"] == 1
+    assert db.has_feed_entry_seen(make_candidate("Old Feed Item", "https://example.com/old", "old")) is True

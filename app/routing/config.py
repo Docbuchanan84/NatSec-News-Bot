@@ -30,7 +30,7 @@ def load_routing_config(config_dir: str | Path, app_config: AppConfig) -> Routin
 
     taxonomy_version, taxonomy = _parse_taxonomy(taxonomy_raw, errors)
     knowledge_base_version, knowledge_entries = _parse_knowledge(knowledge_raw, taxonomy, errors)
-    channels_version, max_destinations, review_tags, skip_tags, channel_rules = _parse_channels(
+    channels_version, max_destinations, max_primary_destinations, review_tags, skip_tags, channel_rules = _parse_channels(
         channels_raw,
         taxonomy,
         app_config,
@@ -48,6 +48,7 @@ def load_routing_config(config_dir: str | Path, app_config: AppConfig) -> Routin
         knowledge_entries=tuple(knowledge_entries),
         channel_rules=tuple(channel_rules),
         max_destinations=max_destinations,
+        max_primary_destinations=max_primary_destinations,
         review_tags=tuple(review_tags),
         skip_tags=tuple(skip_tags),
     )
@@ -148,9 +149,16 @@ def _parse_channels(
     taxonomy: dict[str, TaxonomyTag],
     app_config: AppConfig,
     errors: list[str],
-) -> tuple[int, int, list[str], list[str], list[ChannelRule]]:
+) -> tuple[int, int, int, list[str], list[str], list[ChannelRule]]:
     version = _int(raw.get("version", 1), "channels.version", errors, min_value=1)
     max_destinations = _int(raw.get("max_destinations", 3), "channels.max_destinations", errors, min_value=1, max_value=25)
+    max_primary_destinations = _int(
+        raw.get("max_primary_destinations", max_destinations),
+        "channels.max_primary_destinations",
+        errors,
+        min_value=1,
+        max_value=25,
+    )
     review_tags = _string_list(raw.get("review_tags", ["review_required", "ambiguous"]), "channels.review_tags", errors)
     skip_tags = _string_list(raw.get("skip_tags", ["skip_candidate"]), "channels.skip_tags", errors)
     defaults = {
@@ -165,7 +173,7 @@ def _parse_channels(
     rules_raw = raw.get("channels")
     if not isinstance(rules_raw, list):
         errors.append("channels.channels must be an array.")
-        return version, max_destinations, review_tags, skip_tags, []
+        return version, max_destinations, max_primary_destinations, review_tags, skip_tags, []
     seen_keys: set[str] = set()
     rules: list[ChannelRule] = []
     for index, rule_raw in enumerate(rules_raw):
@@ -177,6 +185,12 @@ def _parse_channels(
         if channel_key in seen_keys:
             errors.append(f"{path}.channel_key duplicates another routing rule: {channel_key}")
         seen_keys.add(channel_key)
+        destination_class = _choice(
+            _rule_value(rule_obj, defaults, "destination_class", "primary"),
+            f"{path}.destination_class",
+            errors,
+            {"primary", "mirror", "review"},
+        )
 
         required_any = _string_list(_rule_value(rule_obj, defaults, "required_any", []), f"{path}.required_any", errors)
         for required in required_any:
@@ -196,6 +210,29 @@ def _parse_channels(
             f"{path}.excluded_source_any",
             errors,
         )
+        required_source_ids = _string_list(
+            _rule_value(rule_obj, defaults, "required_source_ids", []),
+            f"{path}.required_source_ids",
+            errors,
+        )
+        excluded_source_ids = _string_list(
+            _rule_value(rule_obj, defaults, "excluded_source_ids", []),
+            f"{path}.excluded_source_ids",
+            errors,
+        )
+        required_source_classes = _string_list(
+            _rule_value(rule_obj, defaults, "required_source_classes", []),
+            f"{path}.required_source_classes",
+            errors,
+        )
+        excluded_source_classes = _string_list(
+            _rule_value(rule_obj, defaults, "excluded_source_classes", []),
+            f"{path}.excluded_source_classes",
+            errors,
+        )
+        for source_key in required_source_ids + excluded_source_ids + required_source_classes + excluded_source_classes:
+            if not _valid_key(source_key):
+                errors.append(f"{path} has invalid source gate value: {source_key}")
         term_boosts = _merged_score_map(rule_obj, defaults, "term_boosts", path, errors)
         tag_boosts = _merged_score_map(rule_obj, defaults, "tag_boosts", path, errors)
         term_penalties = _merged_score_map(rule_obj, defaults, "term_penalties", path, errors)
@@ -210,12 +247,17 @@ def _parse_channels(
                 enabled=_bool(_rule_value(rule_obj, defaults, "enabled", True), f"{path}.enabled", errors),
                 minimum_score=_int(_rule_value(rule_obj, defaults, "minimum_score", 4), f"{path}.minimum_score", errors),
                 priority=_int(_rule_value(rule_obj, defaults, "priority", 0), f"{path}.priority", errors),
+                destination_class=destination_class,
                 term_boosts=term_boosts,
                 tag_boosts=tag_boosts,
                 term_penalties=term_penalties,
                 tag_penalties=tag_penalties,
                 required_any=tuple(required_any),
                 excluded_any=tuple(excluded_any),
+                required_source_ids=tuple(required_source_ids),
+                excluded_source_ids=tuple(excluded_source_ids),
+                required_source_classes=tuple(required_source_classes),
+                excluded_source_classes=tuple(excluded_source_classes),
                 required_source_any=tuple(required_source_any),
                 excluded_source_any=tuple(excluded_source_any),
                 source_biases=_merged_score_map(rule_obj, defaults, "source_biases", path, errors),
@@ -223,7 +265,7 @@ def _parse_channels(
                 notes=rule_obj.get("notes") if isinstance(rule_obj.get("notes"), str) else None,
             )
         )
-    return version, max_destinations, review_tags, skip_tags, rules
+    return version, max_destinations, max_primary_destinations, review_tags, skip_tags, rules
 
 
 def _object(value: Any, path: str, errors: list[str]) -> dict[str, Any]:
@@ -313,6 +355,13 @@ def _bool(value: Any, path: str, errors: list[str]) -> bool:
         return value
     errors.append(f"{path} must be true or false.")
     return False
+
+
+def _choice(value: Any, path: str, errors: list[str], allowed: set[str]) -> str:
+    if isinstance(value, str) and value in allowed:
+        return value
+    errors.append(f"{path} must be one of: {', '.join(sorted(allowed))}.")
+    return sorted(allowed)[0]
 
 
 def _valid_key(value: str) -> bool:

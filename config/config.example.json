@@ -26,78 +26,82 @@
     },
     "publishing": {
       "secondsBetweenPostsPerChannel": 1.0,
-      "maxQueueSizePerChannel": 250
+      "maxQueueSizePerChannel": 250,
+      "shutdownDrainSeconds": 20
     },
     "logging": {
       "auditEnabled": false,
       "detailedErrors": false,
       "auditLogPath": "logs/rssbot-audit.log",
       "errorLogPath": "logs/rssbot-errors.log",
-      "maxBytes": 10485760,
-      "backupCount": 5
+      "maxBytes": 2097152,
+      "backupCount": 3
+    },
+    "maintenance": {
+      "enabled": true,
+      "intervalHours": 12,
+      "articleRetentionDays": 30,
+      "postedRetentionDays": 30,
+      "nonPostRetentionHours": 24,
+      "seenRetentionDays": 14,
+      "feedEntrySeenRetentionDays": 90,
+      "articleBatchSize": 1000,
+      "optimizeOnMaintenance": true,
+      "vacuumOnStartup": false
     },
     "routing": {
-      "enabled": false,
+      "enabled": true,
       "mode": "observe_only",
       "configDir": "config/routing"
     }
   },
+  "feeds": [
+    {
+      "id": "reuters-world",
+      "sourceId": "reuters",
+      "sourceClass": "wire_service",
+      "name": "Reuters World",
+      "url": "https://example.com/reuters-world.rss",
+      "pollIntervalSeconds": 300,
+      "routePolicy": "normal",
+      "legacyChannelKeys": ["middle-east"]
+    },
+    {
+      "id": "defense-gov-news",
+      "sourceId": "defense-gov",
+      "sourceClass": "official_us_defense",
+      "name": "Defense.gov News",
+      "url": "https://example.com/defense-gov.rss",
+      "pollIntervalSeconds": 600,
+      "routePolicy": "normal",
+      "legacyChannelKeys": ["dept-of-war"]
+    }
+  ],
   "channels": [
     {
-      "key": "world-news",
-      "name": "World News",
-      "discordChannelId": "111111111111111111",
-      "pollIntervalSeconds": 300,
-      "feeds": [
-        {
-          "name": "CBS World",
-          "url": "https://www.cbsnews.com/latest/rss/world"
-        },
-        {
-          "name": "AP World",
-          "url": "https://apnews.com/rss/world"
-        }
-      ]
+      "key": "middle-east",
+      "name": "Middle East",
+      "discordChannelId": "111111111111111111"
     },
     {
-      "key": "politics",
-      "name": "Politics",
-      "discordChannelId": "222222222222222222",
-      "pollIntervalSeconds": 300,
-      "feeds": [
-        {
-          "name": "CBS Politics",
-          "url": "https://www.cbsnews.com/latest/rss/politics"
-        }
-      ]
+      "key": "industrial-base",
+      "name": "Industrial Base",
+      "discordChannelId": "222222222222222222"
     },
     {
-      "key": "defense",
-      "name": "Defense",
-      "discordChannelId": "333333333333333333",
-      "pollIntervalSeconds": 600,
-      "feeds": [
-        {
-          "name": "Defense News",
-          "url": "https://example.com/defense/rss"
-        }
-      ]
+      "key": "reuters",
+      "name": "Reuters",
+      "discordChannelId": "333333333333333333"
     },
     {
-      "key": "science-technology",
-      "name": "Science Technology",
-      "discordChannelId": "444444444444444444",
-      "pollIntervalSeconds": 300,
-      "feeds": [
-        {
-          "name": "CBS Technology",
-          "url": "https://www.cbsnews.com/latest/rss/technology"
-        },
-        {
-          "name": "ABC Business",
-          "url": "http://feeds.abcnews.com/abcnews/moneyheadlines"
-        }
-      ]
+      "key": "dept-of-war",
+      "name": "Department of War",
+      "discordChannelId": "444444444444444444"
+    },
+    {
+      "key": "review",
+      "name": "Review",
+      "discordChannelId": "1511541774642843789"
     }
   ]
 }

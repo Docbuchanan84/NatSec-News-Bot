@@ -370,9 +370,189 @@ class FakeSession:
         return FakeResponse()
 
 
+class FakeDvidsChallengeResponse:
+    status = 202
+    headers = {"x-amzn-waf-action": "challenge"}
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, exc_type, exc, traceback):
+        return False
+
+
+class FakeDvidsChallengeSession:
+    def get(self, *args, **kwargs):
+        return FakeDvidsChallengeResponse()
+
+
+class FakeRssResponse:
+    status = 200
+    headers = {}
+
+    def __init__(self, body: bytes):
+        self.body = body
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, exc_type, exc, traceback):
+        return False
+
+    def raise_for_status(self):
+        return None
+
+    async def read(self):
+        return self.body
+
+
+class FakeRssSession:
+    def __init__(self, body: bytes):
+        self.body = body
+
+    def get(self, *args, **kwargs):
+        return FakeRssResponse(self.body)
+
+
+class FakeJsonResponse:
+    status = 200
+    headers = {}
+
+    def __init__(self, payload):
+        self.payload = payload
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, exc_type, exc, traceback):
+        return False
+
+    def raise_for_status(self):
+        return None
+
+    async def json(self):
+        return self.payload
+
+
+class FakeDvidsFallbackSession:
+    def __init__(self):
+        self.calls = []
+
+    def get(self, url, *args, **kwargs):
+        self.calls.append((url, kwargs))
+        if "api.dvidshub.net/search" in str(url):
+            return FakeJsonResponse(
+                {
+                    "results": [
+                        {
+                            "publishdate": "2026-06-03T17:45:15Z",
+                            "title": "USS Iwo Jima Conducts Flight Operations",
+                            "id": "image:9722696",
+                            "type": "image",
+                            "unit_name": "USS Iwo Jima (LHD 7)",
+                            "short_description": "An MH-60S Sea Hawk helicopter takes off.",
+                            "thumbnail": "https://d1ldvf68ux039x.cloudfront.net/thumbs/photos/2606/9722696/800w_q95.jpg",
+                            "url": "https://www.dvidshub.net/image/9722696/uss-iwo-jima-conducts-flight-operations",
+                        }
+                    ]
+                }
+            )
+        return FakeDvidsChallengeResponse()
+
+
 @pytest.mark.asyncio
 async def test_fetch_reports_rate_limit_with_retry_after() -> None:
     service = FeedService(timeout_seconds=10, max_entries_per_feed=30)
 
     with pytest.raises(FeedFetchError, match="rate limited; retry after 900s"):
         await service.fetch(FakeSession(), bluesky_feed())
+
+
+@pytest.mark.asyncio
+async def test_dvids_empty_waf_challenge_is_fetch_error(monkeypatch) -> None:
+    monkeypatch.delenv("DVIDS_API_KEY", raising=False)
+    service = FeedService(timeout_seconds=10, max_entries_per_feed=15)
+
+    with pytest.raises(FeedFetchError, match="DVIDS returned empty HTTP 202 response; waf action=challenge"):
+        await service.fetch(
+            FakeDvidsChallengeSession(),
+            FeedRuntime(
+                feed_key="feed_dvids",
+                display_name="CENTCOM DVIDS",
+                url="https://www.dvidshub.net/rss/unit/72",
+                normalized_url="https://www.dvidshub.net/rss/unit/72",
+                interval_seconds=300,
+                channel_ids=("111111111111111111",),
+                channel_keys=("middle-east",),
+            ),
+        )
+
+
+@pytest.mark.asyncio
+async def test_dvids_fetch_reads_burst_beyond_global_entry_cap() -> None:
+    service = FeedService(timeout_seconds=10, max_entries_per_feed=15)
+    items = "\n".join(
+        f"""
+        <item>
+          <guid>image:{index}</guid>
+          <title>DVIDS item {index}</title>
+          <link>https://www.dvidshub.net/image/{index}/example</link>
+          <description>Example</description>
+          <pubDate>Wed, 03 Jun 2026 12:{index:02d}:00 -0400</pubDate>
+        </item>
+        """
+        for index in range(20)
+    )
+    body = f"""
+    <rss version="2.0">
+      <channel>
+        <title>DVIDS Unit RSS Feed: CENTCOM</title>
+        {items}
+      </channel>
+    </rss>
+    """.encode()
+
+    result = await service.fetch(
+        FakeRssSession(body),
+        FeedRuntime(
+            feed_key="feed_dvids",
+            display_name="CENTCOM DVIDS",
+            url="https://www.dvidshub.net/rss/unit/72",
+            normalized_url="https://www.dvidshub.net/rss/unit/72",
+            interval_seconds=300,
+            channel_ids=("111111111111111111",),
+            channel_keys=("middle-east",),
+        ),
+    )
+
+    assert len(result.entries) == 20
+
+
+@pytest.mark.asyncio
+async def test_dvids_waf_challenge_uses_api_fallback(monkeypatch) -> None:
+    monkeypatch.setenv("DVIDS_API_KEY", "key-test")
+    service = FeedService(timeout_seconds=10, max_entries_per_feed=15)
+    session = FakeDvidsFallbackSession()
+
+    result = await service.fetch(
+        session,
+        FeedRuntime(
+            feed_key="feed_dvids",
+            display_name="USS Iwo Jima DVIDS",
+            url="https://www.dvidshub.net/rss/unit/4222",
+            normalized_url="https://www.dvidshub.net/rss/unit/4222",
+            interval_seconds=300,
+            channel_ids=("111111111111111111",),
+            channel_keys=("sea",),
+            source_id="dvids",
+            source_class="official_us_defense",
+        ),
+    )
+
+    assert len(result.entries) == 1
+    assert result.entries[0].raw_guid == "image:9722696"
+    assert result.entries[0].raw_url == "https://www.dvidshub.net/image/9722696/uss-iwo-jima-conducts-flight-operations"
+    assert result.entries[0].image_source == "dvids_api_thumbnail"
+    assert result.entries[0].source_id == "dvids"
+    assert session.calls[1][1]["params"]["unit_id"] == "4222"
+    assert session.calls[1][1]["params"]["max_results"] == "50"

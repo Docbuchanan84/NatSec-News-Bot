@@ -16,6 +16,7 @@ from app.models import (
     DiscordSettings,
     FeedConfig,
     LoggingSettings,
+    MaintenanceSettings,
     PollingSettings,
     PublishingSettings,
     RoutingSettings,
@@ -34,6 +35,33 @@ class ConfigError(Exception):
 
 SNOWFLAKE_RE = re.compile(r"^\d{17,20}$")
 KEY_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{0,63}$")
+SOURCE_CLASS_BY_ID = {
+    "reuters": "wire_service",
+    "associated-press": "wire_service",
+    "ap": "wire_service",
+    "defense-gov": "official_us_defense",
+    "department-of-defense": "official_us_defense",
+    "dod": "official_us_defense",
+    "us-navy": "official_us_defense",
+    "us-army": "official_us_defense",
+    "us-air-force": "official_us_defense",
+    "us-marine-corps": "official_us_defense",
+    "us-space-force": "official_us_defense",
+    "dvids": "official_us_defense",
+    "breaking-defense": "defense_media",
+    "defense-news": "defense_media",
+    "war-zone": "defense_media",
+    "usni": "defense_media",
+    "csis": "think_tank",
+    "rand": "think_tank",
+    "brookings": "think_tank",
+    "cfr": "think_tank",
+    "cnas": "think_tank",
+    "nyt": "major_media",
+    "wapo": "major_media",
+    "npr": "major_media",
+    "newsweek": "major_media",
+}
 
 
 @dataclass
@@ -78,11 +106,20 @@ def load_config(path: str | Path) -> AppConfig:
         guild_id_env=_string(discord_raw.get("guildIdEnv", "DISCORD_GUILD_ID"), "discord.guildIdEnv", errors)
     )
     settings = _parse_settings(settings_raw, errors)
+    feeds = _parse_top_level_feeds(raw.get("feeds", []), settings, errors)
     channels = _parse_channels(raw.get("channels"), settings, errors)
 
     if errors:
         raise ConfigError(errors)
-    return AppConfig(version=version, bot=bot, discord=discord, settings=settings, channels=tuple(channels), raw=raw)
+    return AppConfig(
+        version=version,
+        bot=bot,
+        discord=discord,
+        settings=settings,
+        feeds=tuple(feeds),
+        channels=tuple(channels),
+        raw=raw,
+    )
 
 
 def validate_env(config: AppConfig, env: dict[str, str] | None = None) -> list[str]:
@@ -104,6 +141,7 @@ def _parse_settings(raw: dict[str, Any], errors: list[str]) -> Settings:
     publishing_raw = _object(raw.get("publishing", {}), "settings.publishing", errors)
     logging_raw = _object(raw.get("logging", {}), "settings.logging", errors)
     routing_raw = _object(raw.get("routing", {}), "settings.routing", errors)
+    maintenance_raw = _object(raw.get("maintenance", {}), "settings.maintenance", errors)
 
     polling = PollingSettings(
         default_interval_seconds=_int(
@@ -197,6 +235,13 @@ def _parse_settings(raw: dict[str, Any], errors: list[str]) -> Settings:
             min_value=1,
             max_value=10000,
         ),
+        shutdown_drain_seconds=_int(
+            publishing_raw.get("shutdownDrainSeconds", 20),
+            "settings.publishing.shutdownDrainSeconds",
+            errors,
+            min_value=0,
+            max_value=300,
+        ),
     )
     logging_settings = LoggingSettings(
         audit_enabled=_bool(
@@ -248,6 +293,68 @@ def _parse_settings(raw: dict[str, Any], errors: list[str]) -> Settings:
             errors,
         ),
     )
+    maintenance = MaintenanceSettings(
+        enabled=_bool(maintenance_raw.get("enabled", True), "settings.maintenance.enabled", errors),
+        interval_hours=_int(
+            maintenance_raw.get("intervalHours", 12),
+            "settings.maintenance.intervalHours",
+            errors,
+            min_value=1,
+            max_value=168,
+        ),
+        article_retention_days=_int(
+            maintenance_raw.get("articleRetentionDays", 30),
+            "settings.maintenance.articleRetentionDays",
+            errors,
+            min_value=1,
+            max_value=3650,
+        ),
+        posted_retention_days=_int(
+            maintenance_raw.get("postedRetentionDays", 30),
+            "settings.maintenance.postedRetentionDays",
+            errors,
+            min_value=1,
+            max_value=3650,
+        ),
+        non_post_retention_hours=_int(
+            maintenance_raw.get("nonPostRetentionHours", 24),
+            "settings.maintenance.nonPostRetentionHours",
+            errors,
+            min_value=1,
+            max_value=8760,
+        ),
+        seen_retention_days=_int(
+            maintenance_raw.get("seenRetentionDays", 14),
+            "settings.maintenance.seenRetentionDays",
+            errors,
+            min_value=1,
+            max_value=3650,
+        ),
+        feed_entry_seen_retention_days=_int(
+            maintenance_raw.get("feedEntrySeenRetentionDays", 90),
+            "settings.maintenance.feedEntrySeenRetentionDays",
+            errors,
+            min_value=1,
+            max_value=3650,
+        ),
+        article_batch_size=_int(
+            maintenance_raw.get("articleBatchSize", 500),
+            "settings.maintenance.articleBatchSize",
+            errors,
+            min_value=1,
+            max_value=10000,
+        ),
+        optimize_on_maintenance=_bool(
+            maintenance_raw.get("optimizeOnMaintenance", True),
+            "settings.maintenance.optimizeOnMaintenance",
+            errors,
+        ),
+        vacuum_on_startup=_bool(
+            maintenance_raw.get("vacuumOnStartup", False),
+            "settings.maintenance.vacuumOnStartup",
+            errors,
+        ),
+    )
     return Settings(
         polling=polling,
         dedupe=dedupe,
@@ -255,6 +362,7 @@ def _parse_settings(raw: dict[str, Any], errors: list[str]) -> Settings:
         publishing=publishing,
         logging=logging_settings,
         routing=routing,
+        maintenance=maintenance,
     )
 
 
@@ -290,7 +398,15 @@ def _parse_channels(raw: Any, settings: Settings, errors: list[str]) -> list[Cha
         interval_raw = channel_obj.get("pollIntervalSeconds", settings.polling.default_interval_seconds)
         parsed_interval = _int(interval_raw, f"{path}.pollIntervalSeconds", errors, min_value=30, max_value=86400)
         interval = max(parsed_interval, settings.polling.min_interval_seconds)
-        feeds = _parse_feeds(channel_obj.get("feeds"), path, errors)
+        feeds = _parse_feeds(
+            channel_obj.get("feeds", []),
+            path,
+            settings,
+            errors,
+            default_interval_seconds=interval,
+            legacy_channel_keys=(key,),
+            require_non_empty=False,
+        )
         channels.append(
             ChannelConfig(
                 key=key,
@@ -303,16 +419,42 @@ def _parse_channels(raw: Any, settings: Settings, errors: list[str]) -> list[Cha
     return channels
 
 
-def _parse_feeds(raw: Any, channel_path: str, errors: list[str]) -> list[FeedConfig]:
-    path = f"{channel_path}.feeds"
-    if not isinstance(raw, list):
-        errors.append(f"{path} must be a non-empty array.")
+def _parse_top_level_feeds(raw: Any, settings: Settings, errors: list[str]) -> list[FeedConfig]:
+    if raw in (None, []):
         return []
-    if not raw:
+    return _parse_feeds(
+        raw,
+        "feeds",
+        settings,
+        errors,
+        default_interval_seconds=settings.polling.default_interval_seconds,
+        legacy_channel_keys=(),
+        require_non_empty=False,
+        path_is_feed_array=True,
+    )
+
+
+def _parse_feeds(
+    raw: Any,
+    owner_path: str,
+    settings: Settings,
+    errors: list[str],
+    *,
+    default_interval_seconds: int,
+    legacy_channel_keys: tuple[str, ...],
+    require_non_empty: bool,
+    path_is_feed_array: bool = False,
+) -> list[FeedConfig]:
+    path = owner_path if path_is_feed_array else f"{owner_path}.feeds"
+    if not isinstance(raw, list):
+        errors.append(f"{path} must be an array.")
+        return []
+    if require_non_empty and not raw:
         errors.append(f"{path} must not be empty.")
         return []
 
     feeds: list[FeedConfig] = []
+    seen_top_level_ids: set[str] = set()
     for index, feed_raw in enumerate(raw):
         feed_path = f"{path}[{index}]"
         feed_obj = _object(feed_raw, feed_path, errors)
@@ -321,13 +463,95 @@ def _parse_feeds(raw: Any, channel_path: str, errors: list[str]) -> list[FeedCon
             feed_id = _string(feed_id, f"{feed_path}.id", errors)
             if feed_id and not KEY_RE.match(feed_id):
                 errors.append(f"{feed_path}.id must use lowercase letters, numbers, hyphens, or underscores.")
+            if path_is_feed_array and feed_id in seen_top_level_ids:
+                errors.append(f"{feed_path}.id duplicates another feed id: {feed_id}")
+            seen_top_level_ids.add(feed_id)
         name = _string(feed_obj.get("name"), f"{feed_path}.name", errors)
         url = _string(feed_obj.get("url"), f"{feed_path}.url", errors)
         parsed = urlparse(url)
         if parsed.scheme not in {"http", "https"} or not parsed.netloc:
             errors.append(f"{feed_path}.url must be an HTTP or HTTPS URL.")
-        feeds.append(FeedConfig(id=feed_id, name=name, url=url))
+        source_id = _optional_key(
+            feed_obj.get("sourceId"),
+            f"{feed_path}.sourceId",
+            errors,
+            fallback=_derive_source_id(feed_id, name),
+        )
+        source_class = _optional_key(
+            feed_obj.get("sourceClass"),
+            f"{feed_path}.sourceClass",
+            errors,
+            fallback=_derive_source_class(source_id),
+        )
+        interval = feed_obj.get("pollIntervalSeconds")
+        if interval is None:
+            interval_seconds = max(default_interval_seconds, settings.polling.min_interval_seconds)
+        else:
+            parsed_interval = _int(
+                interval,
+                f"{feed_path}.pollIntervalSeconds",
+                errors,
+                min_value=30,
+                max_value=86400,
+            )
+            interval_seconds = max(parsed_interval, settings.polling.min_interval_seconds)
+        route_policy = _choice(
+            feed_obj.get("routePolicy", "normal"),
+            f"{feed_path}.routePolicy",
+            errors,
+            {"normal", "ignore"},
+        )
+        configured_legacy_keys = _string_list(
+            feed_obj.get("legacyChannelKeys", list(legacy_channel_keys)),
+            f"{feed_path}.legacyChannelKeys",
+            errors,
+        )
+        feeds.append(
+            FeedConfig(
+                id=feed_id,
+                name=name,
+                url=url,
+                source_id=source_id,
+                source_class=source_class,
+                poll_interval_seconds=interval_seconds,
+                route_policy=route_policy,
+                legacy_channel_keys=tuple(configured_legacy_keys),
+            )
+        )
     return feeds
+
+
+def _derive_source_id(feed_id: str | None, name: str) -> str:
+    if feed_id:
+        return feed_id
+    normalized = re.sub(r"[^a-z0-9]+", "-", name.casefold()).strip("-")
+    return normalized[:63] or "unknown"
+
+
+def _derive_source_class(source_id: str) -> str:
+    return SOURCE_CLASS_BY_ID.get(source_id, "unknown")
+
+
+def _optional_key(value: Any, path: str, errors: list[str], fallback: str) -> str:
+    if value is None:
+        return fallback
+    parsed = _string(value, path, errors)
+    if parsed and not KEY_RE.match(parsed):
+        errors.append(f"{path} must use lowercase letters, numbers, hyphens, or underscores.")
+    return parsed or fallback
+
+
+def _string_list(value: Any, path: str, errors: list[str]) -> list[str]:
+    if not isinstance(value, list):
+        errors.append(f"{path} must be an array of strings.")
+        return []
+    parsed: list[str] = []
+    for index, item in enumerate(value):
+        if isinstance(item, str) and item.strip():
+            parsed.append(item.strip())
+        else:
+            errors.append(f"{path}[{index}] must be a non-empty string.")
+    return parsed
 
 
 def _object(value: Any, path: str, errors: list[str]) -> dict[str, Any]:

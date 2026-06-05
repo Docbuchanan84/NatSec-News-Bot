@@ -43,6 +43,7 @@ class TimestampSettings:
 class PublishingSettings:
     seconds_between_posts_per_channel: float = 1.0
     max_queue_size_per_channel: int = 250
+    shutdown_drain_seconds: int = 20
 
 
 @dataclass(frozen=True)
@@ -63,6 +64,20 @@ class RoutingSettings:
 
 
 @dataclass(frozen=True)
+class MaintenanceSettings:
+    enabled: bool = True
+    interval_hours: int = 12
+    article_retention_days: int = 30
+    posted_retention_days: int = 30
+    non_post_retention_hours: int = 24
+    seen_retention_days: int = 14
+    feed_entry_seen_retention_days: int = 90
+    article_batch_size: int = 500
+    optimize_on_maintenance: bool = True
+    vacuum_on_startup: bool = False
+
+
+@dataclass(frozen=True)
 class Settings:
     polling: PollingSettings = field(default_factory=PollingSettings)
     dedupe: DedupeSettings = field(default_factory=DedupeSettings)
@@ -70,6 +85,7 @@ class Settings:
     publishing: PublishingSettings = field(default_factory=PublishingSettings)
     logging: LoggingSettings = field(default_factory=LoggingSettings)
     routing: RoutingSettings = field(default_factory=RoutingSettings)
+    maintenance: MaintenanceSettings = field(default_factory=MaintenanceSettings)
 
 
 @dataclass(frozen=True)
@@ -77,6 +93,11 @@ class FeedConfig:
     name: str
     url: str
     id: str | None = None
+    source_id: str = "unknown"
+    source_class: str = "unknown"
+    poll_interval_seconds: int | None = None
+    route_policy: str = "normal"
+    legacy_channel_keys: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -94,6 +115,7 @@ class AppConfig:
     bot: BotSettings
     discord: DiscordSettings
     settings: Settings
+    feeds: tuple[FeedConfig, ...]
     channels: tuple[ChannelConfig, ...]
     raw: dict[str, Any]
 
@@ -107,6 +129,9 @@ class FeedRuntime:
     interval_seconds: int
     channel_ids: tuple[str, ...]
     channel_keys: tuple[str, ...]
+    source_id: str = "unknown"
+    source_class: str = "unknown"
+    route_policy: str = "normal"
 
 
 @dataclass(frozen=True)
@@ -121,6 +146,8 @@ class FeedEntry:
     image_source: str | None
     raw_published_at: str | None
     parsed: dict[str, Any]
+    source_id: str = "unknown"
+    source_class: str = "unknown"
 
 
 @dataclass(frozen=True)
@@ -135,10 +162,13 @@ class TimestampResult:
 class ArticleCandidate:
     feed_key: str
     source_name: str
+    source_id: str
+    source_class: str
     title: str
     normalized_title: str
     title_signature: str
     source_family: str
+    story_cluster_key: str
     url: str | None
     normalized_url: str | None
     summary: str | None
@@ -170,3 +200,5 @@ class PostJob:
     source_name: str
     normalized_published_at: datetime
     timestamp_status: str = "valid"
+    source_id: str = "unknown"
+    source_class: str = "unknown"

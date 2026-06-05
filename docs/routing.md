@@ -1,66 +1,81 @@
-# Structured Routing
+# Newsroom Routing
 
-The routing system is a first-pass, local-only classifier for RSS articles. It does not use paid APIs, external AI services, or full-text scraping. It matches transparent dictionary terms, emits structured tags, expands those tags through a taxonomy, scores configured channel rules, and records the decision.
+The router is a local-only classifier. It does not use paid APIs, external AI services, or full-text scraping. Feeds are inputs, Discord channels are destinations, and routing policy decides where an article posts.
 
-The existing `config/config.json` channel and feed setup remains the source of truth for Discord channel IDs. Routing rules refer to channel keys only.
+## Config Shape
 
-## Files
-
-- `config/routing/taxonomy.json` defines allowed tags and parent tag relationships.
-- `config/routing/knowledge_base.json` defines terms, aliases, and the tags they emit.
-- `config/routing/channels.json` defines channel scoring rules by `channel_key`.
-
-## Terms And Tags
-
-A term is text found in an article, such as `Chinese carrier`.
-
-A tag is structured meaning emitted by the matched term, such as `china`, `aircraft_carrier`, `naval`, and `indo_pacific`.
-
-Terms and tags are deliberately separate. Tune language in `knowledge_base.json`; tune routing behavior in `channels.json`.
-
-## Taxonomy
-
-Each tag can define `parent_tags`. For example:
+Recommended app config uses top-level `feeds` plus destination-only `channels`:
 
 ```json
-"carrier_strike_group": {"parent_tags": ["aircraft_carrier", "naval", "military"]}
+{
+  "feeds": [
+    {
+      "id": "reuters-world",
+      "sourceId": "reuters",
+      "sourceClass": "wire_service",
+      "name": "Reuters World",
+      "url": "https://example.com/rss",
+      "pollIntervalSeconds": 300,
+      "routePolicy": "normal",
+      "legacyChannelKeys": ["middle-east"]
+    }
+  ],
+  "channels": [
+    {"key": "middle-east", "name": "Middle East", "discordChannelId": "111111111111111111"},
+    {"key": "reuters", "name": "Reuters", "discordChannelId": "222222222222222222"},
+    {"key": "review", "name": "Review", "discordChannelId": "1511541774642843789"}
+  ]
+}
 ```
 
-If a term emits `carrier_strike_group`, the final expanded tag set also includes `aircraft_carrier`, `naval`, and `military`.
+Legacy channel-scoped `feeds` are still accepted. `legacyChannelKeys` preserves old observe-only posting behavior after migrating feeds to the top level; enforced routing uses the router's final destinations instead.
 
-## Knowledge Base
+## Routing Files
 
-Each knowledge entry has:
+- `config/routing/taxonomy.json` defines allowed tags and parent tag expansion.
+- `config/routing/knowledge_base.json` defines phrase aliases and emitted tags.
+- `config/routing/channels.json` defines destination rules and source gates.
 
-- `id`: stable identifier used by term boosts/penalties.
-- `aliases`: phrases to match case-insensitively.
-- `tags`: emitted structured tags.
-- `priority`: tie-breaker for overlapping matches.
-- `score`: reserved for entry strength and explanations.
+Channel rules support:
 
-The matcher uses longest-match overlap blocking. `Chinese aircraft carrier` wins over the shorter overlapping `Chinese aircraft`.
+- `destination_class`: `primary`, `mirror`, or `review`; default is `primary`.
+- `required_source_ids`, `excluded_source_ids`
+- `required_source_classes`, `excluded_source_classes`
+- legacy `required_source_any`, `excluded_source_any`, and `source_biases`
 
-## Channel Scoring
+Primary destinations are scored normally and limited by `max_primary_destinations`. Mirror destinations are source-gated archives added after primary selection. Review destinations are only used for review-required or ambiguous items.
 
-Each channel rule has:
+## Decision Order
 
-- `channel_key`: must exist in `config/config.json`.
-- `enabled`
-- `minimum_score`
-- `priority`
-- `term_boosts`
-- `tag_boosts`
-- `term_penalties`
-- `tag_penalties`
-- `required_any`
-- `source_biases`
-- `content_mode_adjustments`
+1. Match knowledge entries.
+2. Emit tags and expand taxonomy parents.
+3. If skip tags are present, record `skipped` and post nowhere, including mirrors.
+4. If review tags are present, record `review` and post only to `review`.
+5. If there are no matches, record `no_match` and post nowhere.
+6. Otherwise score primary destinations, add source mirrors, apply duplicate and cluster limits, record `routed` when final destinations exist.
 
-Common rule fields can live once in top-level `rule_defaults` inside `channels.json`. A channel only needs to override values that differ from those defaults.
+Review posts always include routing explanation/debug information, even when normal debug embeds are off. Quick review buttons are intentionally deferred; future work should add persistent approve/suppress/skip/manual actions around the stored routing decision.
 
-`title_only` articles are scored more conservatively by default. `title_and_stub` is used when a summary/stub is available.
+## Source Identity
 
-`skip_candidate` and `review_required` tags override normal routing selections. This prevents low-value roundups and review-marked items from auto-posting in enforced mode.
+Each feed should define:
+
+- `sourceId`: stable machine identifier, such as `reuters`, `associated-press`, `defense-gov`, `breaking-defense`, or `csis`.
+- `sourceClass`: broad class, such as `wire_service`, `official_us_defense`, `official_us_gov`, `official_foreign_defense`, `official_foreign_gov`, `defense_media`, `think_tank`, `major_media`, `individual_reporter`, `osint`, or `unknown`.
+
+If omitted, the loader derives `sourceId` from the feed id/name and derives only safe known source classes; otherwise it uses `unknown`.
+
+## Dedupe Policy
+
+Duplicate suppression is source scoped:
+
+- Same channel + same source + same normalized title is suppressed.
+- Same channel + same source + same title signature is suppressed.
+- Same channel + same story cluster + same source is suppressed.
+- Same story cluster from different sources can post until 5 unique sources have posted to that channel.
+- The 6th unique source for a story cluster is recorded as `cluster_cap`.
+
+The first-pass `story_cluster_key` is based on local title signature data. It is deliberately not semantic clustering.
 
 ## Modes
 
@@ -68,127 +83,43 @@ Configured in `config/config.json`:
 
 ```json
 "routing": {
-  "enabled": false,
+  "enabled": true,
   "mode": "observe_only",
   "configDir": "config/routing"
 }
 ```
 
-Modes:
+- `observe_only`: classify and store decisions, but use legacy feed channel targets.
+- `route_preview`: keep normal polling unchanged while route commands preview decisions.
+- `enforced`: post only to final router destinations.
 
-- `observe_only`: classify and store/log decisions, but keep the existing feed/channel posting behavior.
-- `route_preview`: reserved for manual command previews; normal polling remains unchanged.
-- `enforced`: use selected routing channels instead of blindly posting to every feed-attached channel.
+If routing config is invalid, enforcement is disabled and the bot falls back to existing behavior.
 
-If routing config is invalid in observe mode, the bot logs the error and continues existing behavior. If enforced mode cannot load valid routing config, enforcement is refused and the bot falls back to existing behavior.
-
-## CLI
-
-Validate routing:
+## Validation
 
 ```powershell
+python -m app.main --validate-config
 python -m app.main --validate-routing
+python -m app.main --routing-diagnostics
+python -m app.main --route-backtest 50
 ```
 
-Test one title:
+Useful one-off checks:
 
 ```powershell
-python -m app.main --route-test-title "Chinese carrier Liaoning enters Philippine Sea"
-```
-
-Test title plus summary/source/url:
-
-```powershell
-python -m app.main --route-test-title "Ghana parliament passes anti-LGBTQ+ bill" --route-test-source "BBC Africa"
-```
-
-Backtest recent database articles:
-
-```powershell
-python -m app.main --route-backtest 25
-```
-
-Bootstrap missing routing files:
-
-```powershell
-python -m app.main --bootstrap-routing-config
-```
-
-Existing files are not overwritten unless you pass:
-
-```powershell
-python -m app.main --bootstrap-routing-config --force-bootstrap-routing-config
+python -m app.main --route-test-title "Reuters: Iran sanctions expand after missile attack" --route-test-source "Reuters" --route-test-source-id reuters --route-test-source-class wire_service
+python -m app.main --route-test-title "Carrier Global shares rise after earnings" --route-test-source "Reuters" --route-test-source-id reuters --route-test-source-class wire_service
+python -m app.main --route-test-title "Patriot contract driven by Ukraine demand expands production" --route-test-source "Defense News" --route-test-source-id defense-news --route-test-source-class defense_media
 ```
 
 ## Discord Commands
 
-All responses are ephemeral:
+All routing command responses are ephemeral:
 
 - `/rss route-test`
 - `/rss route-article`
 - `/rss route-backtest`
 - `/rss routing-status`
+- `/rss explain`
 
-Use `/rss route-test` before enabling `enforced`.
-
-## Example
-
-Title:
-
-```text
-Chinese carrier Liaoning enters Philippine Sea
-```
-
-Knowledge matches:
-
-- `Chinese carrier`
-- `Liaoning`
-- `Philippine Sea`
-
-Tags:
-
-- `china`
-- `aircraft_carrier`
-- `naval`
-- `indo_pacific`
-- `philippines`
-
-Expanded:
-
-- `military`
-- `world`
-
-Routing:
-
-- `sea` scores highly from `naval` and `aircraft_carrier`.
-- `indo-pacific` scores highly from `indo_pacific`, `china`, and `philippines`.
-
-## Tuning
-
-Add a new term:
-
-1. Add an entry to `knowledge_base.json`.
-2. Use aliases that are specific enough to avoid noise.
-3. Run `python -m app.main --validate-routing`.
-4. Run one or more `--route-test-title` checks.
-
-Add a new tag:
-
-1. Add it to `taxonomy.json`.
-2. Add parent tags if useful.
-3. Use it in knowledge entries or channel rules.
-4. Run `python -m app.main --validate-routing`.
-
-Tune a channel:
-
-1. Open `channels.json`.
-2. Adjust `tag_boosts`, `term_boosts`, penalties, or `minimum_score`.
-3. Run `python -m app.main --route-backtest 25`.
-4. Check `logs/rssbot-audit.log` when audit logging is enabled.
-
-## First-Pass Limits
-
-- Matching is phrase/alias based.
-- Existing DB rows do not store full article bodies.
-- Backtests mostly use title, source name, normalized title, and URL path.
-- The starter channel rules are intentionally conservative and need live tuning.
+Use `/rss explain` with an article ID to inspect the latest persisted routing decision.

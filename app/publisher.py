@@ -33,11 +33,13 @@ class PublisherService:
         self._pending: set[tuple[int, str]] = set()
         self._delay_seconds = 1.0
         self._max_queue_size = 250
+        self._shutdown_drain_seconds = 20
         self._stopping = False
 
     def configure(self, config: AppConfig) -> None:
         self._delay_seconds = config.settings.publishing.seconds_between_posts_per_channel
         self._max_queue_size = config.settings.publishing.max_queue_size_per_channel
+        self._shutdown_drain_seconds = config.settings.publishing.shutdown_drain_seconds
         active_channel_ids = {channel.discord_channel_id for channel in config.channels}
         for channel_id in active_channel_ids:
             if channel_id not in self._queues:
@@ -100,6 +102,14 @@ class PublisherService:
         return [QueueStats(channel_id=channel_id, size=queue.qsize()) for channel_id, queue in self._queues.items()]
 
     async def shutdown(self) -> None:
+        if self._shutdown_drain_seconds > 0:
+            try:
+                await asyncio.wait_for(
+                    asyncio.gather(*(queue.join() for queue in self._queues.values())),
+                    timeout=self._shutdown_drain_seconds,
+                )
+            except asyncio.TimeoutError:
+                logger.warning("Publisher shutdown timed out with queued posts still pending")
         self._stopping = True
         for task in self._tasks.values():
             task.cancel()
