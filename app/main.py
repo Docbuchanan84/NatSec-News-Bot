@@ -18,6 +18,7 @@ from app.routing import RoutingConfigError, RoutingEngine, load_routing_config
 from app.routing.bootstrap import bootstrap_routing_config, recent_seed_report
 from app.routing.models import RoutingArticle
 from app.routing.reporting import format_backtest_summary, format_decision
+from app.scheduler import build_feed_runtime_map
 
 logger = logging.getLogger(__name__)
 
@@ -29,6 +30,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--init-db", action="store_true", help="Initialize SQLite schema and exit")
     parser.add_argument("--maintain-db", action="store_true", help="Prune and optimize SQLite runtime history, then exit")
     parser.add_argument("--vacuum-db", action="store_true", help="Run VACUUM with --maintain-db or at startup when configured")
+    parser.add_argument("--feed-health-report", action="store_true", help="Show feeds with repeated failures, then exit")
+    parser.add_argument("--min-feed-failures", type=int, default=10, help="Minimum failures for --feed-health-report")
+    parser.add_argument("--feed-health-limit", type=int, default=50, help="Maximum rows for --feed-health-report")
     parser.add_argument("--validate-routing", action="store_true", help="Validate routing config and exit")
     parser.add_argument("--route-test-title", help="Run routing against a supplied title and exit")
     parser.add_argument("--route-test-summary", help="Optional summary/stub for --route-test-title")
@@ -105,6 +109,9 @@ def main() -> int:
                 feed_entry_seen_retention_days=maintenance.feed_entry_seen_retention_days,
                 article_batch_size=maintenance.article_batch_size,
             )
+            inactive_feed_status = db.prune_inactive_feed_status(frozenset(build_feed_runtime_map(config)))
+            if inactive_feed_status:
+                stats["inactive_feed_status"] = inactive_feed_status
             if maintenance.optimize_on_maintenance:
                 db.optimize()
             if args.vacuum_db:
@@ -115,6 +122,10 @@ def main() -> int:
             for key in sorted(stats):
                 if stats[key]:
                     print(f"{key}: {stats[key]}")
+            return 0
+        if args.feed_health_report:
+            db.initialize()
+            print(format_feed_health_report(db, args.min_feed_failures, args.feed_health_limit))
             return 0
         if args.validate_env:
             env_errors = validate_env(config)
@@ -261,6 +272,35 @@ def format_routing_diagnostics(config, routing_config) -> str:
         "Source mirrors with no matching source IDs: "
         + (", ".join(sorted(mirror_without_sources)) if mirror_without_sources else "none")
     )
+    return "\n".join(lines)
+
+
+def format_feed_health_report(db: Database, min_failures: int = 10, limit: int = 50) -> str:
+    rows = db.feed_health_report_rows(min_failures=min_failures, limit=limit)
+    health = db.feed_health_summary()
+    lines = [
+        "Feed health report",
+        (
+            f"tracked={health['tracked']} healthy={health['healthy']} "
+            f"failing={health['failing']} never_succeeded={health['never_succeeded']}"
+        ),
+        f"showing feeds with consecutive_failures >= {max(0, min_failures)}",
+    ]
+    if not rows:
+        lines.append("none")
+        return "\n".join(lines)
+    for row in rows:
+        error = (row["last_error"] or "").replace("\n", " ")
+        if len(error) > 160:
+            error = error[:157] + "..."
+        lines.append(
+            (
+                f"- x{row['consecutive_failures']} {row['feed_name'] or row['feed_key']} | "
+                f"last_success={row['last_success_at'] or 'never'} | "
+                f"next_poll={row['next_poll_at'] or 'unknown'} | "
+                f"url={row['feed_url']} | error={error or 'none'}"
+            )
+        )
     return "\n".join(lines)
 
 

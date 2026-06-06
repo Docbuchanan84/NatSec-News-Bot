@@ -837,6 +837,16 @@ class Database:
             ).fetchone()
             return row is None or row["last_success_at"] is None
 
+    def feed_consecutive_failures(self, feed_key: str) -> int:
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT consecutive_failures FROM feed_status WHERE feed_key = ?",
+                (feed_key,),
+            ).fetchone()
+            if row is None:
+                return 0
+            return int(row["consecutive_failures"] or 0)
+
     def feed_status_rows(self, limit: int = 10, failures_first: bool = False) -> list[sqlite3.Row]:
         order_by = (
             "consecutive_failures DESC, coalesce(last_attempt_at, '') DESC"
@@ -856,6 +866,36 @@ class Database:
                     (limit,),
                 )
             )
+
+    def feed_health_report_rows(self, min_failures: int = 10, limit: int = 50) -> list[sqlite3.Row]:
+        min_failures = max(0, min_failures)
+        limit = max(1, min(limit, 500))
+        with self._lock:
+            return list(
+                self._conn.execute(
+                    """
+                    SELECT feed_key, feed_name, feed_url, last_attempt_at, last_success_at,
+                           consecutive_failures, last_error, next_poll_at
+                    FROM feed_status
+                    WHERE consecutive_failures >= ?
+                    ORDER BY consecutive_failures DESC, coalesce(last_attempt_at, '') DESC
+                    LIMIT ?
+                    """,
+                    (min_failures, limit),
+                )
+            )
+
+    def prune_inactive_feed_status(self, active_feed_keys: set[str] | frozenset[str]) -> int:
+        if not active_feed_keys:
+            return 0
+        placeholders = ", ".join("?" for _ in active_feed_keys)
+        with self._lock:
+            cursor = self._conn.execute(
+                f"DELETE FROM feed_status WHERE feed_key NOT IN ({placeholders})",
+                tuple(sorted(active_feed_keys)),
+            )
+            self._conn.commit()
+            return int(cursor.rowcount)
 
     def feed_health_summary(self) -> dict[str, int]:
         with self._lock:

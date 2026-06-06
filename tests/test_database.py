@@ -250,6 +250,36 @@ def test_feed_status_success_and_failure_upsert_once_per_completion(tmp_path: Pa
     assert row["next_poll_at"] == next_poll.isoformat()
 
 
+def test_feed_health_report_filters_and_orders_repeated_failures(tmp_path: Path) -> None:
+    db = Database(tmp_path / "rss.sqlite")
+    db.initialize()
+    next_poll = datetime(2026, 5, 28, tzinfo=UTC)
+
+    for _ in range(3):
+        db.mark_feed_failure("minor", "Minor Feed", "https://example.com/minor", "timeout", next_poll)
+    for _ in range(12):
+        db.mark_feed_failure("major", "Major Feed", "https://example.com/major", "timeout", next_poll)
+
+    rows = db.feed_health_report_rows(min_failures=10)
+
+    assert [row["feed_key"] for row in rows] == ["major"]
+    assert rows[0]["consecutive_failures"] == 12
+
+
+def test_prune_inactive_feed_status_removes_removed_config_feeds(tmp_path: Path) -> None:
+    db = Database(tmp_path / "rss.sqlite")
+    db.initialize()
+    next_poll = datetime(2026, 5, 28, tzinfo=UTC)
+    db.mark_feed_failure("active", "Active Feed", "https://example.com/active", "timeout", next_poll)
+    db.mark_feed_failure("removed", "Removed Feed", "https://example.com/removed", "timeout", next_poll)
+
+    removed = db.prune_inactive_feed_status(frozenset({"active"}))
+
+    assert removed == 1
+    rows = db.feed_status_rows(limit=10)
+    assert [row["feed_key"] for row in rows] == ["active"]
+
+
 def test_prune_runtime_history_preserves_recent_posted_articles(tmp_path: Path) -> None:
     db = Database(tmp_path / "rss.sqlite")
     db.initialize()

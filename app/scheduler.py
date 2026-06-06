@@ -52,6 +52,7 @@ class SchedulerService:
     def configure(self, config: AppConfig) -> None:
         self.config = config
         self.feeds = build_feed_runtime_map(config)
+        pruned_feed_status = self.db.prune_inactive_feed_status(frozenset(self.feeds))
         self.channel_key_to_id = {channel.key: channel.discord_channel_id for channel in config.channels}
         self.routing_engine = None
         self.routing_mode = config.settings.routing.mode
@@ -94,11 +95,14 @@ class SchedulerService:
             self._next_due.setdefault(feed_key, now)
         for removed in set(self._next_due) - set(self.feeds):
             del self._next_due[removed]
+        if pruned_feed_status:
+            logger.info("Pruned %s inactive feed status rows", pruned_feed_status)
         logger.info("Configured %s unique feeds", len(self.feeds))
         audit_logger.info(
-            "config_applied unique_feeds=%s channels=%s audit_enabled=%s detailed_errors=%s",
+            "config_applied unique_feeds=%s channels=%s inactive_feed_status_pruned=%s audit_enabled=%s detailed_errors=%s",
             len(self.feeds),
             len(config.channels),
+            pruned_feed_status,
             config.settings.logging.audit_enabled,
             config.settings.logging.detailed_errors,
         )
@@ -280,7 +284,9 @@ class SchedulerService:
                 )
                 return result
             except FeedFetchError as exc:
-                next_due = datetime.now(UTC) + timedelta(seconds=self._failure_retry_seconds(feed, exc))
+                next_due = datetime.now(UTC) + timedelta(
+                    seconds=self._failure_retry_seconds(feed, exc, first_success=first_success)
+                )
                 self._next_due[feed.feed_key] = next_due
                 self.db.mark_feed_failure(feed.feed_key, feed.display_name, feed.url, str(exc), next_due)
                 if self.config and self.config.settings.logging.detailed_errors:
@@ -506,18 +512,34 @@ class SchedulerService:
             delay_seconds = 2 if host == "bsky.app" else 3
             self._host_next_available[host] = datetime.now(UTC) + timedelta(seconds=delay_seconds)
 
-    def _failure_retry_seconds(self, feed: FeedRuntime, exc: FeedFetchError) -> int:
+    def _failure_retry_seconds(self, feed: FeedRuntime, exc: FeedFetchError, *, first_success: bool = False) -> int:
         host = urlparse(feed.url).netloc.casefold()
         if host == "www.dvidshub.net" and "waf action=challenge" in str(exc).casefold():
-            return max(feed.interval_seconds, 900)
-        if host != "bsky.app":
-            return max(feed.interval_seconds, 3600)
-        match = re.search(r"retry after (\d+)s", str(exc), re.IGNORECASE)
-        if match:
-            return max(feed.interval_seconds, int(match.group(1)))
-        if "rate limited" in str(exc).casefold():
-            return max(feed.interval_seconds, 900)
-        return feed.interval_seconds
+            base_retry_seconds = max(feed.interval_seconds, 900)
+        elif host != "bsky.app":
+            base_retry_seconds = max(feed.interval_seconds, 3600)
+        else:
+            match = re.search(r"retry after (\d+)s", str(exc), re.IGNORECASE)
+            if match:
+                base_retry_seconds = max(feed.interval_seconds, int(match.group(1)))
+            elif "rate limited" in str(exc).casefold():
+                base_retry_seconds = max(feed.interval_seconds, 900)
+            else:
+                base_retry_seconds = feed.interval_seconds
+
+        if not self.config or not self.config.settings.failure_backoff.enabled:
+            return base_retry_seconds
+
+        backoff = self.config.settings.failure_backoff
+        prior_failures = self.db.feed_consecutive_failures(feed.feed_key)
+        failures_after_attempt = prior_failures + 1
+        if first_success and failures_after_attempt >= backoff.suspend_failure_threshold:
+            return max(base_retry_seconds, backoff.suspended_retry_seconds)
+        if failures_after_attempt >= backoff.major_failure_threshold:
+            return max(base_retry_seconds, backoff.major_retry_seconds)
+        if failures_after_attempt >= backoff.minor_failure_threshold:
+            return max(base_retry_seconds, backoff.minor_retry_seconds)
+        return base_retry_seconds
 
     def _route_candidate(self, article_id: int, candidate, *, persist: bool = True) -> RoutingDecision | None:
         if self.routing_engine is None:

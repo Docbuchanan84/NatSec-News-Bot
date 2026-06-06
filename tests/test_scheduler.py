@@ -2,9 +2,17 @@ from __future__ import annotations
 
 from app.config_loader import load_config
 from app.feed_fetcher import FeedFetchError
-from app.models import FeedRuntime
+from app.models import AppConfig, FailureBackoffSettings, FeedRuntime, Settings
 from app.scheduler import build_feed_runtime_map
 from app.scheduler import SchedulerService
+
+
+class FakeBackoffDb:
+    def __init__(self, failures: int) -> None:
+        self.failures = failures
+
+    def feed_consecutive_failures(self, feed_key: str) -> int:
+        return self.failures
 
 
 def test_same_feed_under_two_channels_is_one_runtime_feed(tmp_path):
@@ -96,3 +104,60 @@ def test_dvids_waf_challenge_retries_without_hour_long_backoff():
     )
 
     assert scheduler._failure_retry_seconds(feed, FeedFetchError("waf action=challenge")) == 900
+
+
+def test_chronic_feed_failures_use_configured_backoff():
+    scheduler = SchedulerService(db=FakeBackoffDb(failures=99), publisher=object())
+    scheduler.config = AppConfig(
+        version=1,
+        bot=object(),
+        discord=object(),
+        settings=Settings(
+            failure_backoff=FailureBackoffSettings(
+                minor_failure_threshold=10,
+                major_failure_threshold=100,
+                suspend_failure_threshold=500,
+                minor_retry_seconds=21600,
+                major_retry_seconds=86400,
+                suspended_retry_seconds=604800,
+            )
+        ),
+        feeds=(),
+        channels=(),
+        raw={},
+    )
+    feed = FeedRuntime(
+        feed_key="dead-feed",
+        display_name="Dead Feed",
+        url="https://example.com/rss",
+        normalized_url="https://example.com/rss",
+        interval_seconds=300,
+        channel_ids=("111111111111111111",),
+        channel_keys=("middle-east",),
+    )
+
+    assert scheduler._failure_retry_seconds(feed, FeedFetchError("timeout"), first_success=False) == 86400
+
+
+def test_never_succeeded_feed_can_be_suspended_after_threshold():
+    scheduler = SchedulerService(db=FakeBackoffDb(failures=499), publisher=object())
+    scheduler.config = AppConfig(
+        version=1,
+        bot=object(),
+        discord=object(),
+        settings=Settings(),
+        feeds=(),
+        channels=(),
+        raw={},
+    )
+    feed = FeedRuntime(
+        feed_key="never-worked",
+        display_name="Never Worked",
+        url="https://example.com/rss",
+        normalized_url="https://example.com/rss",
+        interval_seconds=300,
+        channel_ids=("111111111111111111",),
+        channel_keys=("middle-east",),
+    )
+
+    assert scheduler._failure_retry_seconds(feed, FeedFetchError("not found"), first_success=True) == 604800

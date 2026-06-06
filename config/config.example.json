@@ -15,6 +15,15 @@
       "maxConcurrentFeedFetches": 10,
       "postOldArticlesOnFirstRun": false
     },
+    "failureBackoff": {
+      "enabled": true,
+      "minorFailureThreshold": 10,
+      "majorFailureThreshold": 100,
+      "suspendFailureThreshold": 500,
+      "minorRetrySeconds": 21600,
+      "majorRetrySeconds": 86400,
+      "suspendedRetrySeconds": 604800
+    },
     "dedupe": {
       "titleMatchWindowHours": 24
     },

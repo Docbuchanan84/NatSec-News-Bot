@@ -99,9 +99,12 @@ Runtime maintenance is configured under `settings.maintenance`. The bot periodic
 ```powershell
 python -m app.main --maintain-db
 python -m app.main --maintain-db --vacuum-db
+python -m app.main --feed-health-report --min-feed-failures 10
 ```
 
 Use `--vacuum-db` only while the bot is stopped or during a planned restart; it can briefly lock and rewrite the SQLite file.
+
+Repeated feed failures use `settings.failureBackoff` to reduce wasted fetch attempts. By default, feeds with 10 consecutive failures wait at least 6 hours, feeds with 100 wait at least 24 hours, and feeds that have never succeeded after 500 failures wait a week before retrying. Set a feed's `routePolicy` to `"ignore"` to quarantine it entirely while keeping the config entry for later repair.
 
 ## Bot Permissions
 
@@ -123,6 +126,7 @@ Privileged message content intent is not required.
 - Feed fetching is asynchronous with bounded concurrency and per-feed timeouts.
 - The scheduler reuses one HTTP session during normal operation to reduce connection churn.
 - Feed health writes are recorded once per completed fetch instead of once at attempt start plus once at completion.
+- Chronic feed failures back off automatically so dead RSS endpoints do not keep consuming fetch slots every cycle.
 - Publishing uses one queue per configured Discord channel so one busy channel does not block another.
 - Shutdown drains queued publisher work for `settings.publishing.shutdownDrainSeconds` before worker tasks are cancelled.
 - RSS timestamps are treated as untrusted. The bot stores raw and normalized timestamps and corrects missing, invalid, timezone-naive, or future timestamps.

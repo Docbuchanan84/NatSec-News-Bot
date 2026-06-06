@@ -27,6 +27,17 @@ class PollingSettings:
 
 
 @dataclass(frozen=True)
+class FailureBackoffSettings:
+    enabled: bool = True
+    minor_failure_threshold: int = 10
+    major_failure_threshold: int = 100
+    suspend_failure_threshold: int = 500
+    minor_retry_seconds: int = 21600
+    major_retry_seconds: int = 86400
+    suspended_retry_seconds: int = 604800
+
+
+@dataclass(frozen=True)
 class DedupeSettings:
     title_match_window_hours: int = 24
 
@@ -80,6 +91,7 @@ class MaintenanceSettings:
 @dataclass(frozen=True)
 class Settings:
     polling: PollingSettings = field(default_factory=PollingSettings)
+    failure_backoff: FailureBackoffSettings = field(default_factory=FailureBackoffSettings)
     dedupe: DedupeSettings = field(default_factory=DedupeSettings)
     timestamps: TimestampSettings = field(default_factory=TimestampSettings)
     publishing: PublishingSettings = field(default_factory=PublishingSettings)

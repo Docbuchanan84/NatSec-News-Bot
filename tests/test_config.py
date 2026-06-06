@@ -149,3 +149,42 @@ def test_loads_publishing_and_maintenance_runtime_settings(tmp_path: Path) -> No
     assert config.settings.maintenance.article_batch_size == 750
     assert config.settings.maintenance.optimize_on_maintenance is False
     assert config.settings.maintenance.vacuum_on_startup is True
+
+
+def test_loads_failure_backoff_settings(tmp_path: Path) -> None:
+    data = minimal_config()
+    data["settings"] = {
+        "failureBackoff": {
+            "enabled": True,
+            "minorFailureThreshold": 5,
+            "majorFailureThreshold": 25,
+            "suspendFailureThreshold": 250,
+            "minorRetrySeconds": 1800,
+            "majorRetrySeconds": 7200,
+            "suspendedRetrySeconds": 86400,
+        }
+    }
+
+    config = load_config(write_config(tmp_path, data))
+
+    assert config.settings.failure_backoff.minor_failure_threshold == 5
+    assert config.settings.failure_backoff.major_failure_threshold == 25
+    assert config.settings.failure_backoff.suspend_failure_threshold == 250
+    assert config.settings.failure_backoff.minor_retry_seconds == 1800
+    assert config.settings.failure_backoff.major_retry_seconds == 7200
+    assert config.settings.failure_backoff.suspended_retry_seconds == 86400
+
+
+def test_rejects_failure_backoff_threshold_inversion(tmp_path: Path) -> None:
+    data = minimal_config()
+    data["settings"] = {
+        "failureBackoff": {
+            "minorFailureThreshold": 100,
+            "majorFailureThreshold": 10,
+        }
+    }
+
+    with pytest.raises(ConfigError) as exc:
+        load_config(write_config(tmp_path, data))
+
+    assert "minorFailureThreshold" in str(exc.value)

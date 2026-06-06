@@ -14,6 +14,7 @@ from app.models import (
     ChannelConfig,
     DedupeSettings,
     DiscordSettings,
+    FailureBackoffSettings,
     FeedConfig,
     LoggingSettings,
     MaintenanceSettings,
@@ -136,6 +137,7 @@ def validate_env(config: AppConfig, env: dict[str, str] | None = None) -> list[s
 
 def _parse_settings(raw: dict[str, Any], errors: list[str]) -> Settings:
     polling_raw = _object(raw.get("polling", {}), "settings.polling", errors)
+    failure_backoff_raw = _object(raw.get("failureBackoff", {}), "settings.failureBackoff", errors)
     dedupe_raw = _object(raw.get("dedupe", {}), "settings.dedupe", errors)
     timestamps_raw = _object(raw.get("timestamps", {}), "settings.timestamps", errors)
     publishing_raw = _object(raw.get("publishing", {}), "settings.publishing", errors)
@@ -194,6 +196,63 @@ def _parse_settings(raw: dict[str, Any], errors: list[str]) -> Settings:
             max_value=168,
         )
     )
+    failure_backoff = FailureBackoffSettings(
+        enabled=_bool(
+            failure_backoff_raw.get("enabled", True),
+            "settings.failureBackoff.enabled",
+            errors,
+        ),
+        minor_failure_threshold=_int(
+            failure_backoff_raw.get("minorFailureThreshold", 10),
+            "settings.failureBackoff.minorFailureThreshold",
+            errors,
+            min_value=1,
+            max_value=10000,
+        ),
+        major_failure_threshold=_int(
+            failure_backoff_raw.get("majorFailureThreshold", 100),
+            "settings.failureBackoff.majorFailureThreshold",
+            errors,
+            min_value=1,
+            max_value=10000,
+        ),
+        suspend_failure_threshold=_int(
+            failure_backoff_raw.get("suspendFailureThreshold", 500),
+            "settings.failureBackoff.suspendFailureThreshold",
+            errors,
+            min_value=1,
+            max_value=100000,
+        ),
+        minor_retry_seconds=_int(
+            failure_backoff_raw.get("minorRetrySeconds", 21600),
+            "settings.failureBackoff.minorRetrySeconds",
+            errors,
+            min_value=300,
+            max_value=2592000,
+        ),
+        major_retry_seconds=_int(
+            failure_backoff_raw.get("majorRetrySeconds", 86400),
+            "settings.failureBackoff.majorRetrySeconds",
+            errors,
+            min_value=300,
+            max_value=2592000,
+        ),
+        suspended_retry_seconds=_int(
+            failure_backoff_raw.get("suspendedRetrySeconds", 604800),
+            "settings.failureBackoff.suspendedRetrySeconds",
+            errors,
+            min_value=300,
+            max_value=2592000,
+        ),
+    )
+    if failure_backoff.minor_failure_threshold > failure_backoff.major_failure_threshold:
+        errors.append("settings.failureBackoff.minorFailureThreshold must be less than or equal to majorFailureThreshold.")
+    if failure_backoff.major_failure_threshold > failure_backoff.suspend_failure_threshold:
+        errors.append("settings.failureBackoff.majorFailureThreshold must be less than or equal to suspendFailureThreshold.")
+    if failure_backoff.minor_retry_seconds > failure_backoff.major_retry_seconds:
+        errors.append("settings.failureBackoff.minorRetrySeconds must be less than or equal to majorRetrySeconds.")
+    if failure_backoff.major_retry_seconds > failure_backoff.suspended_retry_seconds:
+        errors.append("settings.failureBackoff.majorRetrySeconds must be less than or equal to suspendedRetrySeconds.")
     timestamps = TimestampSettings(
         allowed_future_skew_minutes=_int(
             timestamps_raw.get("allowedFutureSkewMinutes", 5),
@@ -357,6 +416,7 @@ def _parse_settings(raw: dict[str, Any], errors: list[str]) -> Settings:
     )
     return Settings(
         polling=polling,
+        failure_backoff=failure_backoff,
         dedupe=dedupe,
         timestamps=timestamps,
         publishing=publishing,
