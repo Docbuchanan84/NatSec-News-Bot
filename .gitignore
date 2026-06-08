@@ -9,3 +9,4 @@ __pycache__/
 venv/
 data/
 logs/
+ops/reports/

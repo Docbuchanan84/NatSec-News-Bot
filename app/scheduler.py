@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import re
+import time
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from urllib.parse import urlparse
@@ -11,7 +12,7 @@ import aiohttp
 
 from app.database import Database
 from app.feed_fetcher import FeedFetchError, FeedFetchResult, FeedService
-from app.models import AppConfig, FeedRuntime
+from app.models import AppConfig, FeedRuntime, MaintenanceSettings
 from app.normalizer import build_candidate, normalize_feed_url, stable_hash
 from app.publisher import PublisherService
 from app.routing import RoutingConfigError, RoutingEngine, load_routing_config
@@ -44,6 +45,7 @@ class SchedulerService:
         self._host_locks: dict[str, asyncio.Lock] = {}
         self._host_next_available: dict[str, datetime] = {}
         self._task: asyncio.Task[None] | None = None
+        self._maintenance_task: asyncio.Task[None] | None = None
         self._session: aiohttp.ClientSession | None = None
         self._stopping = False
         self._idle_sleep_seconds = 5
@@ -119,6 +121,9 @@ class SchedulerService:
             self._task.cancel()
             await asyncio.gather(self._task, return_exceptions=True)
             self._task = None
+        if self._maintenance_task and not self._maintenance_task.done():
+            await asyncio.gather(self._maintenance_task, return_exceptions=True)
+        self._maintenance_task = None
 
     async def _run(self) -> None:
         async with self._new_client_session() as session:
@@ -167,31 +172,47 @@ class SchedulerService:
         now = datetime.now(UTC)
         if now < self._next_maintenance_at:
             return
+        if self._maintenance_task and not self._maintenance_task.done():
+            return
         maintenance = self.config.settings.maintenance
         self._next_maintenance_at = now + timedelta(hours=maintenance.interval_hours)
+        self._maintenance_task = asyncio.create_task(self._run_runtime_maintenance(maintenance))
+
+    async def _run_runtime_maintenance(self, maintenance: MaintenanceSettings) -> None:
+        started = time.perf_counter()
+        logger.info("Runtime DB maintenance started")
+        audit_logger.info("runtime_db_maintenance_started")
         try:
-            before_bytes = self.db.database_size_bytes()
-            stats = self.db.prune_runtime_history(
-                article_retention_days=maintenance.article_retention_days,
-                posted_retention_days=maintenance.posted_retention_days,
-                non_post_retention_hours=maintenance.non_post_retention_hours,
-                seen_retention_days=maintenance.seen_retention_days,
-                feed_entry_seen_retention_days=maintenance.feed_entry_seen_retention_days,
-                article_batch_size=maintenance.article_batch_size,
-            )
-            if maintenance.optimize_on_maintenance:
-                self.db.optimize()
-            after_bytes = self.db.database_size_bytes()
-            if before_bytes != after_bytes:
-                stats["database_bytes_before"] = before_bytes
-                stats["database_bytes_after"] = after_bytes
+            stats = await asyncio.to_thread(self._run_runtime_maintenance_sync, maintenance)
         except Exception:
             logger.exception("Runtime DB maintenance failed")
             audit_logger.exception("runtime_db_maintenance_failed")
             return
+        duration_seconds = time.perf_counter() - started
         if any(stats.values()):
-            logger.info("Runtime DB maintenance pruned rows: %s", stats)
-            audit_logger.info("runtime_db_maintenance stats=%r", stats)
+            logger.info("Runtime DB maintenance pruned rows in %.2fs: %s", duration_seconds, stats)
+            audit_logger.info("runtime_db_maintenance duration_seconds=%.2f stats=%r", duration_seconds, stats)
+        else:
+            logger.info("Runtime DB maintenance completed in %.2fs with no rows pruned", duration_seconds)
+            audit_logger.info("runtime_db_maintenance duration_seconds=%.2f stats=%r", duration_seconds, stats)
+
+    def _run_runtime_maintenance_sync(self, maintenance: MaintenanceSettings) -> dict[str, int]:
+        before_bytes = self.db.database_size_bytes()
+        stats = self.db.prune_runtime_history(
+            article_retention_days=maintenance.article_retention_days,
+            posted_retention_days=maintenance.posted_retention_days,
+            non_post_retention_hours=maintenance.non_post_retention_hours,
+            seen_retention_days=maintenance.seen_retention_days,
+            feed_entry_seen_retention_days=maintenance.feed_entry_seen_retention_days,
+            article_batch_size=maintenance.article_batch_size,
+        )
+        if maintenance.optimize_on_maintenance:
+            self.db.optimize()
+        after_bytes = self.db.database_size_bytes()
+        if before_bytes != after_bytes:
+            stats["database_bytes_before"] = before_bytes
+            stats["database_bytes_after"] = after_bytes
+        return stats
 
     async def poll_feeds(self, feeds: list[FeedRuntime]) -> RefreshSummary:
         if not self.config or not feeds:
@@ -612,6 +633,7 @@ def build_feed_runtime_map(config: AppConfig) -> dict[str, FeedRuntime]:
                 url=feed.url,
                 normalized_url=normalize_feed_url(feed.url),
                 interval_seconds=feed.poll_interval_seconds or config.settings.polling.default_interval_seconds,
+                fetch_timeout_seconds=feed.fetch_timeout_seconds,
                 source_id=feed.source_id,
                 source_class=feed.source_class,
                 route_policy=feed.route_policy,
@@ -629,6 +651,7 @@ def build_feed_runtime_map(config: AppConfig) -> dict[str, FeedRuntime]:
                     url=feed.url,
                     normalized_url=normalize_feed_url(feed.url),
                     interval_seconds=feed.poll_interval_seconds or interval,
+                    fetch_timeout_seconds=feed.fetch_timeout_seconds,
                     source_id=feed.source_id,
                     source_class=feed.source_class,
                     route_policy=feed.route_policy,
@@ -648,6 +671,7 @@ def build_feed_runtime_map(config: AppConfig) -> dict[str, FeedRuntime]:
                 "url": feed.url,
                 "normalized_url": normalized_url,
                 "interval_seconds": feed.interval_seconds,
+                "fetch_timeout_seconds": feed.fetch_timeout_seconds,
                 "source_id": feed.source_id,
                 "source_class": feed.source_class,
                 "route_policy": feed.route_policy,
@@ -656,6 +680,9 @@ def build_feed_runtime_map(config: AppConfig) -> dict[str, FeedRuntime]:
             },
         )
         group["interval_seconds"] = min(int(group["interval_seconds"]), feed.interval_seconds)
+        existing_timeout = group["fetch_timeout_seconds"]
+        if feed.fetch_timeout_seconds is not None:
+            group["fetch_timeout_seconds"] = max(int(existing_timeout or 0), feed.fetch_timeout_seconds)
         cast_channel_ids = group["channel_ids"]
         cast_channel_keys = group["channel_keys"]
         assert isinstance(cast_channel_ids, list)
@@ -671,6 +698,9 @@ def build_feed_runtime_map(config: AppConfig) -> dict[str, FeedRuntime]:
             url=str(group["url"]),
             normalized_url=str(group["normalized_url"]),
             interval_seconds=int(group["interval_seconds"]),
+            fetch_timeout_seconds=(
+                int(group["fetch_timeout_seconds"]) if group["fetch_timeout_seconds"] is not None else None
+            ),
             source_id=str(group["source_id"]),
             source_class=str(group["source_class"]),
             route_policy=str(group["route_policy"]),

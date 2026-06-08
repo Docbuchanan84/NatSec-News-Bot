@@ -1064,6 +1064,9 @@
         "indo_pacific": 5,
         "europe": 3
       },
+      "term_penalties": {
+        "vip_public_schedule": 8
+      },
       "required_any": [
         "united_states",
         "north_america"

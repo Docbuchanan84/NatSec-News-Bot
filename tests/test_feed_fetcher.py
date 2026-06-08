@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from datetime import UTC, datetime, timedelta
+
 import pytest
 
 from app.feed_fetcher import FeedFetchError, FeedService, clean_html_text, extract_bluesky_media
@@ -354,6 +356,103 @@ def test_long_guardian_html_summary_keeps_plain_text() -> None:
     )
 
 
+@pytest.mark.asyncio
+async def test_state_public_schedule_collection_page_is_parsed() -> None:
+    service = FeedService(timeout_seconds=10, max_entries_per_feed=15)
+    session = FakeRssSession(
+        b"""
+        <html><body>
+          <ul id="col_json_result" class="collection-results">
+            <li class="collection-result">
+              <p class="collection-result__date">Public Schedule</p>
+              <a href="https://www.state.gov/releases/office-of-the-spokesperson/2026/06/public-schedule-june-5-2026/"
+                 class="collection-result__link" target="_self">
+                 Public Schedule &ndash; June 5, 2026
+              </a>
+              <div class="collection-result-meta" dir="ltr">
+                <span dir="ltr">June 4, 2026</span>
+              </div>
+            </li>
+          </ul>
+        </body></html>
+        """
+    )
+
+    result = await service.fetch(
+        session,
+        FeedRuntime(
+            feed_key="state-public-schedule",
+            display_name="State Department Public Schedule",
+            url="https://www.state.gov/public-schedule/",
+            normalized_url="https://www.state.gov/public-schedule",
+            interval_seconds=300,
+            channel_ids=("111111111111111111",),
+            channel_keys=("north-america",),
+            source_id="state-department-public-schedule",
+            source_class="official_us_gov",
+        ),
+    )
+
+    assert len(result.entries) == 1
+    assert result.entries[0].raw_title == "Public Schedule \u2013 June 5, 2026"
+    assert result.entries[0].raw_url == (
+        "https://www.state.gov/releases/office-of-the-spokesperson/2026/06/public-schedule-june-5-2026/"
+    )
+    assert result.entries[0].raw_published_at == "04 Jun 2026 00:00 +0000"
+    assert result.entries[0].source_id == "state-department-public-schedule"
+
+
+@pytest.mark.asyncio
+async def test_ical_feed_emits_only_upcoming_events() -> None:
+    service = FeedService(timeout_seconds=10, max_entries_per_feed=15)
+    future = datetime.now(UTC) + timedelta(days=1)
+    old = datetime.now(UTC) - timedelta(days=10)
+    session = FakeRssSession(
+        f"""
+BEGIN:VCALENDAR
+VERSION:2.0
+X-WR-CALNAME:VIP Calendar
+BEGIN:VEVENT
+UID:future-event
+DTSTART:{future.strftime('%Y%m%dT%H%M%SZ')}
+DTSTAMP:{datetime.now(UTC).strftime('%Y%m%dT%H%M%SZ')}
+SUMMARY:The President meets with allied leaders
+LOCATION:The White House
+DESCRIPTION:Open press
+END:VEVENT
+BEGIN:VEVENT
+UID:old-event
+DTSTART:{old.strftime('%Y%m%dT%H%M%SZ')}
+DTSTAMP:{old.strftime('%Y%m%dT%H%M%SZ')}
+SUMMARY:Old schedule event
+END:VEVENT
+END:VCALENDAR
+        """.encode()
+    )
+
+    result = await service.fetch(
+        session,
+        FeedRuntime(
+            feed_key="factbase-white-house-calendar",
+            display_name="Factba.se White House Calendar",
+            url="https://calendar.google.com/calendar/ical/example/public/basic.ics",
+            normalized_url="https://calendar.google.com/calendar/ical/example/public/basic.ics",
+            interval_seconds=300,
+            channel_ids=("111111111111111111",),
+            channel_keys=("the-white-house",),
+            source_id="factbase-white-house-calendar",
+            source_class="official_us_gov",
+        ),
+    )
+
+    assert len(result.entries) == 1
+    assert result.entries[0].raw_guid.startswith("future-event:")
+    assert result.entries[0].raw_title.startswith("Public Schedule: The President meets with allied leaders")
+    assert result.entries[0].raw_url is None
+    assert "Location: The White House" in (result.entries[0].summary or "")
+    assert result.entries[0].source_id == "factbase-white-house-calendar"
+
+
 class FakeResponse:
     status = 429
     headers = {"Retry-After": "900"}
@@ -409,8 +508,10 @@ class FakeRssResponse:
 class FakeRssSession:
     def __init__(self, body: bytes):
         self.body = body
+        self.calls = []
 
     def get(self, *args, **kwargs):
+        self.calls.append((args, kwargs))
         return FakeRssResponse(self.body)
 
 
@@ -466,6 +567,38 @@ async def test_fetch_reports_rate_limit_with_retry_after() -> None:
 
     with pytest.raises(FeedFetchError, match="rate limited; retry after 900s"):
         await service.fetch(FakeSession(), bluesky_feed())
+
+
+@pytest.mark.asyncio
+async def test_fetch_uses_feed_timeout_override() -> None:
+    service = FeedService(timeout_seconds=10, max_entries_per_feed=15)
+    session = FakeRssSession(
+        b"""
+        <rss><channel>
+          <item>
+            <guid>1</guid>
+            <title>Example</title>
+            <link>https://example.com/story</link>
+          </item>
+        </channel></rss>
+        """
+    )
+
+    await service.fetch(
+        session,
+        FeedRuntime(
+            feed_key="slow-calendar",
+            display_name="Slow Calendar",
+            url="https://example.com/calendar.ics",
+            normalized_url="https://example.com/calendar.ics",
+            interval_seconds=300,
+            channel_ids=("111111111111111111",),
+            channel_keys=("the-white-house",),
+            fetch_timeout_seconds=20,
+        ),
+    )
+
+    assert session.calls[0][1]["timeout"].total == 20
 
 
 @pytest.mark.asyncio

@@ -7,9 +7,12 @@ import logging
 import os
 import re
 from dataclasses import dataclass, replace
+from datetime import UTC, datetime, timedelta
+from email.utils import format_datetime
 from html.parser import HTMLParser
 from typing import Any
 from urllib.parse import quote, urljoin, urlparse
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import aiohttp
 import feedparser
@@ -30,6 +33,23 @@ DVIDS_HOST = "www.dvidshub.net"
 DVIDS_API_HOST = "api.dvidshub.net"
 DVIDS_SEARCH_URL = "https://api.dvidshub.net/search"
 DVIDS_MAX_ENTRIES_PER_FEED = 50
+ICAL_LOOKAHEAD_DAYS = 14
+ICAL_RECENT_STARTED_HOURS = 24
+STATE_HOST = "www.state.gov"
+STATE_MONTH_ABBR = {
+    "january": "Jan",
+    "february": "Feb",
+    "march": "Mar",
+    "april": "Apr",
+    "may": "May",
+    "june": "Jun",
+    "july": "Jul",
+    "august": "Aug",
+    "september": "Sep",
+    "october": "Oct",
+    "november": "Nov",
+    "december": "Dec",
+}
 
 
 @dataclass(frozen=True)
@@ -49,7 +69,8 @@ class FeedService:
         self.max_entries_per_feed = max_entries_per_feed
 
     async def fetch(self, session: aiohttp.ClientSession, feed: FeedRuntime) -> FeedFetchResult:
-        timeout = aiohttp.ClientTimeout(total=self.timeout_seconds)
+        timeout_seconds = feed.fetch_timeout_seconds or self.timeout_seconds
+        timeout = aiohttp.ClientTimeout(total=timeout_seconds)
         try:
             headers = {
                 "User-Agent": DEFAULT_USER_AGENT,
@@ -64,7 +85,7 @@ class FeedService:
                     raise FeedFetchError(detail)
                 if _is_dvids_rss(feed.url) and response.status == 202:
                     action = response.headers.get("x-amzn-waf-action")
-                    if fallback := await self._fetch_dvids_api_fallback(session, feed, action):
+                    if fallback := await self._fetch_dvids_api_fallback(session, feed, action, timeout_seconds):
                         return fallback
                     detail = "DVIDS returned empty HTTP 202 response"
                     if action:
@@ -76,6 +97,13 @@ class FeedService:
             detail = str(exc) or exc.__class__.__name__
             raise FeedFetchError(detail) from exc
 
+        state_collection_entries = _state_collection_entries(feed, body, _entry_limit(feed, self.max_entries_per_feed))
+        if state_collection_entries is not None:
+            return FeedFetchResult(feed=feed, entries=state_collection_entries)
+        calendar_entries = _ical_entries(feed, body, _entry_limit(feed, self.max_entries_per_feed))
+        if calendar_entries is not None:
+            return FeedFetchResult(feed=feed, entries=calendar_entries)
+
         parsed = feedparser.parse(body)
         if parsed.bozo and parsed.bozo_exception:
             logger.warning("Feed parse warning for %s: %s", feed.display_name, parsed.bozo_exception)
@@ -84,7 +112,7 @@ class FeedService:
         raw_entries = parsed.entries[: _entry_limit(feed, self.max_entries_per_feed)]
         entries = tuple(self._entry_from_parsed(feed, raw) for raw in raw_entries)
         if _is_bluesky_rss(feed.url):
-            entries = await self._enrich_bluesky_entries(session, entries)
+            entries = await self._enrich_bluesky_entries(session, entries, timeout_seconds)
         return FeedFetchResult(feed=feed, entries=entries)
 
     def _entry_from_parsed(self, feed: FeedRuntime, raw: Any) -> FeedEntry:
@@ -118,20 +146,26 @@ class FeedService:
         self,
         session: aiohttp.ClientSession,
         entries: tuple[FeedEntry, ...],
+        timeout_seconds: int | None = None,
     ) -> tuple[FeedEntry, ...]:
         enriched: list[FeedEntry] = []
         for entry in entries:
             if not _is_bluesky_post_uri(entry.raw_guid):
                 enriched.append(entry)
                 continue
-            enriched.append(await self._enrich_bluesky_entry(session, entry))
+            enriched.append(await self._enrich_bluesky_entry(session, entry, timeout_seconds))
         return tuple(enriched)
 
-    async def _enrich_bluesky_entry(self, session: aiohttp.ClientSession, entry: FeedEntry) -> FeedEntry:
+    async def _enrich_bluesky_entry(
+        self,
+        session: aiohttp.ClientSession,
+        entry: FeedEntry,
+        timeout_seconds: int | None = None,
+    ) -> FeedEntry:
         if not entry.raw_guid:
             return entry
         url = f"{BLUESKY_POST_THREAD_URL}?uri={quote(entry.raw_guid, safe='')}"
-        timeout = aiohttp.ClientTimeout(total=self.timeout_seconds)
+        timeout = aiohttp.ClientTimeout(total=timeout_seconds or self.timeout_seconds)
         try:
             async with session.get(url, timeout=timeout, headers={"User-Agent": DEFAULT_USER_AGENT}) as response:
                 if response.status == 429:
@@ -159,12 +193,13 @@ class FeedService:
         session: aiohttp.ClientSession,
         feed: FeedRuntime,
         waf_action: str | None,
+        timeout_seconds: int | None = None,
     ) -> FeedFetchResult | None:
         api_key = os.environ.get("DVIDS_API_KEY", "").strip()
         unit_id = _dvids_unit_id(feed.url)
         if not api_key or not unit_id:
             return None
-        timeout = aiohttp.ClientTimeout(total=self.timeout_seconds)
+        timeout = aiohttp.ClientTimeout(total=timeout_seconds or self.timeout_seconds)
         params = {
             "api_key": api_key,
             "unit_id": unit_id,
@@ -247,6 +282,69 @@ class _ImageExtractor(HTMLParser):
             if cleaned:
                 self.image_url = cleaned
                 return
+
+
+class _StateCollectionParser(HTMLParser):
+    def __init__(self, base_url: str) -> None:
+        super().__init__(convert_charrefs=True)
+        self.base_url = base_url
+        self.results: list[dict[str, str]] = []
+        self._current: dict[str, object] | None = None
+        self._in_link = False
+        self._in_meta = False
+        self._in_date = False
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        tag = tag.casefold()
+        attr_map = {name.casefold(): value or "" for name, value in attrs}
+        classes = attr_map.get("class", "")
+        if tag == "li" and _class_contains(classes, "collection-result"):
+            self._current = {"href": "", "title_parts": [], "date_parts": []}
+            self._in_link = False
+            self._in_meta = False
+            self._in_date = False
+            return
+        if self._current is None:
+            return
+        if tag == "a" and _class_contains(classes, "collection-result__link"):
+            self._current["href"] = urljoin(self.base_url, attr_map.get("href", ""))
+            self._in_link = True
+            return
+        if tag == "div" and _class_contains(classes, "collection-result-meta"):
+            self._in_meta = True
+            return
+        if self._in_meta and tag == "span":
+            self._in_date = True
+
+    def handle_endtag(self, tag: str) -> None:
+        tag = tag.casefold()
+        if self._current is None:
+            return
+        if tag == "a":
+            self._in_link = False
+        elif tag == "span":
+            self._in_date = False
+        elif tag == "div" and self._in_meta:
+            self._in_meta = False
+            self._in_date = False
+        elif tag == "li":
+            title = clean_html_text(" ".join(self._current.get("title_parts", [])))
+            date_text = clean_html_text(" ".join(self._current.get("date_parts", [])))
+            href = str(self._current.get("href") or "").strip()
+            if title and href:
+                self.results.append({"title": title, "href": href, "date": date_text or ""})
+            self._current = None
+            self._in_link = False
+            self._in_meta = False
+            self._in_date = False
+
+    def handle_data(self, data: str) -> None:
+        if self._current is None:
+            return
+        if self._in_link:
+            self._current["title_parts"].append(data)  # type: ignore[union-attr]
+        elif self._in_date:
+            self._current["date_parts"].append(data)  # type: ignore[union-attr]
 
 
 def extract_entry_image(raw: dict[str, Any], base_url: str) -> tuple[str | None, str | None]:
@@ -551,6 +649,183 @@ def _is_bluesky_rss(url: str) -> bool:
 def _is_dvids_rss(url: str) -> bool:
     parsed = urlparse(url)
     return parsed.netloc.casefold() == DVIDS_HOST and parsed.path.startswith("/rss/")
+
+
+def _ical_entries(feed: FeedRuntime, body: bytes, entry_limit: int) -> tuple[FeedEntry, ...] | None:
+    text = body.decode("utf-8", errors="ignore")
+    if not text.lstrip().startswith("BEGIN:VCALENDAR"):
+        return None
+    now = datetime.now(UTC)
+    events = []
+    for event in _parse_ical_events(text):
+        start = _parse_ical_datetime(event.get("DTSTART"), event.get("DTSTART_PARAMS"))
+        if start is None or not _ical_in_window(start, now):
+            continue
+        uid = event.get("UID") or event.get("URL") or f"{event.get('SUMMARY', 'event')}:{event.get('DTSTART', '')}"
+        title = clean_html_text(event.get("SUMMARY")) or "Calendar event"
+        if _is_vip_schedule_calendar(feed) and "public schedule" not in title.casefold():
+            title = f"Public Schedule: {title}"
+        location = clean_html_text(event.get("LOCATION"))
+        description = clean_html_text(event.get("DESCRIPTION"))
+        start_label = start.strftime("%Y-%m-%d %H:%M UTC")
+        summary_parts = [f"Start: {start_label}"]
+        if location:
+            summary_parts.append(f"Location: {location}")
+        if description:
+            summary_parts.append(description)
+        events.append(
+            (
+                start,
+                FeedEntry(
+                    feed_key=feed.feed_key,
+                    feed_name=feed.display_name,
+                    raw_guid=f"{uid}:{event.get('DTSTART', '')}",
+                    raw_title=f"{title} ({start_label})",
+                    raw_url=event.get("URL") or None,
+                    summary="\n".join(summary_parts),
+                    image_url=None,
+                    image_source=None,
+                    raw_published_at=format_datetime(now),
+                    parsed={"source": "ical", **event},
+                    source_id=feed.source_id,
+                    source_class=feed.source_class,
+                ),
+            )
+        )
+    return tuple(entry for _start, entry in sorted(events, key=lambda item: item[0])[:entry_limit])
+
+
+def _is_vip_schedule_calendar(feed: FeedRuntime) -> bool:
+    return feed.feed_key == "factbase-white-house-calendar" or feed.source_id == "factbase-white-house-calendar"
+
+
+def _parse_ical_events(text: str) -> list[dict[str, str]]:
+    lines = _unfold_ical_lines(text)
+    events: list[dict[str, str]] = []
+    current: dict[str, str] | None = None
+    for line in lines:
+        if line == "BEGIN:VEVENT":
+            current = {}
+            continue
+        if line == "END:VEVENT":
+            if current is not None:
+                events.append(current)
+            current = None
+            continue
+        if current is None or ":" not in line:
+            continue
+        key, value = line.split(":", 1)
+        name = key.split(";", 1)[0].upper()
+        current[name] = _unescape_ical_value(value)
+        if ";" in key:
+            current[f"{name}_PARAMS"] = key.split(";", 1)[1]
+    return events
+
+
+def _unfold_ical_lines(text: str) -> list[str]:
+    lines: list[str] = []
+    for raw_line in text.replace("\r\n", "\n").replace("\r", "\n").split("\n"):
+        if raw_line.startswith((" ", "\t")) and lines:
+            lines[-1] += raw_line[1:]
+        elif raw_line:
+            lines.append(raw_line)
+    return lines
+
+
+def _parse_ical_datetime(value: str | None, params: str | None = None) -> datetime | None:
+    if not value:
+        return None
+    cleaned = value.strip()
+    timezone = _ical_timezone(params)
+    try:
+        if re.fullmatch(r"\d{8}", cleaned):
+            return datetime.strptime(cleaned, "%Y%m%d").replace(tzinfo=timezone).astimezone(UTC)
+        if cleaned.endswith("Z"):
+            return datetime.strptime(cleaned, "%Y%m%dT%H%M%SZ").replace(tzinfo=UTC)
+        parsed = datetime.strptime(cleaned, "%Y%m%dT%H%M%S")
+    except ValueError:
+        return None
+    return parsed.replace(tzinfo=timezone).astimezone(UTC)
+
+
+def _ical_timezone(params: str | None):
+    if not params:
+        return UTC
+    match = re.search(r"(?:^|;)TZID=([^;]+)", params)
+    if not match:
+        return UTC
+    try:
+        return ZoneInfo(match.group(1))
+    except ZoneInfoNotFoundError:
+        return UTC
+
+
+def _ical_in_window(start: datetime, now: datetime) -> bool:
+    start_utc = start.astimezone(UTC)
+    earliest = now - timedelta(hours=ICAL_RECENT_STARTED_HOURS)
+    latest = now + timedelta(days=ICAL_LOOKAHEAD_DAYS)
+    return earliest <= start_utc <= latest
+
+
+def _unescape_ical_value(value: str) -> str:
+    return (
+        value.replace("\\n", "\n")
+        .replace("\\N", "\n")
+        .replace("\\,", ",")
+        .replace("\\;", ";")
+        .replace("\\\\", "\\")
+        .strip()
+    )
+
+
+def _state_collection_entries(feed: FeedRuntime, body: bytes, entry_limit: int) -> tuple[FeedEntry, ...] | None:
+    if not _is_state_public_schedule_collection(feed.url):
+        return None
+    parser = _StateCollectionParser(feed.url)
+    try:
+        parser.feed(body.decode("utf-8", errors="ignore"))
+        parser.close()
+    except Exception as exc:
+        raise FeedFetchError(f"state.gov collection parse failed: {exc}") from exc
+    entries: list[FeedEntry] = []
+    for result in parser.results[:entry_limit]:
+        published = _state_collection_date_to_rfc(result.get("date", ""))
+        entries.append(
+            FeedEntry(
+                feed_key=feed.feed_key,
+                feed_name=feed.display_name,
+                raw_guid=result["href"],
+                raw_title=result["title"],
+                raw_url=result["href"],
+                summary="Official U.S. Department of State public schedule item.",
+                image_url=None,
+                image_source=None,
+                raw_published_at=published,
+                parsed={"source": "state_collection", "published": result.get("date", "")},
+                source_id=feed.source_id,
+                source_class=feed.source_class,
+            )
+        )
+    return tuple(entries)
+
+
+def _is_state_public_schedule_collection(url: str) -> bool:
+    parsed = urlparse(url)
+    return parsed.netloc.casefold() == STATE_HOST and parsed.path.rstrip("/") == "/public-schedule"
+
+
+def _state_collection_date_to_rfc(value: str) -> str | None:
+    match = re.fullmatch(r"\s*([A-Za-z]+)\s+(\d{1,2}),\s+(\d{4})\s*", value or "")
+    if not match:
+        return None
+    month = STATE_MONTH_ABBR.get(match.group(1).casefold())
+    if not month:
+        return None
+    return f"{int(match.group(2)):02d} {month} {match.group(3)} 00:00 +0000"
+
+
+def _class_contains(classes: str, expected: str) -> bool:
+    return expected in {value.strip() for value in classes.split()}
 
 
 def _dvids_unit_id(url: str) -> str | None:

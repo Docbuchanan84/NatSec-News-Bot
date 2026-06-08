@@ -108,6 +108,7 @@ class FeedConfig:
     source_id: str = "unknown"
     source_class: str = "unknown"
     poll_interval_seconds: int | None = None
+    fetch_timeout_seconds: int | None = None
     route_policy: str = "normal"
     legacy_channel_keys: tuple[str, ...] = ()
 
@@ -141,6 +142,7 @@ class FeedRuntime:
     interval_seconds: int
     channel_ids: tuple[str, ...]
     channel_keys: tuple[str, ...]
+    fetch_timeout_seconds: int | None = None
     source_id: str = "unknown"
     source_class: str = "unknown"
     route_policy: str = "normal"

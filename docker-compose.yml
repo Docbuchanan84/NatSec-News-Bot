@@ -7,7 +7,7 @@ services:
       - .env
     volumes:
       - ./config:/app/config
-      - C:/Users/stacy/rssbot-runtime-data:/app/data
+      - rssbot-data:/app/data
       - ./logs:/app/logs
     environment:
       CONFIG_PATH: /app/config/config.json
@@ -19,3 +19,8 @@ services:
       options:
         max-size: "5m"
         max-file: "3"
+
+volumes:
+  rssbot-data:
+    external: true
+    name: rssbot-data

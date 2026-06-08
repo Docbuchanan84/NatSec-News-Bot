@@ -2667,6 +2667,32 @@
       "score": 3
     },
     {
+      "id": "vip_public_schedule",
+      "aliases": [
+        "Public Schedule",
+        "daily public schedule",
+        "official schedule",
+        "President's Public Schedule",
+        "White House Calendar",
+        "White House Press Office",
+        "daily guidance",
+        "press guidance",
+        "pool call time",
+        "in-town pool",
+        "out-of-town pool",
+        "full lid called",
+        "full lid"
+      ],
+      "tags": [
+        "united_states",
+        "north_america",
+        "government",
+        "diplomacy"
+      ],
+      "priority": 42,
+      "score": 3
+    },
+    {
       "id": "us_congressional_leaders",
       "aliases": [
         "Mike Johnson",

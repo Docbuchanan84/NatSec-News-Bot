@@ -218,8 +218,9 @@ class Database:
         self.path = Path(path)
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self._lock = threading.RLock()
-        self._conn = sqlite3.connect(self.path, check_same_thread=False)
+        self._conn = sqlite3.connect(self.path, timeout=30, check_same_thread=False)
         self._conn.row_factory = sqlite3.Row
+        self._conn.execute("PRAGMA busy_timeout = 30000")
         self._conn.execute("PRAGMA foreign_keys = ON")
 
     def initialize(self) -> None:
@@ -227,10 +228,7 @@ class Database:
             self._conn.executescript(SCHEMA)
             self._migrate()
             self._conn.commit()
-            try:
-                self._conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
-            except sqlite3.OperationalError as exc:
-                logger.warning("SQLite WAL checkpoint failed during initialization: %s", exc)
+            self._checkpoint_wal_if_enabled()
 
     def _migrate(self) -> None:
         columns = {
@@ -370,11 +368,18 @@ class Database:
 
     def close(self) -> None:
         with self._lock:
-            try:
-                self._conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
-            except sqlite3.Error:
-                pass
+            self._checkpoint_wal_if_enabled(ignore_errors=True)
             self._conn.close()
+
+    def _checkpoint_wal_if_enabled(self, *, ignore_errors: bool = False) -> None:
+        try:
+            row = self._conn.execute("PRAGMA journal_mode").fetchone()
+            mode = str(row[0]).lower() if row else ""
+            if mode == "wal":
+                self._conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+        except sqlite3.Error as exc:
+            if not ignore_errors:
+                logger.warning("SQLite WAL checkpoint failed: %s", exc)
 
     def database_size_bytes(self) -> int:
         try:

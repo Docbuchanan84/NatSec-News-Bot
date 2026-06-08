@@ -555,6 +555,17 @@ def _parse_feeds(
                 max_value=86400,
             )
             interval_seconds = max(parsed_interval, settings.polling.min_interval_seconds)
+        timeout = feed_obj.get("fetchTimeoutSeconds")
+        if timeout is None:
+            timeout_seconds = None
+        else:
+            timeout_seconds = _int(
+                timeout,
+                f"{feed_path}.fetchTimeoutSeconds",
+                errors,
+                min_value=1,
+                max_value=120,
+            )
         route_policy = _choice(
             feed_obj.get("routePolicy", "normal"),
             f"{feed_path}.routePolicy",
@@ -574,6 +585,7 @@ def _parse_feeds(
                 source_id=source_id,
                 source_class=source_class,
                 poll_interval_seconds=interval_seconds,
+                fetch_timeout_seconds=timeout_seconds,
                 route_policy=route_policy,
                 legacy_channel_keys=tuple(configured_legacy_keys),
             )

@@ -1,8 +1,13 @@
 from __future__ import annotations
 
+import time
+from datetime import UTC, datetime, timedelta
+
+import pytest
+
 from app.config_loader import load_config
 from app.feed_fetcher import FeedFetchError
-from app.models import AppConfig, FailureBackoffSettings, FeedRuntime, Settings
+from app.models import AppConfig, FailureBackoffSettings, FeedRuntime, MaintenanceSettings, Settings
 from app.scheduler import build_feed_runtime_map
 from app.scheduler import SchedulerService
 
@@ -13,6 +18,25 @@ class FakeBackoffDb:
 
     def feed_consecutive_failures(self, feed_key: str) -> int:
         return self.failures
+
+
+class FakeMaintenanceDb:
+    def __init__(self, delay_seconds: float = 0.0) -> None:
+        self.delay_seconds = delay_seconds
+        self.prune_calls = 0
+        self.optimize_calls = 0
+
+    def database_size_bytes(self) -> int:
+        return 1
+
+    def prune_runtime_history(self, **kwargs) -> dict[str, int]:
+        self.prune_calls += 1
+        if self.delay_seconds:
+            time.sleep(self.delay_seconds)
+        return {"articles_deleted": 1}
+
+    def optimize(self) -> None:
+        self.optimize_calls += 1
 
 
 def test_same_feed_under_two_channels_is_one_runtime_feed(tmp_path):
@@ -63,6 +87,7 @@ def test_top_level_feed_uses_legacy_channel_keys_for_observe_mode(tmp_path):
               "name": "Reuters World",
               "url": "https://example.com/reuters.rss",
               "pollIntervalSeconds": 300,
+              "fetchTimeoutSeconds": 20,
               "legacyChannelKeys": ["middle-east"]
             }
           ],
@@ -88,6 +113,7 @@ def test_top_level_feed_uses_legacy_channel_keys_for_observe_mode(tmp_path):
 
     assert feed.source_id == "reuters"
     assert feed.source_class == "wire_service"
+    assert feed.fetch_timeout_seconds == 20
     assert feed.channel_ids == ("111111111111111111",)
 
 
@@ -161,3 +187,57 @@ def test_never_succeeded_feed_can_be_suspended_after_threshold():
     )
 
     assert scheduler._failure_retry_seconds(feed, FeedFetchError("not found"), first_success=True) == 604800
+
+
+@pytest.mark.asyncio
+async def test_runtime_maintenance_is_scheduled_without_blocking_event_loop():
+    db = FakeMaintenanceDb(delay_seconds=0.1)
+    scheduler = SchedulerService(db=db, publisher=object())
+    scheduler.config = AppConfig(
+        version=1,
+        bot=object(),
+        discord=object(),
+        settings=Settings(maintenance=MaintenanceSettings(interval_hours=1)),
+        feeds=(),
+        channels=(),
+        raw={},
+    )
+    scheduler._next_maintenance_at = datetime.now(UTC) - timedelta(seconds=1)
+
+    started = time.perf_counter()
+    scheduler._maybe_prune_runtime_history()
+    elapsed = time.perf_counter() - started
+
+    assert elapsed < 0.05
+    assert scheduler._maintenance_task is not None
+    assert not scheduler._maintenance_task.done()
+
+    await scheduler._maintenance_task
+    assert db.prune_calls == 1
+    assert db.optimize_calls == 1
+
+
+@pytest.mark.asyncio
+async def test_runtime_maintenance_does_not_overlap_active_run():
+    db = FakeMaintenanceDb(delay_seconds=0.1)
+    scheduler = SchedulerService(db=db, publisher=object())
+    scheduler.config = AppConfig(
+        version=1,
+        bot=object(),
+        discord=object(),
+        settings=Settings(maintenance=MaintenanceSettings(interval_hours=1)),
+        feeds=(),
+        channels=(),
+        raw={},
+    )
+
+    scheduler._next_maintenance_at = datetime.now(UTC) - timedelta(seconds=1)
+    scheduler._maybe_prune_runtime_history()
+    first_task = scheduler._maintenance_task
+
+    scheduler._next_maintenance_at = datetime.now(UTC) - timedelta(seconds=1)
+    scheduler._maybe_prune_runtime_history()
+
+    assert scheduler._maintenance_task is first_task
+    await first_task
+    assert db.prune_calls == 1

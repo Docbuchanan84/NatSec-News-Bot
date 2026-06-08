@@ -41,7 +41,13 @@ Structured routing is configured in `config/routing/` and documented in `docs/ro
    docker compose up --build
    ```
 
-The SQLite database lives in `data/rssbot.sqlite` and survives restarts.
+Under Docker, the SQLite database lives in the `rssbot-data` Docker volume and survives restarts.
+Create it once before the first Docker run if it does not already exist:
+
+```bash
+docker volume create rssbot-data
+```
+
 Detailed audit and error logs can be enabled in `config/config.json` under `settings.logging`.
 
 ## Native Local Run
