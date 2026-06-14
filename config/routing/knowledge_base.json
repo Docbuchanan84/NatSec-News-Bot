@@ -46,7 +46,11 @@
         "Europe",
         "European",
         "European Union",
-        "EU"
+        "EU",
+        "Baltic states",
+        "Baltics",
+        "Alpine country",
+        "Alpine countries"
       ],
       "tags": [
         "europe"
@@ -102,13 +106,27 @@
       "id": "region_arctic",
       "aliases": [
         "Arctic",
-        "High North"
+        "High North",
+        "polar region",
+        "polar security",
+        "Arctic Circle",
+        "Arctic region",
+        "Arctic Ocean",
+        "Arctic Council",
+        "Arctic strategy",
+        "Arctic security",
+        "Arctic patrol",
+        "Arctic exercise",
+        "Arctic warfare",
+        "northern flank",
+        "GIUK Gap",
+        "Greenland-Iceland-UK Gap"
       ],
       "tags": [
         "arctic"
       ],
-      "priority": 10,
-      "score": 1
+      "priority": 35,
+      "score": 3
     },
     {
       "id": "china",
@@ -513,11 +531,28 @@
         "British",
         "London",
         "No 10",
+        "Number 10",
+        "Belfast",
+        "Northern Ireland",
         "Downing Street"
       ],
       "tags": [
         "united_kingdom",
         "europe"
+      ],
+      "priority": 25,
+      "score": 2
+    },
+    {
+      "id": "pakistan",
+      "aliases": [
+        "Pakistan",
+        "Pakistani",
+        "Islamabad"
+      ],
+      "tags": [
+        "pakistan",
+        "indo_pacific"
       ],
       "priority": 25,
       "score": 2
@@ -985,8 +1020,15 @@
         "Pentagon",
         "DHS",
         "DOJ",
-        "Congress",
-        "Senate",
+        "U.S. Congress",
+        "US Congress",
+        "United States Congress",
+        "U.S. Senate",
+        "US Senate",
+        "United States Senate",
+        "U.S. House",
+        "US House",
+        "House of Representatives",
         "House Oversight",
         "Gavin Newsom"
       ],
@@ -1913,8 +1955,13 @@
       "aliases": [
         "fighter aircraft",
         "fighter jet",
+        "Future Attack/Strike aircraft",
         "F-35",
+        "F-15",
+        "F-15E",
         "F-16",
+        "AH-1Z",
+        "UH-1Y",
         "J-20",
         "Su-35"
       ],
@@ -2547,6 +2594,31 @@
       "score": 3
     },
     {
+      "id": "civilian_cap_terms",
+      "aliases": [
+        "population cap",
+        "cap population",
+        "cap on population",
+        "migration cap",
+        "cap on migration",
+        "price cap",
+        "fuel cap",
+        "diesel cap",
+        "cap diesel",
+        "rate cap",
+        "cap rates",
+        "salary cap",
+        "spending cap",
+        "debt cap"
+      ],
+      "tags": [
+        "economy",
+        "finance"
+      ],
+      "priority": 55,
+      "score": 3
+    },
+    {
       "id": "stock_market",
       "aliases": [
         "stock market",
@@ -2834,6 +2906,31 @@
       "score": 2
     },
     {
+      "id": "uk_defence_governance",
+      "aliases": [
+        "John Healey",
+        "Healey's resignation",
+        "Healey resignation",
+        "Ministry of Defence",
+        "Defence Secretary",
+        "Defence Investment Plan",
+        "DIP rumour",
+        "DiP disaster",
+        "defence funding",
+        "defence budget",
+        "fund defence"
+      ],
+      "tags": [
+        "united_kingdom",
+        "europe",
+        "government",
+        "military",
+        "procurement"
+      ],
+      "priority": 40,
+      "score": 3
+    },
+    {
       "id": "indo_pacific_leaders",
       "aliases": [
         "Shigeru Ishiba",
@@ -3087,6 +3184,946 @@
       ],
       "priority": 10,
       "score": 0
+    },
+    {
+      "id": "arctic_places",
+      "aliases": [
+        "Greenland",
+        "Kalaallit Nunaat",
+        "Nuuk",
+        "Svalbard",
+        "Longyearbyen",
+        "Franz Josef Land",
+        "Novaya Zemlya",
+        "Kola Peninsula",
+        "Murmansk",
+        "Kirkenes",
+        "Tromso",
+        "Barents Sea",
+        "Bering Sea",
+        "Bering Strait",
+        "Beaufort Sea",
+        "Chukchi Sea",
+        "Laptev Sea",
+        "Kara Sea",
+        "Norwegian Sea",
+        "Northwest Passage",
+        "Northern Sea Route",
+        "NSR",
+        "Arctic LNG",
+        "Yamal"
+      ],
+      "tags": [
+        "arctic"
+      ],
+      "priority": 40,
+      "score": 3
+    },
+    {
+      "id": "arctic_military_commands",
+      "aliases": [
+        "Alaskan Command",
+        "ALCOM",
+        "NORAD",
+        "North American Aerospace Defense Command",
+        "Pituffik Space Base",
+        "Thule Air Base",
+        "Clear Space Force Station",
+        "Joint Base Elmendorf-Richardson",
+        "JBER",
+        "Eielson Air Force Base",
+        "Arctic Edge",
+        "Arctic Challenge Exercise",
+        "Canadian Rangers",
+        "Joint Task Force North",
+        "JTF North"
+      ],
+      "tags": [
+        "arctic",
+        "north_america",
+        "military_organization",
+        "military",
+        "air",
+        "space"
+      ],
+      "priority": 50,
+      "score": 4
+    },
+    {
+      "id": "europe_countries_major_cities",
+      "aliases": [
+        "Albania",
+        "Tirana",
+        "Austria",
+        "Vienna",
+        "Belarus",
+        "Minsk",
+        "Belgium",
+        "Brussels",
+        "Bosnia and Herzegovina",
+        "Sarajevo",
+        "Bulgaria",
+        "Sofia",
+        "Cyprus",
+        "Nicosia",
+        "Czech Republic",
+        "Czechia",
+        "Prague",
+        "Denmark",
+        "Copenhagen",
+        "Estonia",
+        "Tallinn",
+        "Finland",
+        "Helsinki",
+        "Norway",
+        "Oslo",
+        "Poland",
+        "Warsaw",
+        "Portugal",
+        "Lisbon",
+        "Ireland",
+        "Dublin",
+        "Greece",
+        "Athens",
+        "Hungary",
+        "Budapest",
+        "Latvia",
+        "Riga",
+        "Lithuania",
+        "Vilnius",
+        "Moldova",
+        "Chisinau",
+        "Montenegro",
+        "Podgorica",
+        "Netherlands",
+        "Amsterdam",
+        "The Hague",
+        "North Macedonia",
+        "Skopje",
+        "Romania",
+        "Bucharest",
+        "Serbia",
+        "Belgrade",
+        "Slovakia",
+        "Bratislava",
+        "Switzerland",
+        "Swiss",
+        "Swiss referendum",
+        "Swiss voters",
+        "Swiss vote",
+        "Swiss population",
+        "Bern",
+        "Geneva",
+        "Zurich",
+        "Malta",
+        "Valletta",
+        "Luxembourg",
+        "Kosovo",
+        "Pristina",
+        "Republic of Georgia",
+        "Tbilisi",
+        "Armenia",
+        "Yerevan",
+        "Azerbaijan",
+        "Baku",
+        "Baltic states",
+        "Balkans",
+        "Caucasus"
+      ],
+      "tags": [
+        "europe"
+      ],
+      "priority": 32,
+      "score": 3
+    },
+    {
+      "id": "switzerland",
+      "aliases": [
+        "Switzerland",
+        "Swiss",
+        "Swiss referendum",
+        "Swiss voters",
+        "Swiss vote",
+        "Swiss population",
+        "Alpine country",
+        "Bern",
+        "Geneva",
+        "Zurich"
+      ],
+      "tags": [
+        "switzerland",
+        "europe"
+      ],
+      "priority": 60,
+      "score": 4
+    },
+    {
+      "id": "indo_pacific_countries_major_cities",
+      "aliases": [
+        "Indonesia",
+        "Jakarta",
+        "Malaysia",
+        "Kuala Lumpur",
+        "Singapore",
+        "Thailand",
+        "Bangkok",
+        "Cambodia",
+        "Phnom Penh",
+        "Nepal",
+        "Kathmandu",
+        "Bangladesh",
+        "Dhaka",
+        "Sri Lanka",
+        "Colombo",
+        "Mongolia",
+        "Ulaanbaatar",
+        "Papua New Guinea",
+        "Port Moresby",
+        "Fiji",
+        "Suva",
+        "Solomon Islands",
+        "Honiara",
+        "Vanuatu",
+        "Port Vila",
+        "Samoa",
+        "Apia",
+        "Tonga",
+        "Nukuʻalofa",
+        "Micronesia",
+        "Palau",
+        "Ngerulmud",
+        "Kiribati",
+        "Tarawa",
+        "Tuvalu",
+        "Funafuti",
+        "Nauru",
+        "Bhutan",
+        "Thimphu",
+        "Maldives",
+        "Male",
+        "ASEAN",
+        "Melanesia",
+        "Micronesia",
+        "Polynesia"
+      ],
+      "tags": [
+        "indo_pacific"
+      ],
+      "priority": 32,
+      "score": 3
+    },
+    {
+      "id": "middle_east_countries_major_cities",
+      "aliases": [
+        "Syria",
+        "Syrian",
+        "Damascus",
+        "Aleppo",
+        "Jordan",
+        "Jordanian",
+        "Amman",
+        "Egypt",
+        "Egyptian",
+        "Cairo",
+        "Afghanistan",
+        "Afghan",
+        "Kabul",
+        "Libya",
+        "Libyan",
+        "Tripoli",
+        "Palestinian",
+        "Palestinians",
+        "Gaza",
+        "West Bank",
+        "Ramallah",
+        "Aden",
+        "Jeddah",
+        "Mecca",
+        "Medina",
+        "Kurdistan",
+        "Kurdish"
+      ],
+      "tags": [
+        "middle_east"
+      ],
+      "priority": 32,
+      "score": 3
+    },
+    {
+      "id": "africa_countries_major_cities",
+      "aliases": [
+        "Algeria",
+        "Algiers",
+        "Angola",
+        "Luanda",
+        "Benin",
+        "Cotonou",
+        "Botswana",
+        "Gaborone",
+        "Burundi",
+        "Bujumbura",
+        "Cameroon",
+        "Yaounde",
+        "Douala",
+        "Cape Verde",
+        "Cabo Verde",
+        "Praia",
+        "Central African Republic",
+        "Bangui",
+        "Chadian",
+        "N’Djamena",
+        "Comoros",
+        "Moroni",
+        "Djibouti",
+        "Eritrea",
+        "Asmara",
+        "Eswatini",
+        "Swaziland",
+        "Gabon",
+        "Libreville",
+        "Gambia",
+        "Banjul",
+        "Guinea",
+        "Conakry",
+        "Guinea-Bissau",
+        "Bissau",
+        "Ivory Coast",
+        "Cote d Ivoire",
+        "Abidjan",
+        "Lesotho",
+        "Maseru",
+        "Liberia",
+        "Monrovia",
+        "Mali",
+        "Bamako",
+        "Mauritania",
+        "Nouakchott",
+        "Mauritius",
+        "Port Louis",
+        "Morocco",
+        "Rabat",
+        "Casablanca",
+        "Mozambique",
+        "Maputo",
+        "Nigerien",
+        "Niamey",
+        "Rwanda",
+        "Kigali",
+        "Senegal",
+        "Dakar",
+        "Seychelles",
+        "Victoria",
+        "Sierra Leone",
+        "Freetown",
+        "Somalia",
+        "Mogadishu",
+        "Somaliland",
+        "Tanzania",
+        "Dodoma",
+        "Dar es Salaam",
+        "Togo",
+        "Lome",
+        "Zimbabwe",
+        "Harare",
+        "Libyan",
+        "Tripoli"
+      ],
+      "tags": [
+        "africa"
+      ],
+      "priority": 32,
+      "score": 3
+    },
+    {
+      "id": "latin_america_countries_major_cities",
+      "aliases": [
+        "Belize",
+        "Belmopan",
+        "Barbados",
+        "Bridgetown",
+        "Bahamas",
+        "Nassau",
+        "Grenada",
+        "St George's",
+        "Guyana",
+        "Georgetown",
+        "Jamaica",
+        "Kingston",
+        "Puerto Rico",
+        "San Juan",
+        "Saint Lucia",
+        "Castries",
+        "Saint Kitts and Nevis",
+        "Saint Vincent and the Grenadines",
+        "Suriname",
+        "Paramaribo",
+        "Trinidad and Tobago",
+        "Port of Spain",
+        "Aruba",
+        "Curacao",
+        "Guadeloupe",
+        "Martinique",
+        "French Guiana",
+        "El Salvador",
+        "San Salvador",
+        "Tegucigalpa",
+        "San Jose",
+        "Managua",
+        "Asuncion",
+        "Montevideo",
+        "Santo Domingo",
+        "Lima",
+        "Quito",
+        "La Paz",
+        "Sucre",
+        "Caracas"
+      ],
+      "tags": [
+        "latin_america"
+      ],
+      "priority": 32,
+      "score": 3
+    },
+    {
+      "id": "north_america_countries_major_cities",
+      "aliases": [
+        "Toronto",
+        "Montreal",
+        "Vancouver",
+        "Calgary",
+        "Edmonton",
+        "Quebec",
+        "Ottawa",
+        "Halifax",
+        "Winnipeg",
+        "Mexico City",
+        "Guadalajara",
+        "Monterrey",
+        "Tijuana",
+        "Los Angeles",
+        "San Francisco",
+        "Seattle",
+        "Houston",
+        "Miami",
+        "Atlanta",
+        "Boston",
+        "Philadelphia",
+        "Phoenix",
+        "Denver",
+        "Detroit",
+        "Washington DC",
+        "District of Columbia"
+      ],
+      "tags": [
+        "north_america"
+      ],
+      "priority": 28,
+      "score": 2
+    },
+    {
+      "id": "national_security",
+      "aliases": [
+        "national security",
+        "national-security",
+        "security policy",
+        "security strategy",
+        "defense strategy",
+        "defence strategy",
+        "National Defense Strategy",
+        "National Security Strategy",
+        "NDS",
+        "NSS",
+        "great power competition",
+        "strategic competition",
+        "gray zone",
+        "grey zone",
+        "hybrid warfare",
+        "foreign interference",
+        "foreign influence",
+        "coercion campaign",
+        "deterrence posture"
+      ],
+      "tags": [
+        "national_security"
+      ],
+      "priority": 45,
+      "score": 3
+    },
+    {
+      "id": "intelligence_community",
+      "aliases": [
+        "intelligence community",
+        "ODNI",
+        "CIA",
+        "NSA",
+        "DIA",
+        "NGA",
+        "NRO",
+        "signals intelligence",
+        "SIGINT",
+        "human intelligence",
+        "HUMINT",
+        "geospatial intelligence",
+        "GEOINT",
+        "classified intelligence",
+        "threat assessment",
+        "intelligence assessment",
+        "counterintelligence",
+        "ISR",
+        "C4ISR"
+      ],
+      "tags": [
+        "intelligence",
+        "national_security",
+        "isr"
+      ],
+      "priority": 45,
+      "score": 3
+    },
+    {
+      "id": "homeland_security",
+      "aliases": [
+        "homeland security",
+        "DHS",
+        "border security",
+        "maritime security",
+        "port security",
+        "critical infrastructure",
+        "FEMA",
+        "CISA",
+        "infrastructure security",
+        "domestic terrorism"
+      ],
+      "tags": [
+        "homeland_security",
+        "national_security"
+      ],
+      "priority": 40,
+      "score": 3
+    },
+    {
+      "id": "counterterrorism",
+      "aliases": [
+        "counterterrorism",
+        "counter-terrorism",
+        "terror threat",
+        "terrorist threat",
+        "ISIS",
+        "ISIL",
+        "al Qaeda",
+        "Al Qaeda",
+        "AQAP",
+        "al Shabaab",
+        "Boko Haram",
+        "terror cell"
+      ],
+      "tags": [
+        "counterterrorism",
+        "national_security",
+        "non_state_actor"
+      ],
+      "priority": 42,
+      "score": 3
+    },
+    {
+      "id": "combatant_commands",
+      "aliases": [
+        "combatant command",
+        "combatant commands",
+        "COCOM",
+        "COCOMs",
+        "geographic combatant command",
+        "functional combatant command",
+        "joint force headquarters",
+        "JTF",
+        "component command",
+        "subordinate command"
+      ],
+      "tags": [
+        "military_organization",
+        "military",
+        "command_control"
+      ],
+      "priority": 35,
+      "score": 3
+    },
+    {
+      "id": "northcom_norad",
+      "aliases": [
+        "NORTHCOM",
+        "USNORTHCOM",
+        "U.S. Northern Command",
+        "US Northern Command",
+        "Northern Command",
+        "NORAD",
+        "North American Aerospace Defense Command",
+        "Joint Task Force Civil Support",
+        "JTF-CS"
+      ],
+      "tags": [
+        "north_america",
+        "military_organization",
+        "military",
+        "homeland_security"
+      ],
+      "priority": 40,
+      "score": 3
+    },
+    {
+      "id": "indopacom",
+      "aliases": [
+        "INDOPACOM",
+        "USINDOPACOM",
+        "U.S. Indo-Pacific Command",
+        "US Indo-Pacific Command",
+        "Pacific Command",
+        "PACOM",
+        "PACFLT",
+        "Pacific Fleet",
+        "Seventh Fleet",
+        "7th Fleet",
+        "U.S. Forces Japan",
+        "USFJ",
+        "U.S. Forces Korea",
+        "USFK",
+        "III MEF",
+        "III Marine Expeditionary Force"
+      ],
+      "tags": [
+        "indo_pacific",
+        "military_organization",
+        "military"
+      ],
+      "priority": 40,
+      "score": 3
+    },
+    {
+      "id": "eucom",
+      "aliases": [
+        "EUCOM",
+        "USEUCOM",
+        "U.S. European Command",
+        "US European Command",
+        "European Command",
+        "U.S. Army Europe and Africa",
+        "USAREUR-AF",
+        "Sixth Fleet",
+        "6th Fleet",
+        "USAFE-AFAFRICA",
+        "SHAPE",
+        "Allied Command Operations"
+      ],
+      "tags": [
+        "europe",
+        "military_organization",
+        "military"
+      ],
+      "priority": 40,
+      "score": 3
+    },
+    {
+      "id": "africom",
+      "aliases": [
+        "AFRICOM",
+        "USAFRICOM",
+        "U.S. Africa Command",
+        "US Africa Command",
+        "Africa Command",
+        "CJTF-HOA",
+        "Combined Joint Task Force-Horn of Africa",
+        "SETAF-AF",
+        "U.S. Army Africa",
+        "Air Forces Africa",
+        "Naval Forces Africa"
+      ],
+      "tags": [
+        "africa",
+        "military_organization",
+        "military"
+      ],
+      "priority": 40,
+      "score": 3
+    },
+    {
+      "id": "southcom",
+      "aliases": [
+        "SOUTHCOM",
+        "USSOUTHCOM",
+        "U.S. Southern Command",
+        "US Southern Command",
+        "Southern Command",
+        "Joint Task Force-Bravo",
+        "JTF-Bravo",
+        "Joint Interagency Task Force South",
+        "JIATF South",
+        "Fourth Fleet",
+        "4th Fleet"
+      ],
+      "tags": [
+        "latin_america",
+        "military_organization",
+        "military"
+      ],
+      "priority": 40,
+      "score": 3
+    },
+    {
+      "id": "stratcom",
+      "aliases": [
+        "STRATCOM",
+        "USSTRATCOM",
+        "U.S. Strategic Command",
+        "US Strategic Command",
+        "Strategic Command",
+        "Air Force Global Strike Command",
+        "AFGSC",
+        "Global Strike Command",
+        "missile warning",
+        "integrated tactical warning",
+        "nuclear command and control",
+        "NC3"
+      ],
+      "tags": [
+        "strategic_weapon",
+        "nuclear_deterrence",
+        "military_organization",
+        "military",
+        "missile_warning"
+      ],
+      "priority": 45,
+      "score": 4
+    },
+    {
+      "id": "spacecom",
+      "aliases": [
+        "SPACECOM",
+        "USSPACECOM",
+        "U.S. Space Command",
+        "US Space Command",
+        "Space Command",
+        "Space Operations Command",
+        "SpOC",
+        "Space Systems Command",
+        "SSC",
+        "Space Training and Readiness Command",
+        "STARCOM"
+      ],
+      "tags": [
+        "space",
+        "military_organization",
+        "military"
+      ],
+      "priority": 42,
+      "score": 4
+    },
+    {
+      "id": "cybercom",
+      "aliases": [
+        "CYBERCOM",
+        "USCYBERCOM",
+        "U.S. Cyber Command",
+        "US Cyber Command",
+        "Cyber Command",
+        "Cyber National Mission Force",
+        "CNMF",
+        "Joint Force Headquarters-Cyber",
+        "JFHQ-C",
+        "cyber mission force"
+      ],
+      "tags": [
+        "cyber",
+        "military_organization",
+        "military",
+        "national_security"
+      ],
+      "priority": 42,
+      "score": 4
+    },
+    {
+      "id": "socom",
+      "aliases": [
+        "SOCOM",
+        "USSOCOM",
+        "U.S. Special Operations Command",
+        "US Special Operations Command",
+        "Special Operations Command",
+        "JSOC",
+        "Joint Special Operations Command",
+        "AFSOC",
+        "Air Force Special Operations Command",
+        "USASOC",
+        "MARSOC",
+        "Naval Special Warfare Command"
+      ],
+      "tags": [
+        "special_operations",
+        "military_organization",
+        "military"
+      ],
+      "priority": 45,
+      "score": 4
+    },
+    {
+      "id": "transcom",
+      "aliases": [
+        "TRANSCOM",
+        "USTRANSCOM",
+        "U.S. Transportation Command",
+        "US Transportation Command",
+        "Transportation Command",
+        "Air Mobility Command",
+        "AMC",
+        "Surface Deployment and Distribution Command",
+        "SDDC",
+        "Defense Logistics Agency",
+        "DLA",
+        "prepositioned stocks",
+        "prepositioning",
+        "strategic lift"
+      ],
+      "tags": [
+        "military_logistics",
+        "sustainment",
+        "military_organization",
+        "military"
+      ],
+      "priority": 38,
+      "score": 3
+    },
+    {
+      "id": "naval_warfare_terms",
+      "aliases": [
+        "surface warfare",
+        "surface combatant",
+        "frigate",
+        "littoral combat ship",
+        "LCS",
+        "cruiser",
+        "expeditionary strike group",
+        "ESG",
+        "amphibious ready group",
+        "ARG",
+        "undersea warfare",
+        "anti-submarine warfare",
+        "ASW",
+        "mine warfare",
+        "minesweeper",
+        "unmanned surface vessel",
+        "USV"
+      ],
+      "tags": [
+        "naval",
+        "maritime",
+        "military"
+      ],
+      "priority": 35,
+      "score": 3
+    },
+    {
+      "id": "air_warfare_terms",
+      "aliases": [
+        "air superiority",
+        "air campaign",
+        "combat air patrol",
+        "air tasking order",
+        "ATO",
+        "sortie",
+        "sorties",
+        "airlift",
+        "air refueling",
+        "tanker aircraft",
+        "airbase",
+        "air base",
+        "flight line",
+        "KC-46",
+        "KC-135",
+        "ISR aircraft",
+        "AWACS",
+        "E-7 Wedgetail",
+        "electronic attack",
+        "electronic warfare aircraft",
+        "jamming aircraft"
+      ],
+      "tags": [
+        "air",
+        "isr",
+        "electronic_warfare",
+        "military"
+      ],
+      "priority": 35,
+      "score": 3
+    },
+    {
+      "id": "land_warfare_terms",
+      "aliases": [
+        "armored combat",
+        "mechanized infantry",
+        "artillery brigade",
+        "long-range fires",
+        "long range fires",
+        "integrated air and missile defense",
+        "IAMD",
+        "maneuver force",
+        "combat team",
+        "brigade combat team",
+        "BCT"
+      ],
+      "tags": [
+        "ground",
+        "air_defense",
+        "missile_defense",
+        "military"
+      ],
+      "priority": 35,
+      "score": 3
+    },
+    {
+      "id": "space_warfare_terms",
+      "aliases": [
+        "space domain awareness",
+        "SDA",
+        "satellite tracking",
+        "missile tracking satellite",
+        "missile warning satellite",
+        "overhead persistent infrared",
+        "OPIR",
+        "counterspace",
+        "anti-satellite",
+        "ASAT",
+        "space control"
+      ],
+      "tags": [
+        "space",
+        "missile_warning",
+        "intelligence",
+        "military"
+      ],
+      "priority": 35,
+      "score": 3
+    },
+    {
+      "id": "command_control_terms",
+      "aliases": [
+        "command and control",
+        "C2",
+        "C3",
+        "C4ISR",
+        "battle network",
+        "kill chain",
+        "sensor-to-shooter",
+        "joint all-domain command and control",
+        "JADC2",
+        "CJADC2",
+        "mission command",
+        "battle management"
+      ],
+      "tags": [
+        "command_control",
+        "isr",
+        "military"
+      ],
+      "priority": 35,
+      "score": 3
     },
     {
       "id": "false_positive_sports",

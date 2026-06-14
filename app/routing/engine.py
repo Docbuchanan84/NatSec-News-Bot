@@ -8,6 +8,8 @@ from app.routing.scorer import score_channels
 from app.routing.taxonomy import expand_tags
 
 SUMMARY_MATCH_LIMIT = 1000
+SECONDARY_PRIMARY_MIN_SCORE = 10
+SECONDARY_PRIMARY_MAX_GAP = 3
 
 
 class RoutingEngine:
@@ -19,6 +21,7 @@ class RoutingEngine:
         match_text = _build_match_text(article)
         matches = match_knowledge_entries(match_text, self.config.knowledge_entries)
         emitted_tags = {tag for match in matches for tag in match.emitted_tags}
+        emitted_tags.update(article.routing_tags or ())
         expanded_tags = expand_tags(emitted_tags, self.config.taxonomy)
         all_tags = emitted_tags | expanded_tags
         primary_rules = tuple(rule for rule in self.config.channel_rules if rule.destination_class == "primary")
@@ -50,8 +53,10 @@ class RoutingEngine:
         review_scores = _review_scores(review_rules, selected=False)
         scores = primary_scores + mirror_scores + review_scores
         top_score = max((score.score for score in scores), default=0)
-        primary_keys = tuple(score.channel_key for score in primary_scores if score.selected)
-        mirror_keys = tuple(score.channel_key for score in mirror_scores if score.selected)
+        mirror_candidates = tuple(score for score in mirror_scores if score.selected)
+        primary_keys = _select_primary_keys(primary_scores, has_mirror=bool(mirror_candidates))
+        mirror_keys = _select_mirror_keys(mirror_candidates, primary_keys, self.config.max_destinations)
+        scores = _set_score_selections(primary_scores + mirror_scores, set(primary_keys) | set(mirror_keys)) + review_scores
         review_keys: tuple[str, ...] = ()
         final_keys: tuple[str, ...] = ()
         status = "no_match"
@@ -71,7 +76,7 @@ class RoutingEngine:
             review_keys = tuple(rule.channel_key for rule in review_rules if rule.enabled)
             final_keys = review_keys
             scores = _clear_score_selections(primary_scores + mirror_scores) + _review_scores(review_rules, selected=True)
-        elif not matches:
+        elif not emitted_tags:
             status = "no_match"
             reason = "no_match"
             scores = _clear_score_selections(scores)
@@ -117,6 +122,10 @@ class RoutingEngine:
 
 
 def _clear_score_selections(scores: tuple[ChannelScore, ...]) -> tuple[ChannelScore, ...]:
+    return _set_score_selections(scores, set())
+
+
+def _set_score_selections(scores: tuple[ChannelScore, ...], selected_keys: set[str]) -> tuple[ChannelScore, ...]:
     return tuple(
         ChannelScore(
             channel_key=score.channel_key,
@@ -124,7 +133,7 @@ def _clear_score_selections(scores: tuple[ChannelScore, ...]) -> tuple[ChannelSc
             score=score.score,
             minimum_score=score.minimum_score,
             priority=score.priority,
-            selected=False,
+            selected=score.channel_key in selected_keys,
             reasons=score.reasons,
         )
         for score in scores
@@ -155,6 +164,31 @@ def _dedupe_keys(keys: tuple[str, ...]) -> tuple[str, ...]:
         seen.add(key)
         deduped.append(key)
     return tuple(deduped)
+
+
+def _select_primary_keys(primary_scores: tuple[ChannelScore, ...], *, has_mirror: bool) -> tuple[str, ...]:
+    candidates = tuple(score for score in primary_scores if score.selected)
+    if not candidates:
+        return ()
+    selected = [candidates[0].channel_key]
+    if has_mirror or len(candidates) == 1:
+        return tuple(selected)
+    top = candidates[0]
+    secondary = candidates[1]
+    if secondary.score >= SECONDARY_PRIMARY_MIN_SCORE and top.score - secondary.score <= SECONDARY_PRIMARY_MAX_GAP:
+        selected.append(secondary.channel_key)
+    return tuple(selected)
+
+
+def _select_mirror_keys(
+    mirror_candidates: tuple[ChannelScore, ...],
+    primary_keys: tuple[str, ...],
+    max_destinations: int,
+) -> tuple[str, ...]:
+    if not primary_keys:
+        return ()
+    remaining = max(0, max_destinations - len(primary_keys))
+    return tuple(score.channel_key for score in mirror_candidates[:remaining])
 
 
 def _content_mode(article: RoutingArticle) -> str:

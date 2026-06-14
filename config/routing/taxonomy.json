@@ -429,9 +429,19 @@
         "europe"
       ]
     },
+    "switzerland": {
+      "parent_tags": [
+        "europe"
+      ]
+    },
     "united_kingdom": {
       "parent_tags": [
         "europe"
+      ]
+    },
+    "pakistan": {
+      "parent_tags": [
+        "indo_pacific"
       ]
     },
     "turkey": {
@@ -871,6 +881,67 @@
       "parent_tags": [
         "military"
       ]
+    },
+    "national_security": {
+      "parent_tags": [
+        "world"
+      ],
+      "description": "National-security policy, threats, and institutions."
+    },
+    "intelligence": {
+      "parent_tags": [
+        "national_security"
+      ],
+      "description": "Intelligence agencies, intelligence collection, and classified assessments."
+    },
+    "homeland_security": {
+      "parent_tags": [
+        "national_security"
+      ],
+      "description": "Domestic security, border security, emergency preparedness, and homeland defense."
+    },
+    "counterterrorism": {
+      "parent_tags": [
+        "national_security"
+      ],
+      "description": "Counterterrorism operations, policy, and threat reporting."
+    },
+    "isr": {
+      "parent_tags": [
+        "military"
+      ],
+      "description": "Intelligence, surveillance, and reconnaissance."
+    },
+    "electronic_warfare": {
+      "parent_tags": [
+        "military"
+      ],
+      "description": "Electronic warfare, jamming, spectrum operations, and related systems."
+    },
+    "command_control": {
+      "parent_tags": [
+        "military"
+      ],
+      "description": "Command, control, communications, battle networks, and C2/C4ISR."
+    },
+    "military_logistics": {
+      "parent_tags": [
+        "military"
+      ],
+      "description": "Military logistics, lift, sustainment, prepositioning, and distribution."
+    },
+    "coast_guard": {
+      "parent_tags": [
+        "maritime",
+        "military"
+      ],
+      "description": "Coast guard and maritime security forces."
+    },
+    "missile_warning": {
+      "parent_tags": [
+        "strategic_weapon"
+      ],
+      "description": "Missile warning, tracking, and integrated strategic warning."
     }
   }
 }

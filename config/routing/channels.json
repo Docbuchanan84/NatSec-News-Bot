@@ -99,6 +99,7 @@
         "croatia": 4,
         "iceland": 4,
         "andorra": 4,
+        "switzerland": 5,
         "united_kingdom": 4,
         "turkey": 4,
         "military": 3,
@@ -122,6 +123,7 @@
         "croatia",
         "iceland",
         "andorra",
+        "switzerland",
         "united_kingdom",
         "turkey"
       ],
@@ -150,6 +152,7 @@
         "japan": 4,
         "philippines": 5,
         "india": 4,
+        "pakistan": 4,
         "australia": 4,
         "south_korea": 4,
         "north_korea": 5,
@@ -175,6 +178,7 @@
         "japan",
         "philippines",
         "india",
+        "pakistan",
         "australia",
         "south_korea",
         "north_korea",
@@ -194,10 +198,10 @@
       "priority": 90,
       "term_boosts": {
         "iran_war": 9,
-        "red_sea": 2,
+        "red_sea": 4,
         "strait_of_hormuz": 5,
-        "bab_el_mandeb": 2,
-        "centcom": 1
+        "bab_el_mandeb": 3,
+        "centcom": 3
       },
       "tag_boosts": {
         "middle_east": 5,
@@ -234,9 +238,17 @@
         "oman",
         "saudi_arabia",
         "uae",
-        "qatar"
+        "qatar",
+        "red_sea",
+        "strait_of_hormuz",
+        "bab_el_mandeb",
+        "centcom"
       ],
       "source_biases": {
+        "CENTCOM": 3,
+        "AlArabiya_Eng": 2,
+        "Arab News": 2,
+        "QNAEnglish": 2,
         "Middle East": 2,
         "Times of Israel": 2,
         "Iran": 2,
@@ -267,6 +279,9 @@
         "middle_east": 6,
         "indo_pacific": 6,
         "europe": 6,
+        "india": 8,
+        "china": 5,
+        "australia": 5,
         "government": 3,
         "legislation": 3,
         "election": 3
@@ -276,7 +291,9 @@
         "canada",
         "north_america"
       ],
-      "source_biases": {},
+      "source_biases": {
+        "DVIDS": -4
+      },
       "destination_class": "primary"
     },
     {
@@ -371,12 +388,55 @@
       "destination_class": "primary"
     },
     {
+      "channel_key": "arctic",
+      "minimum_score": 4,
+      "priority": 88,
+      "term_boosts": {
+        "region_arctic": 3,
+        "arctic_places": 4,
+        "arctic_military_commands": 5,
+        "northcom_norad": 2,
+        "spacecom": 1
+      },
+      "tag_boosts": {
+        "arctic": 8,
+        "military": 2,
+        "military_organization": 2,
+        "maritime": 2,
+        "naval": 2,
+        "air": 1,
+        "space": 1,
+        "energy_security": 1
+      },
+      "tag_penalties": {
+        "skip_candidate": 9,
+        "middle_east": 4,
+        "indo_pacific": 3,
+        "latin_america": 6,
+        "africa": 6
+      },
+      "required_any": [
+        "arctic"
+      ],
+      "source_biases": {
+        "Arctic": 3,
+        "High North": 3,
+        "NORTHCOM": 2,
+        "NORAD": 2,
+        "Coast Guard": 1
+      },
+      "notes": "Arctic / High North geography, security, energy, and military posture.",
+      "destination_class": "primary"
+    },
+    {
       "channel_key": "sea",
       "priority": 100,
       "term_boosts": {
         "carrier_strike_group": 2,
         "chinese_aircraft_carrier": 2,
-        "chinese_carrier": 2
+        "chinese_carrier": 2,
+        "naval_warfare_terms": 2,
+        "transcom": 1
       },
       "tag_boosts": {
         "naval": 6,
@@ -389,7 +449,9 @@
         "amphibious": 5,
         "military_sealift": 5,
         "naval_air_wing": 4,
-        "maritime_patrol": 3
+        "maritime_patrol": 3,
+        "coast_guard": 4,
+        "military_logistics": 2
       },
       "tag_penalties": {
         "skip_candidate": 9,
@@ -402,14 +464,23 @@
         "ukraine": 6,
         "russia": 6,
         "active_conflict": 12,
-        "special_operations": 12
+        "special_operations": 12,
+        "government": 4,
+        "election": 5,
+        "economy": 4,
+        "finance": 4,
+        "civilian_technology": 3
       },
       "term_penalties": {
         "ukraine_war": 12,
         "iran_war": 12,
         "gaza_war": 5,
         "lebanon_conflict": 5,
-        "strait_of_hormuz": 6
+        "strait_of_hormuz": 6,
+        "civilian_cap_terms": 8,
+        "election": 4,
+        "economy_news": 4,
+        "stock_market": 4
       },
       "required_any": [
         "naval",
@@ -420,7 +491,8 @@
         "amphibious",
         "military_sealift",
         "naval_air_wing",
-        "maritime_patrol"
+        "maritime_patrol",
+        "coast_guard"
       ],
       "source_biases": {
         "Naval": 3,
@@ -438,7 +510,9 @@
       "priority": 95,
       "term_boosts": {
         "drone": 1,
-        "strategic_bomber": 1
+        "strategic_bomber": 1,
+        "air_warfare_terms": 2,
+        "command_control_terms": 1
       },
       "tag_boosts": {
         "air": 6,
@@ -447,7 +521,10 @@
         "strategic_bomber": 3,
         "drone": 4,
         "naval_air_wing": 3,
-        "maritime_patrol": 4
+        "maritime_patrol": 4,
+        "isr": 3,
+        "electronic_warfare": 4,
+        "command_control": 1
       },
       "tag_penalties": {
         "skip_candidate": 9,
@@ -462,14 +539,23 @@
         "yemen": 5,
         "ukraine": 6,
         "russia": 6,
-        "active_conflict": 12
+        "active_conflict": 12,
+        "government": 5,
+        "election": 6,
+        "economy": 5,
+        "finance": 5,
+        "civilian_technology": 4
       },
       "term_penalties": {
         "ukraine_war": 12,
         "iran_war": 12,
         "gaza_war": 5,
         "lebanon_conflict": 5,
-        "strait_of_hormuz": 6
+        "strait_of_hormuz": 6,
+        "civilian_cap_terms": 12,
+        "election": 4,
+        "economy_news": 5,
+        "stock_market": 5
       },
       "required_any": [
         "air",
@@ -478,7 +564,9 @@
         "strategic_bomber",
         "drone",
         "naval_air_wing",
-        "maritime_patrol"
+        "maritime_patrol",
+        "isr",
+        "electronic_warfare"
       ],
       "source_biases": {
         "Air": 3,
@@ -495,7 +583,9 @@
       "priority": 95,
       "term_boosts": {
         "air_defense": 1,
-        "missile_defense": 1
+        "missile_defense": 1,
+        "land_warfare_terms": 2,
+        "command_control_terms": 1
       },
       "tag_boosts": {
         "ground": 6,
@@ -506,7 +596,9 @@
         "military_movement": 2,
         "exercise": 2,
         "marine_littoral": 5,
-        "sustainment": 2
+        "sustainment": 2,
+        "command_control": 2,
+        "counterterrorism": 2
       },
       "tag_penalties": {
         "skip_candidate": 9,
@@ -518,14 +610,23 @@
         "yemen": 5,
         "ukraine": 6,
         "russia": 6,
-        "active_conflict": 12
+        "active_conflict": 12,
+        "government": 4,
+        "election": 5,
+        "economy": 4,
+        "finance": 4,
+        "civilian_technology": 3
       },
       "term_penalties": {
         "ukraine_war": 12,
         "iran_war": 12,
         "gaza_war": 5,
         "lebanon_conflict": 5,
-        "strait_of_hormuz": 6
+        "strait_of_hormuz": 6,
+        "civilian_cap_terms": 8,
+        "election": 4,
+        "economy_news": 4,
+        "stock_market": 4
       },
       "required_any": [
         "ground",
@@ -534,7 +635,8 @@
         "military_base",
         "military_movement",
         "exercise",
-        "marine_littoral"
+        "marine_littoral",
+        "command_control"
       ],
       "source_biases": {
         "Land": 3,
@@ -552,31 +654,42 @@
       "tag_boosts": {
         "space": 7,
         "military": 1,
-        "company": 1
+        "company": 1,
+        "missile_warning": 4,
+        "intelligence": 2,
+        "military_organization": 1
       },
       "required_any": [
-        "space"
+        "space",
+        "missile_warning",
+        "intelligence",
+        "military_organization"
       ],
       "source_biases": {
         "Space": 3
       },
-      "destination_class": "primary"
+      "destination_class": "primary",
+      "term_boosts": {
+        "spacecom": 3,
+        "space_warfare_terms": 3,
+        "stratcom": 1
+      }
     },
     {
       "channel_key": "science-technology",
-      "minimum_score": 5,
+      "minimum_score": 7,
       "priority": 75,
       "term_boosts": {
         "artificial_intelligence": 2,
         "semiconductors": 2,
-        "major_tech_companies": 2,
+        "major_tech_companies": 0,
         "chip_companies": 2,
         "civilian_innovation": 1,
         "biotechnology": 1
       },
       "tag_boosts": {
-        "technology": 6,
-        "civilian_technology": 6,
+        "technology": 3,
+        "civilian_technology": 3,
         "science": 5,
         "artificial_intelligence": 7,
         "semiconductor": 7,
@@ -599,8 +712,8 @@
         "missile_defense": 5,
         "strategic_weapon": 8,
         "nuclear_weapon": 8,
-        "middle_east": 8,
-        "europe": 8,
+        "middle_east": 10,
+        "europe": 10,
         "indo_pacific": 2,
         "economy": 3,
         "finance": 3,
@@ -621,7 +734,8 @@
         "air_defense": 5,
         "missile_defense": 5,
         "carrier_strike_group": 5,
-        "strait_of_hormuz": 6
+        "strait_of_hormuz": 6,
+        "major_tech_companies": 3
       },
       "required_any": [
         "technology",
@@ -658,7 +772,8 @@
       "priority": 85,
       "tag_boosts": {
         "special_operations": 10,
-        "military_organization": 1
+        "military_organization": 1,
+        "counterterrorism": 3
       },
       "tag_penalties": {
         "skip_candidate": 9,
@@ -692,7 +807,11 @@
         "War Zone": 2,
         "Counterterrorism": 2
       },
-      "destination_class": "primary"
+      "destination_class": "primary",
+      "term_boosts": {
+        "socom": 4,
+        "counterterrorism": 1
+      }
     },
     {
       "channel_key": "training-and-doctrine",
@@ -702,7 +821,9 @@
         "exercise": 4,
         "military": 3,
         "military_organization": 2,
-        "procurement": 1
+        "procurement": 1,
+        "command_control": 3,
+        "military_logistics": 2
       },
       "tag_penalties": {
         "skip_candidate": 9,
@@ -729,7 +850,9 @@
       },
       "required_any": [
         "exercise",
-        "military"
+        "military",
+        "command_control",
+        "military_logistics"
       ],
       "source_biases": {
         "War on the Rocks": 2,
@@ -750,7 +873,9 @@
         "slbm": 2,
         "strategic_bomber": 1,
         "hypersonic_weapon": 1,
-        "arms_control": 1
+        "arms_control": 1,
+        "stratcom": 3,
+        "space_warfare_terms": 1
       },
       "tag_boosts": {
         "nuclear_weapon": 8,
@@ -760,7 +885,9 @@
         "strategic_bomber": 6,
         "strategic_weapon": 5,
         "hypersonic_weapon": 5,
-        "arms_control": 5
+        "arms_control": 5,
+        "missile_warning": 5,
+        "command_control": 2
       },
       "tag_penalties": {
         "skip_candidate": 9,
@@ -778,7 +905,8 @@
         "strategic_bomber",
         "strategic_weapon",
         "hypersonic_weapon",
-        "arms_control"
+        "arms_control",
+        "missile_warning"
       ],
       "source_biases": {
         "Arms Control": 3,
@@ -790,7 +918,10 @@
       "channel_key": "industrial-base",
       "priority": 90,
       "term_boosts": {
-        "defense_industry": 1
+        "defense_industry": 2,
+        "defense_contracts": 2,
+        "defense_production_stockpiles": 2,
+        "military_technology": 1
       },
       "tag_boosts": {
         "defense_industry": 8,
@@ -798,7 +929,9 @@
         "legislation": 1,
         "military": 1,
         "production": 5,
-        "stockpile": 5
+        "stockpile": 5,
+        "military_logistics": 3,
+        "command_control": 1
       },
       "tag_penalties": {
         "skip_candidate": 9,
@@ -816,10 +949,69 @@
       "source_biases": {
         "Defense News Industry": 3,
         "DefenseScoop": 3,
-        "Contracts": 3
+        "Contracts": 3,
+        "BreakingDefense": 2,
+        "defense_news": 2,
+        "Lockheed": 2,
+        "RTX": 2,
+        "Northrop": 2,
+        "Anduril": 2,
+        "BoeingDefense": 2
       },
       "minimum_score": 6,
       "notes": "Defense procurement, contracts, production, stockpiles, acquisition, and industrial capacity.",
+      "destination_class": "primary"
+    },
+    {
+      "channel_key": "natsec-news",
+      "minimum_score": 7,
+      "priority": 55,
+      "term_boosts": {
+        "national_security": 2,
+        "intelligence_community": 2,
+        "homeland_security": 2,
+        "counterterrorism": 2,
+        "combatant_commands": 1,
+        "cybercom": 2,
+        "socom": 2,
+        "command_control_terms": 1
+      },
+      "tag_boosts": {
+        "national_security": 5,
+        "intelligence": 5,
+        "homeland_security": 4,
+        "counterterrorism": 5,
+        "military_organization": 2,
+        "command_control": 2,
+        "isr": 2,
+        "cyber": 2
+      },
+      "tag_penalties": {
+        "skip_candidate": 9,
+        "election": 5,
+        "stock_market": 6,
+        "investing": 6,
+        "earnings": 6
+      },
+      "required_any": [
+        "national_security",
+        "intelligence",
+        "homeland_security",
+        "counterterrorism",
+        "command_control",
+        "isr"
+      ],
+      "required_source_ids": [
+        "x-natsec-news"
+      ],
+      "source_biases": {
+        "NatSec": 4,
+        "National Security": 3,
+        "Lawfare": 2,
+        "Just Security": 2,
+        "War on the Rocks": 2
+      },
+      "notes": "Dedicated NatSec_News X account destination. Hard-gated to source_id x-natsec-news.",
       "destination_class": "primary"
     },
     {
@@ -1054,15 +1246,18 @@
         "legislation": 6,
         "election": 5,
         "sanctions": 2,
-        "north_america": 2,
-        "united_states": 3
+        "north_america": 1,
+        "united_states": 1
       },
       "tag_penalties": {
         "latin_america": 6,
         "africa": 6,
         "middle_east": 5,
         "indo_pacific": 5,
-        "europe": 3
+        "europe": 3,
+        "india": 8,
+        "china": 5,
+        "australia": 5
       },
       "term_penalties": {
         "vip_public_schedule": 8
@@ -1087,7 +1282,7 @@
         "Bluesky: Ken Vogel": 3,
         "Bluesky: Anthony Adragna": 3
       },
-      "minimum_score": 5,
+      "minimum_score": 7,
       "destination_class": "primary"
     },
     {
@@ -1132,7 +1327,11 @@
         "government": 3,
         "official_alert": 3,
         "military_organization": 2,
-        "procurement": 1
+        "procurement": 1,
+        "national_security": 2,
+        "intelligence": 1,
+        "homeland_security": 2,
+        "command_control": 1
       },
       "tag_penalties": {
         "skip_candidate": 9,
@@ -1224,7 +1423,12 @@
         "procurement": 2,
         "naval": 1,
         "air": 1,
-        "ground": 1
+        "ground": 1,
+        "national_security": 2,
+        "intelligence": 2,
+        "command_control": 1,
+        "isr": 1,
+        "electronic_warfare": 1
       },
       "tag_penalties": {
         "skip_candidate": 9,
@@ -1256,7 +1460,12 @@
         "procurement",
         "naval",
         "air",
-        "ground"
+        "ground",
+        "national_security",
+        "intelligence",
+        "command_control",
+        "isr",
+        "electronic_warfare"
       ],
       "source_biases": {
         "Defense": 3,
@@ -1326,7 +1535,11 @@
         "military": 2,
         "diplomacy": 3,
         "sanctions": 2,
-        "defense_industry": 1
+        "defense_industry": 1,
+        "national_security": 3,
+        "intelligence": 2,
+        "homeland_security": 2,
+        "counterterrorism": 2
       },
       "tag_penalties": {
         "cyber": 4,

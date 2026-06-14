@@ -417,7 +417,7 @@ def test_us_domestic_non_politics_routes_north_america() -> None:
 
 def test_us_politics_routes_the_hill_not_north_america() -> None:
     decision = production_engine().route(
-        RoutingArticle(title="Congress passes border security legislation", source_name="The Hill")
+        RoutingArticle(title="U.S. Congress passes border security legislation", source_name="The Hill")
     )
     assert "the-hill" in decision.selected_channel_keys
     assert "north-america" not in decision.selected_channel_keys
@@ -553,9 +553,9 @@ def test_source_mirror_is_additive_and_does_not_consume_primary_slot() -> None:
             source_class="wire_service",
         )
     )
-    assert "middle-east" in decision.primary_channel_keys
-    assert "reuters" in decision.mirror_channel_keys
-    assert decision.final_channel_keys[: len(decision.primary_channel_keys)] == decision.primary_channel_keys
+    assert decision.primary_channel_keys == ("middle-east",)
+    assert decision.mirror_channel_keys == ("reuters",)
+    assert decision.final_channel_keys == ("middle-east", "reuters")
 
 
 def test_iran_war_missile_attack_routes_middle_east_not_domain_bucket() -> None:
@@ -639,8 +639,87 @@ def test_patriot_contract_routes_industrial_base_and_europe() -> None:
         )
     )
     assert "industrial-base" in decision.primary_channel_keys
-    assert "europe" in decision.primary_channel_keys
+    assert "europe" not in decision.primary_channel_keys
+    assert decision.mirror_channel_keys == ("defense-media",)
     assert "land" not in decision.primary_channel_keys
+
+
+def test_final_destinations_cap_one_primary_plus_one_archive() -> None:
+    decision = production_engine().route(
+        RoutingArticle(
+            title="Trump talks with Congress on Ukraine and Iran security package",
+            source_name="Bluesky: New York Times",
+            source_id="nyt",
+            source_class="major_media",
+        )
+    )
+    assert len(decision.final_channel_keys) <= 2
+    assert len(decision.primary_channel_keys) == 1
+    assert decision.mirror_channel_keys == ("nyt",)
+
+
+def test_second_primary_allowed_without_archive_for_strong_cross_beat_story() -> None:
+    decision = production_engine().route(
+        RoutingArticle(
+            title="France and Germany join Iran sanctions talks at G7 summit",
+            source_name="BBC Top News",
+            source_id="bbc",
+            source_class="major_media",
+        )
+    )
+    assert len(decision.final_channel_keys) <= 2
+    assert "europe" in decision.primary_channel_keys
+    assert "middle-east" in decision.primary_channel_keys
+
+
+def test_swiss_population_cap_routes_europe_not_air() -> None:
+    decision = production_engine().route(
+        RoutingArticle(
+            title="Swiss voters reject proposal to cap population at 10 million",
+            source_name="The Hindu",
+            source_id="the-hindu",
+            source_class="major_media",
+        )
+    )
+    assert "europe" in decision.primary_channel_keys
+    assert "air" not in decision.final_channel_keys
+
+
+def test_hindu_fuel_cap_story_does_not_route_air() -> None:
+    decision = production_engine().route(
+        RoutingArticle(
+            title="Some fuel outlets cap diesel at 195 litres per customer after order from Centre",
+            source_name="The Hindu",
+            source_id="the-hindu",
+            source_class="major_media",
+        )
+    )
+    assert "air" not in decision.final_channel_keys
+
+
+def test_real_combat_air_patrol_still_routes_air() -> None:
+    decision = production_engine().route(
+        RoutingArticle(
+            title="F-35s fly combat air patrol over allied airspace",
+            source_name="Defense News",
+            source_id="defense-news",
+            source_class="defense_media",
+        )
+    )
+    assert "air" in decision.primary_channel_keys
+
+
+def test_indian_domestic_congress_story_does_not_route_us_politics() -> None:
+    decision = production_engine().route(
+        RoutingArticle(
+            title="Rebel Trinamool Congress MPs announce merger with Nationalist Citizen Party",
+            source_name="The Hindu",
+            source_id="the-hindu",
+            source_class="major_media",
+        )
+    )
+    assert "the-hill" not in decision.final_channel_keys
+    assert "north-america" not in decision.final_channel_keys
 
 
 def test_carrier_global_false_positive_does_not_route_sea() -> None:
@@ -692,6 +771,67 @@ def test_air_force_wing_routes_air() -> None:
     assert "air" in decision.selected_channel_keys
 
 
+def test_usmc_future_attack_strike_aircraft_routes_air() -> None:
+    decision = production_engine().route(
+        RoutingArticle(
+            title="New solicitation outlines USMC's goals for its Future Attack/Strike aircraft to eventually replace the AH-1Z and UH-1Y",
+            source_name="X: @beverstine",
+            source_id="x-core",
+            source_class="social_core",
+        )
+    )
+    assert "air" in decision.selected_channel_keys
+
+
+def test_uk_defence_investment_plan_routes_europe() -> None:
+    decision = production_engine().route(
+        RoutingArticle(
+            title="John Healey was offered only £10billion extra money for the Ministry of Defence",
+            summary="The Defence Secretary said the Defence Investment Plan would not keep the country safe.",
+            source_name="X: @larisamlbrown",
+            source_id="x-core",
+            source_class="social_core",
+        )
+    )
+    assert decision.selected_channel_keys == ("industrial-base",)
+
+
+def test_belfast_incident_routes_europe() -> None:
+    decision = production_engine().route(
+        RoutingArticle(
+            title="This was in Belfast, there are some blurred photos in the article",
+            source_name="X: @lookner",
+            source_id="x-core",
+            source_class="social_core",
+        )
+    )
+    assert "europe" in decision.selected_channel_keys
+
+
+def test_pakistani_diplomatic_contact_routes_indo_pacific() -> None:
+    decision = production_engine().route(
+        RoutingArticle(
+            title="A Pakistani official says contacts are underway to reach a memorandum of understanding",
+            source_name="X: @FaytuksNetwork",
+            source_id="x-core",
+            source_class="social_core",
+        )
+    )
+    assert "indo-pacific" in decision.selected_channel_keys
+
+
+def test_f15e_ejection_article_routes_air() -> None:
+    decision = production_engine().route(
+        RoutingArticle(
+            title="Ejecting from an F-15E is a very demanding task for the body, and the forces exerted on the airmen can have a lasting impact.",
+            source_name="X: @sandboxxnews",
+            source_id="x-core",
+            source_class="social_core",
+        )
+    )
+    assert "air" in decision.selected_channel_keys
+
+
 def test_military_sealift_routes_sea() -> None:
     decision = production_engine().route(
         RoutingArticle(title="Military Sealift Command oiler supports carrier strike group", source_name="DVIDS")
@@ -721,3 +861,65 @@ def test_generic_attack_does_not_route_special_operations() -> None:
         RoutingArticle(title="Drone attack damages port facility", source_name="Associated Press")
     )
     assert "special-operations" not in decision.selected_channel_keys
+
+
+def test_feed_routing_tags_route_generic_ukraine_feed_item_to_europe() -> None:
+    decision = production_engine().route(
+        RoutingArticle(
+            title="Latest operational update",
+            source_name="Ukrainska Pravda English",
+            routing_tags=("ukraine", "europe"),
+        )
+    )
+    assert "europe" in decision.selected_channel_keys
+
+
+def test_arctic_security_item_routes_arctic() -> None:
+    decision = production_engine().route(
+        RoutingArticle(title="Coast Guard expands Arctic patrols near Greenland", source_name="USNI News")
+    )
+    assert "arctic" in decision.primary_channel_keys
+
+
+def test_europe_country_directory_routes_major_city_to_europe() -> None:
+    decision = production_engine().route(
+        RoutingArticle(title="Warsaw hosts NATO summit on eastern flank air defense", source_name="Reuters")
+    )
+    assert decision.primary_channel_keys == ("land",)
+
+
+def test_southcom_country_item_routes_south_central_america() -> None:
+    decision = production_engine().route(
+        RoutingArticle(title="U.S. Southern Command opens exercise in Guyana", source_name="Defense.gov")
+    )
+    assert "south-central-america" in decision.primary_channel_keys
+
+
+def test_africom_country_item_routes_africa() -> None:
+    decision = production_engine().route(
+        RoutingArticle(title="AFRICOM expands counterterrorism exercise in Djibouti", source_name="Defense.gov")
+    )
+    assert "africa" in decision.primary_channel_keys
+
+
+def test_cyber_intelligence_item_routes_natsec_news() -> None:
+    decision = production_engine().route(
+        RoutingArticle(
+            title="Cyber Command warns of foreign intelligence threat to critical infrastructure",
+            source_name="NatSec News",
+            source_id="x-natsec-news",
+        )
+    )
+    assert "natsec-news" in decision.primary_channel_keys
+
+
+def test_natsec_news_channel_requires_natsec_news_x_source() -> None:
+    decision = production_engine().route(
+        RoutingArticle(
+            title="Cyber Command warns of foreign intelligence threat to critical infrastructure",
+            source_name="Reuters",
+            source_id="reuters",
+        )
+    )
+    assert "natsec-news" not in decision.primary_channel_keys
+    assert "natsec-news" not in decision.final_channel_keys

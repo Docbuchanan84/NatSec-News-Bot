@@ -69,6 +69,7 @@ class RoutingArticle:
     url: str | None = None
     article_id: int | None = None
     normalized_title: str | None = None
+    routing_tags: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
