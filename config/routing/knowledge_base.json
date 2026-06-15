@@ -20,7 +20,10 @@
         "Indo-Pacific",
         "Indo Pacific",
         "Asia-Pacific",
-        "Asia Pacific"
+        "Asia Pacific",
+        "East Pacific",
+        "Eastern Pacific",
+        "Pacific Islands"
       ],
       "tags": [
         "indo_pacific"
@@ -4126,111 +4129,6 @@
       "score": 3
     },
     {
-      "id": "false_positive_sports",
-      "aliases": [
-        "Champions League",
-        "F1",
-        "Formula 1",
-        "IPL",
-        "Olympics",
-        "Premier League",
-        "World Cup",
-        "baseball",
-        "basketball",
-        "championships",
-        "cricket",
-        "football",
-        "rugby",
-        "soccer",
-        "spelling bee",
-        "sports",
-        "tennis",
-        "tournament"
-      ],
-      "tags": [
-        "skip_candidate"
-      ],
-      "priority": 50,
-      "score": 0
-    },
-    {
-      "id": "false_positive_entertainment",
-      "aliases": [
-        "entertainment",
-        "celebrity",
-        "movie",
-        "film review",
-        "TV show",
-        "horoscope",
-        "astrology",
-        "astrological predictions"
-      ],
-      "tags": [
-        "skip_candidate"
-      ],
-      "priority": 50,
-      "score": 0
-    },
-    {
-      "id": "false_positive_commercial_airline",
-      "aliases": [
-        "commercial airline",
-        "airline passenger",
-        "flight attendant",
-        "airport delays"
-      ],
-      "tags": [
-        "skip_candidate"
-      ],
-      "priority": 50,
-      "score": 0
-    },
-    {
-      "id": "false_positive_commercial_shipping",
-      "aliases": [
-        "commercial shipping",
-        "container ship",
-        "cruise line",
-        "cruise ship"
-      ],
-      "tags": [
-        "skip_candidate"
-      ],
-      "priority": 50,
-      "score": 0
-    },
-    {
-      "id": "market_roundup",
-      "aliases": [
-        "Wall Street only",
-        "analyst upgrade",
-        "earnings roundup",
-        "market roundup",
-        "markets live",
-        "price target",
-        "stocks to watch"
-      ],
-      "tags": [
-        "skip_candidate"
-      ],
-      "priority": 50,
-      "score": 2
-    },
-    {
-      "id": "false_positive_travel",
-      "aliases": [
-        "travel tips",
-        "vacation",
-        "tourism",
-        "best hotels"
-      ],
-      "tags": [
-        "skip_candidate"
-      ],
-      "priority": 50,
-      "score": 0
-    },
-    {
       "id": "defense_contracts",
       "aliases": [
         "defense contract",
@@ -4281,36 +4179,6 @@
       ],
       "priority": 55,
       "score": 3
-    },
-    {
-      "id": "false_positive_carrier_global",
-      "aliases": [
-        "Carrier Global",
-        "Carrier Global stock",
-        "Carrier Global shares",
-        "Carrier Global earnings"
-      ],
-      "tags": [
-        "skip_candidate"
-      ],
-      "priority": 80,
-      "score": 0
-    },
-    {
-      "id": "false_positive_business_markets",
-      "aliases": [
-        "market roundup",
-        "markets live",
-        "stocks to watch",
-        "analyst upgrade",
-        "price target",
-        "earnings roundup"
-      ],
-      "tags": [
-        "skip_candidate"
-      ],
-      "priority": 80,
-      "score": 0
     }
   ]
 }

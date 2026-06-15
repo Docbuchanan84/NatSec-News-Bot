@@ -140,6 +140,7 @@ def main() -> int:
                 "Routing OK: "
                 f"{len(routing_config.taxonomy)} tags, "
                 f"{len(routing_config.knowledge_entries)} knowledge entries, "
+                f"{len(routing_config.suppression_entries)} suppressions, "
                 f"{len(routing_config.channel_rules)} channel rules loaded from {config.settings.routing.config_dir}"
             )
             return 0
@@ -236,7 +237,10 @@ def format_routing_diagnostics(config, routing_config) -> str:
     }
     lines = [
         "Routing diagnostics",
-        f"channels={len(channel_keys)} rules={len(rule_keys)} top_level_feeds={len(config.feeds)}",
+        (
+            f"channels={len(channel_keys)} rules={len(rule_keys)} "
+            f"suppressions={len(routing_config.suppression_entries)} top_level_feeds={len(config.feeds)}"
+        ),
     ]
     missing_channels = sorted(rule_keys - channel_keys)
     channels_without_rules = sorted(channel_keys - rule_keys)
@@ -272,6 +276,20 @@ def format_routing_diagnostics(config, routing_config) -> str:
         "Source mirrors with no matching source IDs: "
         + (", ".join(sorted(mirror_without_sources)) if mirror_without_sources else "none")
     )
+    legacy_rules = []
+    for rule in routing_config.channel_rules:
+        legacy_fields = []
+        if rule.required_any:
+            legacy_fields.append("required_any")
+        if rule.excluded_any:
+            legacy_fields.append("excluded_any")
+        if rule.term_boosts:
+            legacy_fields.append("term_boosts")
+        if rule.term_penalties:
+            legacy_fields.append("term_penalties")
+        if legacy_fields:
+            legacy_rules.append(f"{rule.channel_key}({', '.join(legacy_fields)})")
+    lines.append("Rules using legacy routing fields: " + (", ".join(legacy_rules) if legacy_rules else "none"))
     return "\n".join(lines)
 
 

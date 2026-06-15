@@ -1,0 +1,164 @@
+{
+  "version": 1,
+  "entries": [
+    {
+      "id": "false_positive_sports",
+      "aliases": [
+        "Champions League",
+        "F1",
+        "Formula 1",
+        "IPL",
+        "Olympics",
+        "Premier League",
+        "World Cup",
+        "baseball",
+        "basketball",
+        "championships",
+        "cricket",
+        "football",
+        "rugby",
+        "soccer",
+        "spelling bee",
+        "sports",
+        "tennis",
+        "tournament"
+      ],
+      "action": "skip",
+      "unless_tags_any": [
+        "military",
+        "government",
+        "disaster"
+      ],
+      "priority": 50,
+      "description": "Migrated false-positive suppression from knowledge_base.json."
+    },
+    {
+      "id": "false_positive_entertainment",
+      "aliases": [
+        "entertainment",
+        "celebrity",
+        "movie",
+        "film review",
+        "TV show",
+        "horoscope",
+        "astrology",
+        "astrological predictions"
+      ],
+      "action": "skip",
+      "unless_tags_any": [
+        "military",
+        "government",
+        "disaster"
+      ],
+      "priority": 50,
+      "description": "Migrated false-positive suppression from knowledge_base.json."
+    },
+    {
+      "id": "false_positive_commercial_airline",
+      "aliases": [
+        "commercial airline",
+        "airline passenger",
+        "flight attendant",
+        "airport delays"
+      ],
+      "action": "skip",
+      "unless_tags_any": [
+        "military",
+        "government",
+        "disaster"
+      ],
+      "priority": 50,
+      "description": "Migrated false-positive suppression from knowledge_base.json."
+    },
+    {
+      "id": "false_positive_commercial_shipping",
+      "aliases": [
+        "commercial shipping",
+        "container ship",
+        "cruise line",
+        "cruise ship"
+      ],
+      "action": "skip",
+      "unless_tags_any": [
+        "military",
+        "government",
+        "disaster"
+      ],
+      "priority": 50,
+      "description": "Migrated false-positive suppression from knowledge_base.json."
+    },
+    {
+      "id": "market_roundup",
+      "aliases": [
+        "Wall Street only",
+        "analyst upgrade",
+        "earnings roundup",
+        "market roundup",
+        "markets live",
+        "price target",
+        "stocks to watch"
+      ],
+      "action": "skip",
+      "unless_tags_any": [
+        "military",
+        "government",
+        "disaster"
+      ],
+      "priority": 50,
+      "description": "Migrated false-positive suppression from knowledge_base.json."
+    },
+    {
+      "id": "false_positive_travel",
+      "aliases": [
+        "travel tips",
+        "vacation",
+        "tourism",
+        "best hotels"
+      ],
+      "action": "skip",
+      "unless_tags_any": [
+        "military",
+        "government",
+        "disaster"
+      ],
+      "priority": 50,
+      "description": "Migrated false-positive suppression from knowledge_base.json."
+    },
+    {
+      "id": "false_positive_carrier_global",
+      "aliases": [
+        "Carrier Global",
+        "Carrier Global stock",
+        "Carrier Global shares",
+        "Carrier Global earnings"
+      ],
+      "action": "skip",
+      "unless_tags_any": [
+        "military",
+        "government",
+        "disaster"
+      ],
+      "priority": 80,
+      "description": "Migrated false-positive suppression from knowledge_base.json."
+    },
+    {
+      "id": "false_positive_business_markets",
+      "aliases": [
+        "market roundup",
+        "markets live",
+        "stocks to watch",
+        "analyst upgrade",
+        "price target",
+        "earnings roundup"
+      ],
+      "action": "skip",
+      "unless_tags_any": [
+        "military",
+        "government",
+        "disaster"
+      ],
+      "priority": 80,
+      "description": "Migrated false-positive suppression from knowledge_base.json."
+    }
+  ]
+}

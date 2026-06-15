@@ -11,9 +11,11 @@ def format_decision(decision: RoutingDecision, limit: int = 1900) -> str:
         f"Decision: {decision.decision_status}",
         f"Reason: {decision.reason or 'none'}",
         f"Content mode: {decision.content_mode}",
-        "Matches: " + _format_matches(decision),
+        "Matched concepts: " + _format_concepts(decision),
+        "Matched aliases: " + _format_aliases(decision),
+        "Suppressions: " + _format_suppressions(decision),
         "Emitted tags: " + (", ".join(decision.emitted_tags) or "none"),
-        "Expanded tags: " + (", ".join(decision.expanded_tags) or "none"),
+        "Expanded parent tags: " + _format_parent_tags(decision),
         "Primary destinations: " + (", ".join(decision.primary_channel_keys) or "none"),
         "Mirror destinations: " + (", ".join(decision.mirror_channel_keys) or "none"),
         "Review destinations: " + (", ".join(decision.review_channel_keys) or "none"),
@@ -64,13 +66,46 @@ def truncate(value: str, limit: int) -> str:
     return value[: max(0, limit - len(suffix))].rstrip() + suffix
 
 
-def _format_matches(decision: RoutingDecision) -> str:
+def _format_concepts(decision: RoutingDecision) -> str:
+    if not decision.matched_entries:
+        return "none"
+    ids = []
+    seen = set()
+    for match in decision.matched_entries:
+        if match.knowledge_entry_id in seen:
+            continue
+        ids.append(match.knowledge_entry_id)
+        seen.add(match.knowledge_entry_id)
+    text = ", ".join(ids[:10])
+    if len(ids) > 10:
+        text += f", +{len(ids) - 10} more"
+    return text
+
+
+def _format_aliases(decision: RoutingDecision) -> str:
     if not decision.matched_entries:
         return "none"
     text = ", ".join(
-        f"{match.knowledge_entry_id} ({match.matched_alias})"
+        f"{match.matched_alias} -> {match.knowledge_entry_id}"
         for match in decision.matched_entries[:10]
     )
     if len(decision.matched_entries) > 10:
         text += f", +{len(decision.matched_entries) - 10} more"
     return text
+
+
+def _format_suppressions(decision: RoutingDecision) -> str:
+    if not decision.suppression_matches:
+        return "none"
+    text = ", ".join(
+        f"{match.matched_alias} -> {match.suppression_id}"
+        for match in decision.suppression_matches[:10]
+    )
+    if len(decision.suppression_matches) > 10:
+        text += f", +{len(decision.suppression_matches) - 10} more"
+    return text
+
+
+def _format_parent_tags(decision: RoutingDecision) -> str:
+    parents = [tag for tag in decision.expanded_tags if tag not in decision.emitted_tags]
+    return ", ".join(parents) or "none"

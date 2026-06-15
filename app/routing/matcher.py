@@ -3,7 +3,7 @@ from __future__ import annotations
 import re
 from functools import lru_cache
 
-from app.routing.models import KnowledgeEntry, KnowledgeMatch
+from app.routing.models import KnowledgeEntry, KnowledgeMatch, SuppressionEntry, SuppressionMatch
 
 
 def match_knowledge_entries(text: str, entries: tuple[KnowledgeEntry, ...]) -> tuple[KnowledgeMatch, ...]:
@@ -42,6 +42,43 @@ def match_knowledge_entries(text: str, entries: tuple[KnowledgeEntry, ...]) -> t
         occupied.append(span)
 
     selected.sort(key=lambda item: (item.match_start, item.match_end, item.knowledge_entry_id))
+    return tuple(selected)
+
+
+def match_suppression_entries(text: str, entries: tuple[SuppressionEntry, ...]) -> tuple[SuppressionMatch, ...]:
+    candidates: list[SuppressionMatch] = []
+    for entry in entries:
+        for alias in entry.aliases:
+            pattern = _alias_pattern(alias)
+            for match in pattern.finditer(text):
+                candidates.append(
+                    SuppressionMatch(
+                        suppression_id=entry.id,
+                        matched_alias=alias,
+                        match_start=match.start(),
+                        match_end=match.end(),
+                        action=entry.action,
+                        unless_tags_any=entry.unless_tags_any,
+                    )
+                )
+
+    candidates.sort(
+        key=lambda item: (
+            -(item.match_end - item.match_start),
+            item.match_start,
+            item.suppression_id,
+        )
+    )
+    selected: list[SuppressionMatch] = []
+    occupied: list[range] = []
+    for candidate in candidates:
+        span = range(candidate.match_start, candidate.match_end)
+        if any(_overlaps(span, existing) for existing in occupied):
+            continue
+        selected.append(candidate)
+        occupied.append(span)
+
+    selected.sort(key=lambda item: (item.match_start, item.match_end, item.suppression_id))
     return tuple(selected)
 
 

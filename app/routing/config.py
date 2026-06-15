@@ -6,11 +6,21 @@ from pathlib import Path
 from typing import Any
 
 from app.models import AppConfig
-from app.routing.models import ChannelRule, KnowledgeEntry, RoutingConfig, TaxonomyTag
+from app.routing.models import ChannelRule, KnowledgeEntry, RoutingConfig, SuppressionEntry, TaxonomyTag
 from app.routing.taxonomy import find_taxonomy_cycles
 
 
 KEY_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{0,127}$")
+CHANNEL_PROFILES = {
+    "region_primary",
+    "military_domain_primary",
+    "source_mirror",
+    "government_source_primary",
+    "review",
+    "science_technology",
+    "industrial_base",
+    "natsec",
+}
 
 
 class RoutingConfigError(Exception):
@@ -25,14 +35,17 @@ def load_routing_config(config_dir: str | Path, app_config: AppConfig) -> Routin
     taxonomy_raw = _read_json(root / "taxonomy.json", errors)
     knowledge_raw = _read_json(root / "knowledge_base.json", errors)
     channels_raw = _read_json(root / "channels.json", errors)
+    suppressions_raw = _read_optional_json(root / "suppressions.json", errors)
     if errors:
         raise RoutingConfigError(errors)
 
     taxonomy_version, taxonomy = _parse_taxonomy(taxonomy_raw, errors)
     knowledge_base_version, knowledge_entries = _parse_knowledge(knowledge_raw, taxonomy, errors)
+    suppression_entries = _parse_suppressions(suppressions_raw, taxonomy, errors)
     channels_version, max_destinations, max_primary_destinations, review_tags, skip_tags, channel_rules = _parse_channels(
         channels_raw,
         taxonomy,
+        {entry.id for entry in knowledge_entries},
         app_config,
         errors,
     )
@@ -46,6 +59,7 @@ def load_routing_config(config_dir: str | Path, app_config: AppConfig) -> Routin
         channels_version=channels_version,
         taxonomy=taxonomy,
         knowledge_entries=tuple(knowledge_entries),
+        suppression_entries=tuple(suppression_entries),
         channel_rules=tuple(channel_rules),
         max_destinations=max_destinations,
         max_primary_destinations=max_primary_destinations,
@@ -67,6 +81,12 @@ def _read_json(path: Path, errors: list[str]) -> dict[str, Any]:
         errors.append(f"{path}: root must be a JSON object")
         return {}
     return raw
+
+
+def _read_optional_json(path: Path, errors: list[str]) -> dict[str, Any]:
+    if not path.exists():
+        return {"version": 1, "entries": []}
+    return _read_json(path, errors)
 
 
 def _parse_taxonomy(raw: dict[str, Any], errors: list[str]) -> tuple[int, dict[str, TaxonomyTag]]:
@@ -144,9 +164,56 @@ def _parse_knowledge(
     return version, entries
 
 
+def _parse_suppressions(
+    raw: dict[str, Any],
+    taxonomy: dict[str, TaxonomyTag],
+    errors: list[str],
+) -> list[SuppressionEntry]:
+    _int(raw.get("version", 1), "suppressions.version", errors, min_value=1)
+    entries_raw = raw.get("entries", [])
+    if not isinstance(entries_raw, list):
+        errors.append("suppressions.entries must be an array.")
+        return []
+
+    entries: list[SuppressionEntry] = []
+    seen_ids: set[str] = set()
+    for index, entry_raw in enumerate(entries_raw):
+        path = f"suppressions.entries[{index}]"
+        entry_obj = _object(entry_raw, path, errors)
+        entry_id = _string(entry_obj.get("id"), f"{path}.id", errors)
+        if entry_id and not _valid_key(entry_id):
+            errors.append(f"{path}.id must use lowercase letters, numbers, hyphens, or underscores.")
+        if entry_id in seen_ids:
+            errors.append(f"{path}.id duplicates another suppression entry: {entry_id}")
+        seen_ids.add(entry_id)
+        aliases = _string_list(entry_obj.get("aliases"), f"{path}.aliases", errors, non_empty=True)
+        action = _choice(entry_obj.get("action", "skip"), f"{path}.action", errors, {"skip"})
+        unless_tags = _string_list(entry_obj.get("unless_tags_any", []), f"{path}.unless_tags_any", errors)
+        for tag in unless_tags:
+            if tag not in taxonomy:
+                errors.append(f"{path}.unless_tags_any references unknown tag: {tag}")
+        priority = _int(entry_obj.get("priority", 0), f"{path}.priority", errors)
+        description = entry_obj.get("description")
+        if description is not None and not isinstance(description, str):
+            errors.append(f"{path}.description must be a string when provided.")
+            description = None
+        entries.append(
+            SuppressionEntry(
+                id=entry_id,
+                aliases=tuple(aliases),
+                action=action,
+                unless_tags_any=tuple(unless_tags),
+                priority=priority,
+                description=description,
+            )
+        )
+    return entries
+
+
 def _parse_channels(
     raw: dict[str, Any],
     taxonomy: dict[str, TaxonomyTag],
+    knowledge_ids: set[str],
     app_config: AppConfig,
     errors: list[str],
 ) -> tuple[int, int, int, list[str], list[str], list[ChannelRule]]:
@@ -191,7 +258,43 @@ def _parse_channels(
             errors,
             {"primary", "mirror", "review"},
         )
+        profile_raw = _rule_value(rule_obj, defaults, "profile", None)
+        profile = None
+        if profile_raw is not None:
+            profile = _choice(profile_raw, f"{path}.profile", errors, CHANNEL_PROFILES)
 
+        required_tags = _string_list(_rule_value(rule_obj, defaults, "required_tags", []), f"{path}.required_tags", errors)
+        for tag in required_tags:
+            if tag not in taxonomy:
+                errors.append(f"{path}.required_tags references unknown tag: {tag}")
+        required_concepts = _string_list(
+            _rule_value(rule_obj, defaults, "required_concepts", []),
+            f"{path}.required_concepts",
+            errors,
+        )
+        for concept in required_concepts:
+            if concept not in knowledge_ids:
+                errors.append(f"{path}.required_concepts references unknown knowledge ID: {concept}")
+        excluded_tags = _string_list(_rule_value(rule_obj, defaults, "excluded_tags", []), f"{path}.excluded_tags", errors)
+        for tag in excluded_tags:
+            if tag not in taxonomy:
+                errors.append(f"{path}.excluded_tags references unknown tag: {tag}")
+        excluded_concepts = _string_list(
+            _rule_value(rule_obj, defaults, "excluded_concepts", []),
+            f"{path}.excluded_concepts",
+            errors,
+        )
+        for concept in excluded_concepts:
+            if concept not in knowledge_ids:
+                errors.append(f"{path}.excluded_concepts references unknown knowledge ID: {concept}")
+        suppress_when_tags_any = _string_list(
+            _rule_value(rule_obj, defaults, "suppress_when_tags_any", []),
+            f"{path}.suppress_when_tags_any",
+            errors,
+        )
+        for tag in suppress_when_tags_any:
+            if tag not in taxonomy:
+                errors.append(f"{path}.suppress_when_tags_any references unknown tag: {tag}")
         required_any = _string_list(_rule_value(rule_obj, defaults, "required_any", []), f"{path}.required_any", errors)
         for required in required_any:
             if required not in taxonomy and not _valid_key(required):
@@ -234,12 +337,17 @@ def _parse_channels(
             if not _valid_key(source_key):
                 errors.append(f"{path} has invalid source gate value: {source_key}")
         term_boosts = _merged_score_map(rule_obj, defaults, "term_boosts", path, errors)
+        concept_boosts = _merged_score_map(rule_obj, defaults, "concept_boosts", path, errors)
         tag_boosts = _merged_score_map(rule_obj, defaults, "tag_boosts", path, errors)
         term_penalties = _merged_score_map(rule_obj, defaults, "term_penalties", path, errors)
+        concept_penalties = _merged_score_map(rule_obj, defaults, "concept_penalties", path, errors)
         tag_penalties = _merged_score_map(rule_obj, defaults, "tag_penalties", path, errors)
         for tag in set(tag_boosts) | set(tag_penalties):
             if tag not in taxonomy:
                 errors.append(f"{path} references unknown tag in score map: {tag}")
+        for concept in set(concept_boosts) | set(concept_penalties):
+            if concept not in knowledge_ids:
+                errors.append(f"{path} references unknown knowledge ID in concept score map: {concept}")
 
         rules.append(
             ChannelRule(
@@ -248,6 +356,14 @@ def _parse_channels(
                 minimum_score=_int(_rule_value(rule_obj, defaults, "minimum_score", 4), f"{path}.minimum_score", errors),
                 priority=_int(_rule_value(rule_obj, defaults, "priority", 0), f"{path}.priority", errors),
                 destination_class=destination_class,
+                profile=profile,
+                required_tags=tuple(required_tags),
+                required_concepts=tuple(required_concepts),
+                excluded_tags=tuple(excluded_tags),
+                excluded_concepts=tuple(excluded_concepts),
+                concept_boosts=concept_boosts,
+                concept_penalties=concept_penalties,
+                suppress_when_tags_any=tuple(suppress_when_tags_any),
                 term_boosts=term_boosts,
                 tag_boosts=tag_boosts,
                 term_penalties=term_penalties,

@@ -306,6 +306,70 @@ def test_duplicate_knowledge_ids_fail_validation(tmp_path: Path) -> None:
     assert "duplicates another knowledge entry" in str(exc.value)
 
 
+def test_typed_required_tags_and_concept_boosts_are_supported(tmp_path: Path) -> None:
+    root = routing_dir(tmp_path)
+    channels_path = root / "channels.json"
+    channels = json.loads(channels_path.read_text(encoding="utf-8"))
+    sea = next(rule for rule in channels["channels"] if rule["channel_key"] == "sea")
+    sea.pop("required_any", None)
+    sea.pop("term_boosts", None)
+    sea["required_tags"] = ["naval"]
+    sea["concept_boosts"] = {"chinese_carrier": 3}
+    write_json(channels_path, channels)
+
+    decision = RoutingEngine(load_routing_config(root, app_config(tmp_path))).route(
+        RoutingArticle(title="Chinese carrier Liaoning enters Philippine Sea")
+    )
+
+    assert "sea" in decision.selected_channel_keys
+    sea_score = next(score for score in decision.channel_scores if score.channel_key == "sea")
+    assert any("concept +3: chinese_carrier" in reason for reason in sea_score.reasons)
+
+
+def test_legacy_alias_term_boost_still_works(tmp_path: Path) -> None:
+    root = routing_dir(tmp_path)
+    channels_path = root / "channels.json"
+    channels = json.loads(channels_path.read_text(encoding="utf-8"))
+    sea = next(rule for rule in channels["channels"] if rule["channel_key"] == "sea")
+    sea["term_boosts"] = {"Chinese carrier": 3}
+    write_json(channels_path, channels)
+
+    decision = RoutingEngine(load_routing_config(root, app_config(tmp_path))).route(
+        RoutingArticle(title="Chinese carrier Liaoning enters Philippine Sea")
+    )
+
+    sea_score = next(score for score in decision.channel_scores if score.channel_key == "sea")
+    assert any("legacy term +3: Chinese carrier" in reason for reason in sea_score.reasons)
+
+
+def test_suppressions_json_skips_unless_tags_allow_it(tmp_path: Path) -> None:
+    root = routing_dir(tmp_path)
+    write_json(
+        root / "suppressions.json",
+        {
+            "version": 1,
+            "entries": [
+                {
+                    "id": "business_noise",
+                    "aliases": ["Carrier Global"],
+                    "action": "skip",
+                    "unless_tags_any": ["military"],
+                    "priority": 80,
+                }
+            ],
+        },
+    )
+    engine = RoutingEngine(load_routing_config(root, app_config(tmp_path)))
+
+    skipped = engine.route(RoutingArticle(title="Carrier Global shares rise after earnings"))
+    allowed = engine.route(RoutingArticle(title="Carrier Global wins defense contract", routing_tags=("military",)))
+
+    assert skipped.decision_status == "skipped"
+    assert skipped.reason == "suppression_match"
+    assert skipped.suppression_matches[0].suppression_id == "business_noise"
+    assert allowed.reason != "suppression_match"
+
+
 def test_alias_matching_is_case_insensitive(tmp_path: Path) -> None:
     decision = engine(tmp_path).route(RoutingArticle(title="chinese carrier liaoning enters philippine sea"))
     assert "chinese_carrier" in {match.knowledge_entry_id for match in decision.matched_entries}
@@ -733,6 +797,38 @@ def test_carrier_global_false_positive_does_not_route_sea() -> None:
     )
     assert decision.decision_status == "skipped"
     assert "sea" not in decision.final_channel_keys
+    assert decision.suppression_matches
+    assert decision.suppression_matches[0].suppression_id == "false_positive_carrier_global"
+
+
+def test_liaoning_route_explanation_shows_typed_sections() -> None:
+    decision = production_engine().route(
+        RoutingArticle(
+            title="Chinese carrier Liaoning enters Philippine Sea",
+            source_name="Reuters",
+            source_id="reuters",
+            source_class="wire_service",
+        )
+    )
+    assert decision.primary_channel_keys == ("indo-pacific",)
+    assert decision.mirror_channel_keys == ("reuters",)
+    explanation = "\n".join(decision.explanation)
+    assert "matched=chinese_carrier" in explanation
+    assert "suppressions=none" in explanation
+    assert "emitted_tags=" in explanation
+
+
+def test_us_navy_arabian_sea_current_policy_routes_sea_with_defense_media_mirror() -> None:
+    decision = production_engine().route(
+        RoutingArticle(
+            title="U.S. Navy rescues mariners in Arabian Sea",
+            source_name="USNI News",
+            source_id="usni-news",
+            source_class="defense_media",
+        )
+    )
+    assert decision.primary_channel_keys == ("sea",)
+    assert decision.mirror_channel_keys == ("defense-media",)
 
 
 def test_naval_special_warfare_routes_special_operations() -> None:

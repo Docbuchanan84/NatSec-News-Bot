@@ -37,6 +37,63 @@ def score_channels(
             continue
 
         reasons: list[str] = []
+        suppressing_tags = tuple(tag for tag in rule.suppress_when_tags_any if tag in all_tags)
+        if suppressing_tags:
+            scores.append(
+                ChannelScore(
+                    channel_key=rule.channel_key,
+                    destination_class=rule.destination_class,
+                    score=0,
+                    minimum_score=rule.minimum_score,
+                    priority=rule.priority,
+                    selected=False,
+                    reasons=(f"suppress_when_tags_any met: {', '.join(suppressing_tags)}",),
+                )
+            )
+            continue
+        has_typed_requirements = bool(rule.required_tags or rule.required_concepts)
+        typed_requirements_met = bool((set(rule.required_tags) & all_tags) or (set(rule.required_concepts) & match_ids))
+        if has_typed_requirements and not typed_requirements_met:
+            scores.append(
+                ChannelScore(
+                    channel_key=rule.channel_key,
+                    destination_class=rule.destination_class,
+                    score=0,
+                    minimum_score=rule.minimum_score,
+                    priority=rule.priority,
+                    selected=False,
+                    reasons=("typed requirements not met",),
+                )
+            )
+            continue
+        excluded_tags = tuple(tag for tag in rule.excluded_tags if tag in all_tags)
+        if excluded_tags:
+            scores.append(
+                ChannelScore(
+                    channel_key=rule.channel_key,
+                    destination_class=rule.destination_class,
+                    score=0,
+                    minimum_score=rule.minimum_score,
+                    priority=rule.priority,
+                    selected=False,
+                    reasons=(f"excluded_tags met: {', '.join(excluded_tags)}",),
+                )
+            )
+            continue
+        excluded_concepts = tuple(concept for concept in rule.excluded_concepts if concept in match_ids)
+        if excluded_concepts:
+            scores.append(
+                ChannelScore(
+                    channel_key=rule.channel_key,
+                    destination_class=rule.destination_class,
+                    score=0,
+                    minimum_score=rule.minimum_score,
+                    priority=rule.priority,
+                    selected=False,
+                    reasons=(f"excluded_concepts met: {', '.join(excluded_concepts)}",),
+                )
+            )
+            continue
         if rule.required_any and not _required_any_met(rule.required_any, all_tags, match_ids, alias_keys):
             scores.append(
                 ChannelScore(
@@ -115,18 +172,26 @@ def score_channels(
             reasons.append(f"source_class required: {source_class}")
         for source_hint in required_source_matches:
             reasons.append(f"source required: {source_hint}")
+        for key, value in rule.concept_boosts.items():
+            if key in match_ids:
+                score += value
+                reasons.append(f"concept +{value}: {key}")
         for key, value in rule.term_boosts.items():
             if key in match_ids or key.casefold() in alias_keys:
                 score += value
-                reasons.append(f"term +{value}: {key}")
+                reasons.append(f"legacy term +{value}: {key}")
         for tag, value in rule.tag_boosts.items():
             if tag in all_tags:
                 score += value
                 reasons.append(f"tag +{value}: {tag}")
+        for key, value in rule.concept_penalties.items():
+            if key in match_ids:
+                score -= value
+                reasons.append(f"concept -{value}: {key}")
         for key, value in rule.term_penalties.items():
             if key in match_ids or key.casefold() in alias_keys:
                 score -= value
-                reasons.append(f"term -{value}: {key}")
+                reasons.append(f"legacy term -{value}: {key}")
         for tag, value in rule.tag_penalties.items():
             if tag in all_tags:
                 score -= value

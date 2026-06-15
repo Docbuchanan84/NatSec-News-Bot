@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from urllib.parse import urlparse
 
-from app.routing.matcher import match_knowledge_entries
+from app.routing.matcher import match_knowledge_entries, match_suppression_entries
 from app.routing.models import ChannelScore, RoutingArticle, RoutingConfig, RoutingDecision
 from app.routing.scorer import score_channels
 from app.routing.taxonomy import expand_tags
@@ -24,6 +24,11 @@ class RoutingEngine:
         emitted_tags.update(article.routing_tags or ())
         expanded_tags = expand_tags(emitted_tags, self.config.taxonomy)
         all_tags = emitted_tags | expanded_tags
+        suppression_matches = tuple(
+            match
+            for match in match_suppression_entries(match_text, self.config.suppression_entries)
+            if not (set(match.unless_tags_any) & all_tags)
+        )
         primary_rules = tuple(rule for rule in self.config.channel_rules if rule.destination_class == "primary")
         mirror_rules = tuple(rule for rule in self.config.channel_rules if rule.destination_class == "mirror")
         review_rules = tuple(rule for rule in self.config.channel_rules if rule.destination_class == "review")
@@ -62,7 +67,13 @@ class RoutingEngine:
         status = "no_match"
         reason = "no_match"
 
-        if all_tags & set(self.config.skip_tags):
+        if any(match.action == "skip" for match in suppression_matches):
+            status = "skipped"
+            reason = "suppression_match"
+            scores = _clear_score_selections(scores)
+            primary_keys = ()
+            mirror_keys = ()
+        elif all_tags & set(self.config.skip_tags):
             status = "skipped"
             reason = "skipped_candidate"
             scores = _clear_score_selections(scores)
@@ -90,9 +101,11 @@ class RoutingEngine:
                 scores = _clear_score_selections(scores)
         explanation = _build_explanation(
             content_mode,
+            article.source_name,
             article.source_id,
             article.source_class,
             matches,
+            suppression_matches,
             emitted_tags,
             expanded_tags,
             scores,
@@ -113,6 +126,7 @@ class RoutingEngine:
             decision_status=status,
             top_score=top_score,
             explanation=tuple(explanation),
+            suppression_matches=suppression_matches,
             primary_channel_keys=primary_keys,
             mirror_channel_keys=mirror_keys,
             review_channel_keys=review_keys,
@@ -217,9 +231,11 @@ def _url_slug_text(url: str | None) -> str:
 
 def _build_explanation(
     content_mode: str,
+    source_name: str | None,
     source_id: str | None,
     source_class: str | None,
     matches,
+    suppression_matches,
     emitted_tags: set[str],
     expanded_tags: set[str],
     scores,
@@ -231,6 +247,7 @@ def _build_explanation(
     reason: str | None,
 ) -> list[str]:
     lines: list[str] = [f"content_mode={content_mode}"]
+    lines.append(f"source_name={source_name or 'unknown'}")
     lines.append(f"source_id={source_id or 'unknown'}")
     lines.append(f"source_class={source_class or 'unknown'}")
     if matches:
@@ -240,6 +257,15 @@ def _build_explanation(
         lines.append(f"matched={match_text}")
     else:
         lines.append("matched=none")
+    if suppression_matches:
+        suppression_text = ", ".join(
+            f"{match.suppression_id} ({match.matched_alias})" for match in suppression_matches[:12]
+        )
+        if len(suppression_matches) > 12:
+            suppression_text += f", +{len(suppression_matches) - 12} more"
+        lines.append(f"suppressions={suppression_text}")
+    else:
+        lines.append("suppressions=none")
     lines.append(f"emitted_tags={', '.join(sorted(emitted_tags)) or 'none'}")
     parent_only = sorted(expanded_tags - emitted_tags)
     lines.append(f"expanded_parent_tags={', '.join(parent_only) or 'none'}")

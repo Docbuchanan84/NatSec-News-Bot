@@ -28,6 +28,14 @@ class ChannelRule:
     minimum_score: int
     priority: int
     destination_class: str = "primary"
+    profile: str | None = None
+    required_tags: tuple[str, ...] = ()
+    required_concepts: tuple[str, ...] = ()
+    excluded_tags: tuple[str, ...] = ()
+    excluded_concepts: tuple[str, ...] = ()
+    concept_boosts: dict[str, int] = field(default_factory=dict)
+    concept_penalties: dict[str, int] = field(default_factory=dict)
+    suppress_when_tags_any: tuple[str, ...] = ()
     term_boosts: dict[str, int] = field(default_factory=dict)
     tag_boosts: dict[str, int] = field(default_factory=dict)
     term_penalties: dict[str, int] = field(default_factory=dict)
@@ -53,6 +61,7 @@ class RoutingConfig:
     taxonomy: dict[str, TaxonomyTag]
     knowledge_entries: tuple[KnowledgeEntry, ...]
     channel_rules: tuple[ChannelRule, ...]
+    suppression_entries: tuple["SuppressionEntry", ...] = ()
     max_destinations: int = 3
     max_primary_destinations: int | None = None
     review_tags: tuple[str, ...] = ("review_required", "ambiguous")
@@ -84,6 +93,26 @@ class KnowledgeMatch:
 
 
 @dataclass(frozen=True)
+class SuppressionEntry:
+    id: str
+    aliases: tuple[str, ...]
+    action: str = "skip"
+    unless_tags_any: tuple[str, ...] = ()
+    priority: int = 0
+    description: str | None = None
+
+
+@dataclass(frozen=True)
+class SuppressionMatch:
+    suppression_id: str
+    matched_alias: str
+    match_start: int
+    match_end: int
+    action: str
+    unless_tags_any: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
 class ChannelScore:
     channel_key: str
     destination_class: str
@@ -105,6 +134,7 @@ class RoutingDecision:
     decision_status: str
     top_score: int
     explanation: tuple[str, ...]
+    suppression_matches: tuple[SuppressionMatch, ...] = ()
     primary_channel_keys: tuple[str, ...] = ()
     mirror_channel_keys: tuple[str, ...] = ()
     review_channel_keys: tuple[str, ...] = ()
@@ -133,6 +163,17 @@ class RoutingDecision:
                 for match in self.matched_entries
             ],
             "emitted_tags": list(self.emitted_tags),
+            "suppression_matches": [
+                {
+                    "suppression_id": match.suppression_id,
+                    "matched_alias": match.matched_alias,
+                    "match_start": match.match_start,
+                    "match_end": match.match_end,
+                    "action": match.action,
+                    "unless_tags_any": list(match.unless_tags_any),
+                }
+                for match in self.suppression_matches
+            ],
             "expanded_tags": list(self.expanded_tags),
             "channel_scores": [
                 {

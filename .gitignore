@@ -10,3 +10,5 @@ venv/
 data/
 logs/
 ops/reports/
+config/routing/.editor_backups/
+config/routing/editor_settings.json
