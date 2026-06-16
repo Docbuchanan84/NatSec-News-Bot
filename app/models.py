@@ -89,6 +89,15 @@ class MaintenanceSettings:
 
 
 @dataclass(frozen=True)
+class SocialLinkEmbedSettings:
+    enabled: bool = True
+    suppress_original_preview: bool = True
+    dedupe_window_hours: int = 24
+    max_concurrent_lookups: int = 2
+    target_channel_ids: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
 class Settings:
     polling: PollingSettings = field(default_factory=PollingSettings)
     failure_backoff: FailureBackoffSettings = field(default_factory=FailureBackoffSettings)
@@ -98,6 +107,7 @@ class Settings:
     logging: LoggingSettings = field(default_factory=LoggingSettings)
     routing: RoutingSettings = field(default_factory=RoutingSettings)
     maintenance: MaintenanceSettings = field(default_factory=MaintenanceSettings)
+    social_link_embeds: SocialLinkEmbedSettings = field(default_factory=SocialLinkEmbedSettings)
 
 
 @dataclass(frozen=True)

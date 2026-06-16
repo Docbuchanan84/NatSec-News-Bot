@@ -17,12 +17,14 @@ class FakeChannel:
         self.embed = None
         self.embeds = None
         self.content = None
+        self.files = None
         self.suppress_embeds = None
 
-    async def send(self, content=None, *, embed=None, embeds=None, suppress_embeds=False):
+    async def send(self, content=None, *, embed=None, embeds=None, files=None, suppress_embeds=False):
         self.content = content
         self.embed = embed
         self.embeds = embeds
+        self.files = files
         self.suppress_embeds = suppress_embeds
         return FakeMessage()
 
@@ -168,11 +170,13 @@ async def test_discord_embed_formats_bluesky_post_without_native_preview() -> No
 
     assert channel.content is None
     assert channel.suppress_embeds is False
-    assert channel.embeds is None
-    assert channel.embed.image.url == "https://cdn.bsky.app/img/feed_fullsize/plain/did/full"
-    assert channel.embed.title == "Reuters"
-    assert channel.embed.description == "Story summary"
-    assert channel.embed.url == "https://bsky.app/profile/reuters.com/post/abc"
+    assert channel.embed is None
+    assert len(channel.embeds) == 2
+    assert channel.embeds[0].image.url == "https://cdn.bsky.app/img/feed_fullsize/plain/did/full"
+    assert channel.embeds[1].image.url is None
+    assert channel.embeds[1].title == "Reuters"
+    assert channel.embeds[1].description == "Story summary"
+    assert channel.embeds[1].url == "https://bsky.app/profile/reuters.com/post/abc"
 
 
 @pytest.mark.asyncio
@@ -198,11 +202,13 @@ async def test_discord_embed_formats_x_post_without_native_preview() -> None:
 
     assert channel.content is None
     assert channel.suppress_embeds is False
-    assert channel.embeds is None
-    assert channel.embed.image.url == "https://pbs.twimg.com/media/example.jpg"
-    assert channel.embed.title == "@example"
-    assert channel.embed.description == "Drone footage from the front\nhttps://example.com/report"
-    assert channel.embed.url == "https://x.com/example/status/1234567890"
+    assert channel.embed is None
+    assert len(channel.embeds) == 2
+    assert channel.embeds[0].image.url == "https://pbs.twimg.com/media/example.jpg"
+    assert channel.embeds[1].image.url is None
+    assert channel.embeds[1].title == "@example"
+    assert channel.embeds[1].description == "Drone footage from the front\nhttps://example.com/report"
+    assert channel.embeds[1].url == "https://x.com/example/status/1234567890"
 
 
 @pytest.mark.asyncio

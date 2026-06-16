@@ -22,6 +22,8 @@ from app.routing import RoutingConfigError, RoutingEngine, load_routing_config
 from app.routing.models import RoutingArticle
 from app.routing.reporting import format_backtest_summary, format_decision, truncate
 from app.scheduler import SchedulerService
+from app.social_link_embed import SocialLinkEmbedService
+from app.x_media import prepared_x_media_files
 
 logger = logging.getLogger(__name__)
 audit_logger = logging.getLogger("app.audit")
@@ -48,59 +50,86 @@ class DiscordPublisherAdapter(PublisherAdapter):
             channel = await self.client.fetch_channel(int(job.channel_id))
         if not hasattr(channel, "send"):
             raise RuntimeError(f"Configured channel {job.channel_id} cannot receive messages.")
-        social_post = _social_post_details(job)
-        if social_post:
-            title = social_post["account_name"]
-            description = social_post["body"]
-            embed_url = social_post["post_url"] or job.url
-        else:
-            title = _clean_embed_title(clean_html_text(job.title) or job.title, job.url, job.source_name)
-            description = clean_html_text(job.summary) if job.summary else None
-            description = _dedupe_description(title, description)
-            embed_url = job.url
-        if job.timestamp_status in {"valid", "timezone_corrected"}:
-            display_timestamp = job.normalized_published_at.astimezone(UTC)
-            footer = f"{job.source_name} · published"
-        else:
-            display_timestamp = datetime.now(UTC)
-            footer = f"{job.source_name} · detected"
-        embed = discord.Embed(
-            title=title[:256],
-            url=embed_url,
-            description=description[:4096] if description else None,
-            timestamp=display_timestamp,
-        )
-        if job.image_url:
-            embed.set_image(url=job.image_url)
-        embed.set_footer(text=footer)
-        if getattr(self.client, "debug_mode_enabled", False) or job.channel_id == REVIEW_CHANNEL_ID:
-            debug_text = _format_routing_debug_field(self.client.db, job.article_id)
-            if debug_text:
-                embed.add_field(name="Routing Debug", value=debug_text[:1024], inline=False)
-                audit_logger.info(
-                    "routing_debug_embed article_id=%s channel_id=%s title=%r debug=%r",
-                    job.article_id,
-                    job.channel_id,
-                    job.title,
-                    debug_text,
-                )
-        if social_post:
-            message = await channel.send(embed=embed)
+        embed = _build_post_embed(job, self.client)
+        if _social_post_details(job):
+            message = await self._send_social_message(channel, job, embed)
         else:
             content = job.url if _is_video_reference(job.url) else None
             message = await channel.send(content=content, embed=embed)
         return str(message.id)
 
+    async def send_social_reply(self, job: PostJob, source_message) -> str:
+        embed = _build_post_embed(job, self.client)
+        message = await self._send_social_message(source_message, job, embed, as_reply=True)
+        return str(message.id)
+
+    async def _send_social_message(self, target, job: PostJob, text_embed: discord.Embed, *, as_reply: bool = False):
+        send = target.reply if as_reply and hasattr(target, "reply") else target.send
+        send_kwargs = {"mention_author": False} if as_reply and hasattr(target, "reply") else {}
+        if _should_upload_social_media(job):
+            async with prepared_x_media_files(job.rich_metadata or {}) as prepared:
+                if prepared:
+                    files = [discord.File(media.path, filename=media.filename) for media in prepared]
+                    return await send(files=files, embed=text_embed, **send_kwargs)
+        if job.image_url:
+            media_embed = discord.Embed(url=_social_post_url(job) or job.url)
+            media_embed.set_image(url=job.image_url)
+            return await send(embeds=[media_embed, text_embed], **send_kwargs)
+        return await send(embed=text_embed, **send_kwargs)
+
+
+def _build_post_embed(job: PostJob, client: discord.Client) -> discord.Embed:
+    social_post = _social_post_details(job)
+    if social_post:
+        title = social_post["account_name"]
+        description = social_post["body"]
+        embed_url = social_post["post_url"] or job.url
+    else:
+        title = _clean_embed_title(clean_html_text(job.title) or job.title, job.url, job.source_name)
+        description = clean_html_text(job.summary) if job.summary else None
+        description = _dedupe_description(title, description)
+        embed_url = job.url
+    if job.timestamp_status in {"valid", "timezone_corrected"}:
+        display_timestamp = job.normalized_published_at.astimezone(UTC)
+        footer = f"{job.source_name} · published"
+    else:
+        display_timestamp = datetime.now(UTC)
+        footer = f"{job.source_name} · detected"
+    embed = discord.Embed(
+        title=title[:256],
+        url=embed_url,
+        description=description[:4096] if description else None,
+        timestamp=display_timestamp,
+    )
+    if job.image_url and not social_post:
+        embed.set_image(url=job.image_url)
+    embed.set_footer(text=footer)
+    if getattr(client, "debug_mode_enabled", False) or job.channel_id == REVIEW_CHANNEL_ID:
+        debug_text = _format_routing_debug_field(client.db, job.article_id)
+        if debug_text:
+            embed.add_field(name="Routing Debug", value=debug_text[:1024], inline=False)
+            audit_logger.info(
+                "routing_debug_embed article_id=%s channel_id=%s title=%r debug=%r",
+                job.article_id,
+                job.channel_id,
+                job.title,
+                debug_text,
+            )
+    return embed
+
 
 class RSSDiscordClient(discord.Client):
     def __init__(self, config_service: ConfigService, db: Database) -> None:
         intents = discord.Intents.default()
+        intents.message_content = True
         super().__init__(intents=intents)
         self.tree = app_commands.CommandTree(self)
         self.config_service = config_service
         self.db = db
-        self.publisher = PublisherService(db, DiscordPublisherAdapter(self))
+        self.discord_publisher = DiscordPublisherAdapter(self)
+        self.publisher = PublisherService(db, self.discord_publisher)
         self.scheduler = SchedulerService(db, self.publisher)
+        self.social_link_embeds = SocialLinkEmbedService(db, self.discord_publisher)
         self.started_at = time.monotonic()
         self.debug_mode_enabled = _env_bool("ROUTING_DEBUG_EMBEDS", default=False)
         audit_logger.info("routing_debug_mode_initial enabled=%s", self.debug_mode_enabled)
@@ -111,6 +140,7 @@ class RSSDiscordClient(discord.Client):
             raise RuntimeError("Config must be loaded before Discord client setup.")
         self.publisher.configure(config)
         self.scheduler.configure(config)
+        self.social_link_embeds.configure(config)
         self.scheduler.start()
         self._register_commands()
         guild_id = os.environ.get(config.discord.guild_id_env)
@@ -128,6 +158,22 @@ class RSSDiscordClient(discord.Client):
 
     async def on_ready(self) -> None:
         logger.info("Connected to Discord as %s", self.user)
+
+    async def on_message(self, message: discord.Message) -> None:
+        await self.social_link_embeds.handle_message(message)
+
+    async def on_raw_message_edit(self, payload: discord.RawMessageUpdateEvent) -> None:
+        if "embeds" not in payload.data:
+            return
+        try:
+            channel = self.get_channel(payload.channel_id) or await self.fetch_channel(payload.channel_id)
+            if not hasattr(channel, "fetch_message"):
+                return
+            message = await channel.fetch_message(payload.message_id)
+        except (discord.Forbidden, discord.NotFound, discord.HTTPException) as exc:
+            logger.debug("Could not fetch edited message %s for social link handling: %s", payload.message_id, exc)
+            return
+        await self.social_link_embeds.handle_message(message)
 
     def _register_commands(self) -> None:
         group = app_commands.Group(name="rss", description="RSS dispatch bot commands")
@@ -179,6 +225,7 @@ class RSSDiscordClient(discord.Client):
             configure_logging(config)
             self.publisher.configure(config)
             self.scheduler.configure(config)
+            self.social_link_embeds.configure(config)
             await interaction.response.send_message(
                 f"Config reloaded: {len(config.channels)} channels, {len(self.scheduler.feeds)} unique feeds.",
                 ephemeral=True,
@@ -595,6 +642,11 @@ def _is_social_post(job: PostJob) -> bool:
     if job.source_id.startswith("x-"):
         return True
     return job.source_class in {"social_core", "social_defense_industry", "social_centcom", "social_breaking_news", "owned_social"}
+
+
+def _should_upload_social_media(job: PostJob) -> bool:
+    metadata = job.rich_metadata or {}
+    return str(metadata.get("source") or "").casefold() == "x_message" and bool(metadata.get("post_id"))
 
 
 def _social_account_name(source_name: str) -> str:

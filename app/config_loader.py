@@ -23,6 +23,7 @@ from app.models import (
     PublishingSettings,
     RoutingSettings,
     Settings,
+    SocialLinkEmbedSettings,
     TimestampSettings,
 )
 
@@ -187,6 +188,11 @@ def _parse_settings(raw: dict[str, Any], errors: list[str]) -> Settings:
     logging_raw = _object(raw.get("logging", {}), "settings.logging", errors)
     routing_raw = _object(raw.get("routing", {}), "settings.routing", errors)
     maintenance_raw = _object(raw.get("maintenance", {}), "settings.maintenance", errors)
+    social_link_embeds_raw = _object(
+        raw.get("socialLinkEmbeds", raw.get("xLinkEmbeds", {})),
+        "settings.socialLinkEmbeds",
+        errors,
+    )
 
     polling = PollingSettings(
         default_interval_seconds=_int(
@@ -457,6 +463,33 @@ def _parse_settings(raw: dict[str, Any], errors: list[str]) -> Settings:
             errors,
         ),
     )
+    social_link_embeds = SocialLinkEmbedSettings(
+        enabled=_bool(social_link_embeds_raw.get("enabled", True), "settings.socialLinkEmbeds.enabled", errors),
+        suppress_original_preview=_bool(
+            social_link_embeds_raw.get("suppressOriginalPreview", True),
+            "settings.socialLinkEmbeds.suppressOriginalPreview",
+            errors,
+        ),
+        dedupe_window_hours=_int(
+            social_link_embeds_raw.get("dedupeWindowHours", 24),
+            "settings.socialLinkEmbeds.dedupeWindowHours",
+            errors,
+            min_value=1,
+            max_value=168,
+        ),
+        max_concurrent_lookups=_int(
+            social_link_embeds_raw.get("maxConcurrentLookups", 2),
+            "settings.socialLinkEmbeds.maxConcurrentLookups",
+            errors,
+            min_value=1,
+            max_value=10,
+        ),
+        target_channel_ids=_snowflake_tuple(
+            social_link_embeds_raw.get("targetChannelIds", []),
+            "settings.socialLinkEmbeds.targetChannelIds",
+            errors,
+        ),
+    )
     return Settings(
         polling=polling,
         failure_backoff=failure_backoff,
@@ -466,6 +499,7 @@ def _parse_settings(raw: dict[str, Any], errors: list[str]) -> Settings:
         logging=logging_settings,
         routing=routing,
         maintenance=maintenance,
+        social_link_embeds=social_link_embeds,
     )
 
 

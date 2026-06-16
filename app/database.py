@@ -183,6 +183,18 @@ CREATE TABLE IF NOT EXISTS email_source_cursors (
     updated_at TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS social_link_embeds (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    channel_id TEXT NOT NULL,
+    platform TEXT NOT NULL,
+    post_id TEXT NOT NULL,
+    normalized_url TEXT NOT NULL,
+    source_message_id TEXT NOT NULL,
+    bot_message_id TEXT,
+    created_at TEXT NOT NULL,
+    UNIQUE(channel_id, platform, post_id)
+);
+
 CREATE TABLE IF NOT EXISTS article_routing_decisions (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     article_id INTEGER NOT NULL,
@@ -241,6 +253,8 @@ CREATE INDEX IF NOT EXISTS idx_article_routing_decisions_article ON article_rout
 CREATE INDEX IF NOT EXISTS idx_article_routing_decisions_status ON article_routing_decisions(decision_status, created_at);
 CREATE INDEX IF NOT EXISTS idx_article_tags_tag ON article_tags(tag, article_id);
 CREATE INDEX IF NOT EXISTS idx_article_matches_entry ON article_matches(knowledge_entry_id, article_id);
+CREATE INDEX IF NOT EXISTS idx_social_link_embeds_lookup
+ON social_link_embeds(channel_id, platform, post_id, created_at);
 """
 
 
@@ -298,6 +312,27 @@ class Database:
                 last_uid TEXT,
                 updated_at TEXT NOT NULL
             )
+            """
+        )
+        self._conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS social_link_embeds (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                channel_id TEXT NOT NULL,
+                platform TEXT NOT NULL,
+                post_id TEXT NOT NULL,
+                normalized_url TEXT NOT NULL,
+                source_message_id TEXT NOT NULL,
+                bot_message_id TEXT,
+                created_at TEXT NOT NULL,
+                UNIQUE(channel_id, platform, post_id)
+            )
+            """
+        )
+        self._conn.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_social_link_embeds_lookup
+            ON social_link_embeds(channel_id, platform, post_id, created_at)
             """
         )
         self._conn.execute(
@@ -605,6 +640,76 @@ class Database:
             )
             self._conn.commit()
             return cursor.rowcount == 1
+
+    def has_recent_social_link_embed(self, channel_id: str, platform: str, post_id: str, hours: int) -> bool:
+        cutoff = datetime.now(UTC) - timedelta(hours=max(1, hours))
+        with self._lock:
+            row = self._conn.execute(
+                """
+                SELECT 1
+                FROM social_link_embeds
+                WHERE channel_id = ? AND platform = ? AND post_id = ? AND created_at >= ?
+                LIMIT 1
+                """,
+                (channel_id, platform, post_id, cutoff.isoformat()),
+            ).fetchone()
+            return row is not None
+
+    def record_social_link_embed(
+        self,
+        *,
+        channel_id: str,
+        platform: str,
+        post_id: str,
+        normalized_url: str,
+        source_message_id: str,
+        bot_message_id: str | None,
+    ) -> None:
+        with self._lock:
+            self._conn.execute(
+                """
+                INSERT INTO social_link_embeds (
+                    channel_id, platform, post_id, normalized_url, source_message_id, bot_message_id, created_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(channel_id, platform, post_id) DO UPDATE SET
+                    normalized_url = excluded.normalized_url,
+                    source_message_id = excluded.source_message_id,
+                    bot_message_id = excluded.bot_message_id,
+                    created_at = excluded.created_at
+                """,
+                (
+                    channel_id,
+                    platform,
+                    post_id,
+                    normalized_url,
+                    source_message_id,
+                    bot_message_id,
+                    datetime.now(UTC).isoformat(),
+                ),
+            )
+            self._conn.commit()
+
+    def has_recent_x_link_embed(self, channel_id: str, post_id: str, hours: int) -> bool:
+        return self.has_recent_social_link_embed(channel_id, "x", post_id, hours)
+
+    def record_x_link_embed(
+        self,
+        *,
+        channel_id: str,
+        post_id: str,
+        normalized_url: str,
+        source_message_id: str,
+        bot_message_id: str | None,
+    ) -> None:
+        self.record_social_link_embed(
+            channel_id=channel_id,
+            platform="x",
+            post_id=post_id,
+            normalized_url=normalized_url,
+            source_message_id=source_message_id,
+            bot_message_id=bot_message_id,
+        )
 
     def has_channel_post(self, article_id: int, channel_id: str) -> bool:
         with self._lock:
