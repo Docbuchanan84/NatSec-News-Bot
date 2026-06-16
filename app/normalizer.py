@@ -15,10 +15,18 @@ TRACKING_PARAMS = {
     "utm_campaign",
     "utm_term",
     "utm_content",
+    "utm_id",
     "fbclid",
     "gclid",
     "cmpid",
     "linkid",
+    "ecid",
+    "_hsenc",
+    "_hsmi",
+    "mc_cid",
+    "mc_eid",
+    "mkt_tok",
+    "oly_enc_id",
 }
 
 UPDATE_PREFIX_RE = re.compile(r"^(updated?|breaking|live updates?)\s*:\s*", re.IGNORECASE)
@@ -203,4 +211,6 @@ def build_candidate(entry: FeedEntry, timestamp_settings: TimestampSettings, now
         ingested_at=timestamp.ingested_at,
         timestamp_status=timestamp.timestamp_status,
         fingerprints=tuple(fingerprints),
+        rich_metadata=dict(entry.rich_metadata or {}),
+        routing_tags=tuple(entry.routing_tags or ()),
     )

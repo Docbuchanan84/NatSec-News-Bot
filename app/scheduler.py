@@ -11,8 +11,9 @@ from urllib.parse import urlparse
 import aiohttp
 
 from app.database import Database
+from app.email_ingest import EmailIngestService
 from app.feed_fetcher import FeedFetchError, FeedFetchResult, FeedService
-from app.models import AppConfig, FeedRuntime, MaintenanceSettings
+from app.models import AppConfig, EmailSourceRuntime, FeedRuntime, MaintenanceSettings
 from app.normalizer import build_candidate, normalize_feed_url, stable_hash
 from app.publisher import PublisherService
 from app.routing import RoutingConfigError, RoutingEngine, load_routing_config
@@ -37,6 +38,7 @@ class SchedulerService:
         self.publisher = publisher
         self.config: AppConfig | None = None
         self.feeds: dict[str, FeedRuntime] = {}
+        self.email_sources: dict[str, EmailSourceRuntime] = {}
         self.channel_to_feed_keys: dict[str, tuple[str, ...]] = {}
         self.channel_key_to_id: dict[str, str] = {}
         self.routing_engine: RoutingEngine | None = None
@@ -54,7 +56,9 @@ class SchedulerService:
     def configure(self, config: AppConfig) -> None:
         self.config = config
         self.feeds = build_feed_runtime_map(config)
-        pruned_feed_status = self.db.prune_inactive_feed_status(frozenset(self.feeds))
+        self.email_sources = build_email_source_runtime_map(config)
+        active_feed_keys = frozenset(set(self.feeds) | set(self.email_sources))
+        pruned_feed_status = self.db.prune_inactive_feed_status(active_feed_keys)
         self.channel_key_to_id = {channel.key: channel.discord_channel_id for channel in config.channels}
         self.routing_engine = None
         self.routing_mode = config.settings.routing.mode
@@ -95,11 +99,15 @@ class SchedulerService:
         now = datetime.now(UTC)
         for feed_key in self.feeds:
             self._next_due.setdefault(feed_key, now)
-        for removed in set(self._next_due) - set(self.feeds):
+        for source_key in self.email_sources:
+            self._next_due.setdefault(source_key, now)
+        for removed in set(self._next_due) - set(active_feed_keys):
             del self._next_due[removed]
         if pruned_feed_status:
             logger.info("Pruned %s inactive feed status rows", pruned_feed_status)
         logger.info("Configured %s unique feeds", len(self.feeds))
+        if self.email_sources:
+            logger.info("Configured %s email sources", len(self.email_sources))
         audit_logger.info(
             "config_applied unique_feeds=%s channels=%s inactive_feed_status_pruned=%s audit_enabled=%s detailed_errors=%s",
             len(self.feeds),
@@ -137,8 +145,16 @@ class SchedulerService:
                     due_feeds = [
                         feed for feed_key, feed in self.feeds.items() if self._next_due.get(feed_key, now) <= now
                     ]
+                    due_email_sources = [
+                        source
+                        for source_key, source in self.email_sources.items()
+                        if self._next_due.get(source_key, now) <= now
+                    ]
+                    if due_email_sources:
+                        await self.poll_email_sources(due_email_sources)
                     if due_feeds:
                         await self.poll_feeds(due_feeds)
+                    if due_feeds or due_email_sources:
                         self._maybe_prune_runtime_history()
                     await asyncio.sleep(self._seconds_until_next_poll())
             except asyncio.CancelledError:
@@ -229,6 +245,51 @@ class SchedulerService:
             return await self._poll_feeds_with_session(session, feed_service, semaphore, feeds, summary)
         async with self._new_client_session() as temp_session:
             return await self._poll_feeds_with_session(temp_session, feed_service, semaphore, feeds, summary)
+
+    async def poll_email_sources(self, sources: list[EmailSourceRuntime]) -> RefreshSummary:
+        if not self.config or not sources:
+            return RefreshSummary()
+        email_service = EmailIngestService(
+            timeout_seconds=self.config.settings.polling.fetch_timeout_seconds,
+            max_messages_per_source=self.config.settings.polling.max_entries_per_feed,
+        )
+        semaphore = asyncio.Semaphore(self.config.settings.polling.max_concurrent_feed_fetches)
+        summary = RefreshSummary()
+        tasks = [
+            asyncio.create_task(self._fetch_email_with_status(email_service, semaphore, source))
+            for source in sources
+        ]
+        try:
+            for completed in asyncio.as_completed(tasks):
+                try:
+                    result = await completed
+                except FeedFetchError:
+                    summary = _merge(summary, errors=1)
+                    continue
+                except Exception:
+                    logger.exception("Unexpected email source fetch task failure")
+                    audit_logger.exception("email_source_task_exception")
+                    summary = _merge(summary, errors=1)
+                    continue
+                try:
+                    source_summary = await self._process_feed_result(result)
+                except Exception:
+                    logger.exception("Email source processing failed for %s", result.feed.display_name)
+                    audit_logger.exception(
+                        "email_source_processing_exception source_key=%s source_name=%r",
+                        result.feed.feed_key,
+                        result.feed.display_name,
+                    )
+                    summary = _merge(summary, errors=1)
+                    continue
+                summary = _combine(summary, source_summary)
+        finally:
+            pending = [task for task in tasks if not task.done()]
+            for task in pending:
+                task.cancel()
+            if pending:
+                await asyncio.gather(*pending, return_exceptions=True)
+        return summary
 
     def _new_client_session(self) -> aiohttp.ClientSession:
         connector = aiohttp.TCPConnector(limit=64, limit_per_host=4, ttl_dns_cache=300)
@@ -324,6 +385,57 @@ class SchedulerService:
                 )
                 raise
 
+    async def _fetch_email_with_status(
+        self,
+        email_service: EmailIngestService,
+        semaphore: asyncio.Semaphore,
+        source: EmailSourceRuntime,
+    ) -> FeedFetchResult:
+        first_success = self.db.is_first_feed_success(source.feed_key)
+        since_uid = self.db.email_cursor_uid(source.feed_key, source.mailbox)
+        async with semaphore:
+            try:
+                result = await email_service.fetch(source, since_uid=since_uid)
+                result = FeedFetchResult(
+                    feed=result.feed,
+                    entries=result.entries,
+                    first_success=first_success,
+                    cursor_high_water=result.cursor_high_water,
+                )
+                next_due = datetime.now(UTC) + timedelta(seconds=source.interval_seconds)
+                self._next_due[source.feed_key] = next_due
+                self.db.mark_feed_success(source.feed_key, source.display_name, source.url, next_due)
+                self.db.update_email_cursor(source.feed_key, source.mailbox, result.cursor_high_water)
+                logger.info("Fetched %s email entries from %s", len(result.entries), source.display_name)
+                audit_logger.debug(
+                    "email_source_success source_key=%s source_name=%r entries=%s first_success=%s next_poll_at=%s cursor_high_water=%s",
+                    source.feed_key,
+                    source.display_name,
+                    len(result.entries),
+                    first_success,
+                    next_due.isoformat(),
+                    result.cursor_high_water,
+                )
+                return result
+            except FeedFetchError as exc:
+                next_due = datetime.now(UTC) + timedelta(
+                    seconds=self._failure_retry_seconds(source, exc, first_success=first_success)
+                )
+                self._next_due[source.feed_key] = next_due
+                self.db.mark_feed_failure(source.feed_key, source.display_name, source.url, str(exc), next_due)
+                if self.config and self.config.settings.logging.detailed_errors:
+                    logger.exception("Email source failed: %s: %r", source.display_name, exc)
+                else:
+                    logger.warning("Email source failed: %s: %s", source.display_name, exc)
+                audit_logger.error(
+                    "email_source_failure source_key=%s source_name=%r error=%r next_poll_at=%s",
+                    source.feed_key,
+                    source.display_name,
+                    exc,
+                    next_due.isoformat(),
+                )
+                raise
+
     async def _process_feed_result(self, result: FeedFetchResult) -> RefreshSummary:
         if not self.config:
             return RefreshSummary()
@@ -339,9 +451,11 @@ class SchedulerService:
             if self.db.has_feed_entry_seen(candidate):
                 duplicates += 1
                 continue
+            initial_backfill_hours = getattr(result.feed, "initial_backfill_hours", None)
             if first_success_limited_backfill and not self._is_recent_valid_for_first_success(
                 candidate.normalized_published_at,
                 candidate.timestamp_status,
+                max_age_hours=initial_backfill_hours,
             ):
                 duplicates += 1
                 self.db.record_feed_entry_seen(candidate)
@@ -380,7 +494,7 @@ class SchedulerService:
                 duplicates += 1
             persist_routing = dedupe.is_new_article or not self.db.has_routing_decision(dedupe.article_id)
             routing_decision = self._route_candidate(dedupe.article_id, candidate, persist=persist_routing)
-            for channel_id in self._target_channel_ids(result.feed.channel_ids, routing_decision):
+            for channel_id in self._target_channel_ids(result.feed.channel_ids, routing_decision, result.feed, candidate):
                 if self.db.has_channel_post(dedupe.article_id, channel_id):
                     duplicates += 1
                     continue
@@ -515,10 +629,20 @@ class SchedulerService:
         cutoff = datetime.now(UTC) - timedelta(hours=self.config.settings.timestamps.max_post_age_hours)
         return published_at < cutoff
 
-    def _is_recent_valid_for_first_success(self, published_at: datetime, timestamp_status: str) -> bool:
+    def _is_recent_valid_for_first_success(
+        self,
+        published_at: datetime,
+        timestamp_status: str,
+        *,
+        max_age_hours: int | None = None,
+    ) -> bool:
         if timestamp_status not in {"valid", "timezone_corrected"}:
             return False
-        return not self._is_stale_for_posting(published_at, timestamp_status)
+        cutoff_hours = max_age_hours if max_age_hours is not None else (
+            self.config.settings.timestamps.max_post_age_hours if self.config else 48
+        )
+        cutoff = datetime.now(UTC) - timedelta(hours=cutoff_hours)
+        return published_at >= cutoff
 
     async def _throttle_feed_host(self, feed: FeedRuntime) -> None:
         host = urlparse(feed.url).netloc.casefold()
@@ -566,16 +690,21 @@ class SchedulerService:
         if self.routing_engine is None:
             return None
         try:
+            routing_summary = candidate.summary
+            metadata_summary = candidate.rich_metadata.get("routing_summary") if candidate.rich_metadata else None
+            if isinstance(metadata_summary, str) and metadata_summary.strip():
+                routing_summary = metadata_summary.strip()
             decision = self.routing_engine.route(
                 RoutingArticle(
                     article_id=article_id,
                     title=candidate.title,
-                    summary=candidate.summary,
+                    summary=routing_summary,
                     source_name=candidate.source_name,
                     source_id=candidate.source_id,
                     source_class=candidate.source_class,
                     url=candidate.url,
                     normalized_title=candidate.normalized_title,
+                    routing_tags=candidate.routing_tags,
                 )
             )
             selected_ids = [self.channel_key_to_id[key] for key in decision.final_channel_keys if key in self.channel_key_to_id]
@@ -600,17 +729,29 @@ class SchedulerService:
         self,
         existing_channel_ids: tuple[str, ...],
         decision: RoutingDecision | None,
+        source: FeedRuntime | EmailSourceRuntime,
+        candidate=None,
     ) -> tuple[str, ...]:
+        fast_lane_ids = tuple(getattr(source, "fast_lane_channel_ids", ()) or ())
+        if getattr(source, "route_policy", "normal") == "direct":
+            return _dedupe_channel_ids(fast_lane_ids + existing_channel_ids)
         if self.routing_mode != "enforced" or decision is None:
-            return existing_channel_ids
+            return _dedupe_channel_ids(fast_lane_ids + existing_channel_ids)
         if decision.decision_status not in {"routed", "review"}:
-            return tuple()
+            if (
+                decision.decision_status == "no_match"
+                and getattr(source, "no_match_policy", "drop") == "review"
+                and "review" in self.channel_key_to_id
+                and _should_review_no_match(source, candidate)
+            ):
+                return _dedupe_channel_ids(fast_lane_ids + (self.channel_key_to_id["review"],))
+            return _dedupe_channel_ids(fast_lane_ids)
         selected = tuple(
             self.channel_key_to_id[key]
             for key in decision.final_channel_keys
             if key in self.channel_key_to_id
         )
-        return selected
+        return _dedupe_channel_ids(fast_lane_ids + selected)
 
 
 def build_feed_runtime_map(config: AppConfig) -> dict[str, FeedRuntime]:
@@ -709,6 +850,106 @@ def build_feed_runtime_map(config: AppConfig) -> dict[str, FeedRuntime]:
         )
         for group in grouped.values()
     }
+
+
+def build_email_source_runtime_map(config: AppConfig) -> dict[str, EmailSourceRuntime]:
+    sources: dict[str, EmailSourceRuntime] = {}
+    for source in config.email_sources:
+        if source.route_policy == "ignore":
+            continue
+        url = f"imap://{source.imap_host_env}/{source.mailbox}/{source.id}"
+        sources[source.id] = EmailSourceRuntime(
+            feed_key=source.id,
+            display_name=source.name,
+            imap_host_env=source.imap_host_env,
+            imap_port_env=source.imap_port_env,
+            username_env=source.username_env,
+            password_env=source.password_env,
+            mailbox=source.mailbox,
+            from_contains=source.from_contains,
+            list_id_contains=source.list_id_contains,
+            subject_contains=source.subject_contains,
+            match_all=source.match_all,
+            url=url,
+            normalized_url=normalize_feed_url(url),
+            interval_seconds=source.poll_interval_seconds or config.settings.polling.default_interval_seconds,
+            channel_ids=source.target_channel_ids,
+            channel_keys=(),
+            fetch_timeout_seconds=source.fetch_timeout_seconds,
+            source_id=source.source_id,
+            source_class=source.source_class,
+            route_policy=source.route_policy,
+            initial_backfill_hours=source.initial_backfill_hours,
+            no_match_policy=source.no_match_policy,
+            target_channel_ids=source.target_channel_ids,
+            fast_lane_channel_ids=source.fast_lane_channel_ids,
+            routing_tags=source.routing_tags,
+            max_messages_per_poll=source.max_messages_per_poll,
+            priority=source.priority,
+        )
+    return sources
+
+
+def _dedupe_channel_ids(channel_ids: tuple[str, ...]) -> tuple[str, ...]:
+    seen: set[str] = set()
+    unique: list[str] = []
+    for channel_id in channel_ids:
+        if channel_id in seen:
+            continue
+        seen.add(channel_id)
+        unique.append(channel_id)
+    return tuple(unique)
+
+
+def _should_review_no_match(source: FeedRuntime | EmailSourceRuntime, candidate) -> bool:
+    if not isinstance(source, EmailSourceRuntime):
+        return True
+    if candidate is None:
+        return False
+    metadata = getattr(candidate, "rich_metadata", {}) or {}
+    if metadata.get("email_low_signal") is True:
+        return False
+    url = getattr(candidate, "url", None)
+    if not url:
+        return False
+    text = "\n".join(
+        str(value or "")
+        for value in (
+            getattr(candidate, "title", ""),
+            getattr(candidate, "summary", ""),
+            metadata.get("routing_summary", ""),
+        )
+    ).casefold()
+    if len(text.strip()) < 80:
+        return False
+    high_signal_terms = (
+        "defense",
+        "military",
+        "army",
+        "navy",
+        "air force",
+        "marine corps",
+        "space force",
+        "pentagon",
+        "nato",
+        "ukraine",
+        "russia",
+        "china",
+        "taiwan",
+        "iran",
+        "cyber",
+        "zero-day",
+        "zeroday",
+        "vulnerability",
+        "malware",
+        "ransomware",
+        "intelligence",
+        "sanctions",
+        "missile",
+        "drone",
+        "ship",
+    )
+    return any(term in text for term in high_signal_terms)
 
 
 def _merge(summary: RefreshSummary, **changes: int) -> RefreshSummary:

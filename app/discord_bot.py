@@ -7,7 +7,7 @@ import re
 import time
 from datetime import UTC
 from datetime import datetime
-from urllib.parse import urlparse
+from urllib.parse import unquote, urlparse
 
 import discord
 from discord import app_commands
@@ -26,8 +26,16 @@ from app.scheduler import SchedulerService
 logger = logging.getLogger(__name__)
 audit_logger = logging.getLogger("app.audit")
 URLISH_RE = re.compile(r"^(https?://\S+|[\w.-]+\.[a-z]{2,}/\S*)$", re.IGNORECASE)
+URLISH_TITLE_RE = re.compile(r"^(?:https?://)?(?:www\.)?[\w.-]+\.[a-z]{2,}(?:[/\?#].*)?$", re.IGNORECASE)
 LINK_LABEL_RE = re.compile(r"^(more|watch and subscribe|read more|full story|link)\s*:?\s*", re.IGNORECASE)
 REVIEW_CHANNEL_ID = "1511541774642843789"
+TRACKING_TITLE_HOST_FRAGMENTS = (
+    "hubspotlinks.com",
+    "pardot.",
+    "dripemail",
+    "sendgrid.net",
+    "list-manage.com",
+)
 
 
 class DiscordPublisherAdapter(PublisherAdapter):
@@ -40,9 +48,16 @@ class DiscordPublisherAdapter(PublisherAdapter):
             channel = await self.client.fetch_channel(int(job.channel_id))
         if not hasattr(channel, "send"):
             raise RuntimeError(f"Configured channel {job.channel_id} cannot receive messages.")
-        title = clean_html_text(job.title) or job.title
-        description = clean_html_text(job.summary) if job.summary else None
-        description = _dedupe_description(title, description)
+        social_post = _social_post_details(job)
+        if social_post:
+            title = social_post["account_name"]
+            description = social_post["body"]
+            embed_url = social_post["post_url"] or job.url
+        else:
+            title = _clean_embed_title(clean_html_text(job.title) or job.title, job.url, job.source_name)
+            description = clean_html_text(job.summary) if job.summary else None
+            description = _dedupe_description(title, description)
+            embed_url = job.url
         if job.timestamp_status in {"valid", "timezone_corrected"}:
             display_timestamp = job.normalized_published_at.astimezone(UTC)
             footer = f"{job.source_name} · published"
@@ -51,7 +66,7 @@ class DiscordPublisherAdapter(PublisherAdapter):
             footer = f"{job.source_name} · detected"
         embed = discord.Embed(
             title=title[:256],
-            url=job.url,
+            url=embed_url,
             description=description[:4096] if description else None,
             timestamp=display_timestamp,
         )
@@ -69,8 +84,11 @@ class DiscordPublisherAdapter(PublisherAdapter):
                     job.title,
                     debug_text,
                 )
-        content = job.url if _is_video_reference(job.url) else None
-        message = await channel.send(content=content, embed=embed)
+        if social_post:
+            message = await channel.send(embed=embed)
+        else:
+            content = job.url if _is_video_reference(job.url) else None
+            message = await channel.send(content=content, embed=embed)
         return str(message.id)
 
 
@@ -476,6 +494,43 @@ def _same_display_text(left: str, right: str) -> bool:
     return " ".join(left.split()).casefold() == " ".join(right.split()).casefold()
 
 
+def _clean_embed_title(title: str, url: str | None, source_name: str | None) -> str:
+    cleaned = " ".join(title.replace("**", "").split()).strip() or "Untitled article"
+    if not _looks_like_url_title(cleaned):
+        return cleaned
+    slug_title = _title_from_url_path(url or cleaned)
+    if slug_title:
+        return slug_title
+    return source_name or "Article"
+
+
+def _looks_like_url_title(value: str) -> bool:
+    cleaned = " ".join(value.split()).strip(" .:-")
+    if not cleaned:
+        return False
+    if URLISH_RE.match(cleaned):
+        return True
+    return bool(URLISH_TITLE_RE.match(cleaned))
+
+
+def _title_from_url_path(value: str) -> str | None:
+    parsed = urlparse(value if "://" in value else f"https://{value}")
+    host = parsed.netloc.casefold()
+    if host.startswith("www."):
+        host = host[4:]
+    if any(fragment in host for fragment in TRACKING_TITLE_HOST_FRAGMENTS):
+        return None
+    segments = [unquote(segment).strip() for segment in parsed.path.split("/") if segment.strip()]
+    if not segments:
+        return None
+    slug = re.sub(r"\.[a-z0-9]{2,5}$", "", segments[-1], flags=re.IGNORECASE)
+    slug = re.sub(r"[-_+]+", " ", slug)
+    slug = re.sub(r"\s+", " ", slug).strip(" .:-")
+    if len(re.findall(r"[A-Za-z0-9][A-Za-z0-9'-]*", slug)) < 3:
+        return None
+    return slug[:1].upper() + slug[1:]
+
+
 def _dedupe_description(title: str, description: str | None) -> str | None:
     if not description:
         return None
@@ -523,6 +578,72 @@ def _is_video_reference(url: str | None) -> bool:
     if host.startswith("www."):
         host = host[4:]
     return host in {"youtube.com", "youtu.be"} or host.endswith(".youtube.com")
+
+
+def _social_post_details(job: PostJob) -> dict[str, str | None] | None:
+    if not _is_social_post(job):
+        return None
+    account_name = _social_account_name(job.source_name)
+    body = _format_social_post_body(job)
+    post_url = _social_post_url(job)
+    return {"account_name": account_name, "body": body, "post_url": post_url}
+
+
+def _is_social_post(job: PostJob) -> bool:
+    if job.source_name.startswith(("Bluesky:", "X:")):
+        return True
+    if job.source_id.startswith("x-"):
+        return True
+    return job.source_class in {"social_core", "social_defense_industry", "social_centcom", "social_breaking_news", "owned_social"}
+
+
+def _social_account_name(source_name: str) -> str:
+    for prefix in ("Bluesky:", "X:"):
+        if source_name.startswith(prefix):
+            value = source_name[len(prefix) :].strip()
+            return value or source_name
+    return source_name or "Social post"
+
+
+def _format_social_post_body(job: PostJob) -> str | None:
+    raw = job.summary or job.title
+    cleaned = clean_html_text(raw) if raw else None
+    if not cleaned:
+        return None
+    lines = [re.sub(r"[ \t]+", " ", line).strip() for line in cleaned.splitlines()]
+    lines = [line for line in lines if line]
+    return "\n".join(lines) or None
+
+
+def _social_post_url(job: PostJob) -> str | None:
+    metadata = job.rich_metadata or {}
+    for key in ("social_url", "bluesky_post_url", "x_post_url", "tweet_url"):
+        value = metadata.get(key)
+        if isinstance(value, str) and (_is_bluesky_post_url(value) or _is_x_post_url(value)):
+            return value
+    if _is_bluesky_post_url(job.url) or _is_x_post_url(job.url):
+        return job.url
+    return None
+
+
+def _is_bluesky_post_url(url: str | None) -> bool:
+    if not url:
+        return False
+    parsed = urlparse(url)
+    host = parsed.netloc.casefold()
+    if host.startswith("www."):
+        host = host[4:]
+    return host == "bsky.app" and "/post/" in parsed.path
+
+
+def _is_x_post_url(url: str | None) -> bool:
+    if not url:
+        return False
+    parsed = urlparse(url)
+    host = parsed.netloc.casefold()
+    if host.startswith("www."):
+        host = host[4:]
+    return host in {"x.com", "twitter.com"} and re.search(r"/status(?:es)?/\d+", parsed.path) is not None
 
 
 def _format_duration(seconds: int) -> str:

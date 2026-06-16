@@ -14,6 +14,7 @@ from app.models import (
     ChannelConfig,
     DedupeSettings,
     DiscordSettings,
+    EmailSourceConfig,
     FailureBackoffSettings,
     FeedConfig,
     LoggingSettings,
@@ -108,7 +109,29 @@ def load_config(path: str | Path) -> AppConfig:
     )
     settings = _parse_settings(settings_raw, errors)
     feeds = _parse_top_level_feeds(raw.get("feeds", []), settings, errors)
+    email_sources = _parse_email_sources(raw.get("emailSources", []), settings, errors)
     channels = _parse_channels(raw.get("channels"), settings, errors)
+    channel_keys = {channel.key for channel in channels}
+    channel_ids = {channel.discord_channel_id for channel in channels}
+    if any(source.no_match_policy == "review" for source in email_sources) and "review" not in channel_keys:
+        errors.append("emailSources with noMatchPolicy=review require a channel with key 'review'.")
+    for source in email_sources:
+        missing_targets = sorted(set(source.target_channel_ids) - channel_ids)
+        if missing_targets:
+            errors.append(
+                f"emailSources[{source.id}].targetChannelIds must reference configured channels: "
+                + ", ".join(missing_targets)
+            )
+        missing_fast_lane_targets = sorted(set(source.fast_lane_channel_ids) - channel_ids)
+        if missing_fast_lane_targets:
+            errors.append(
+                f"emailSources[{source.id}].fastLaneChannelIds must reference configured channels: "
+                + ", ".join(missing_fast_lane_targets)
+            )
+    feed_ids = {feed.id for feed in feeds if feed.id}
+    duplicate_source_ids = feed_ids & {source.id for source in email_sources}
+    if duplicate_source_ids:
+        errors.append("source ids must not duplicate feed or email source ids: " + ", ".join(sorted(duplicate_source_ids)))
 
     if errors:
         raise ConfigError(errors)
@@ -120,6 +143,7 @@ def load_config(path: str | Path) -> AppConfig:
         feeds=tuple(feeds),
         channels=tuple(channels),
         raw=raw,
+        email_sources=tuple(email_sources),
     )
 
 
@@ -132,6 +156,25 @@ def validate_env(config: AppConfig, env: dict[str, str] | None = None) -> list[s
         errors.append("DISCORD_BOT_TOKEN is missing or still set to the placeholder value.")
     if not SNOWFLAKE_RE.match(guild_id):
         errors.append(f"{config.discord.guild_id_env} must be a valid Discord guild ID.")
+    checked_envs: set[str] = set()
+    for source in config.email_sources:
+        if source.route_policy == "ignore":
+            continue
+        for env_name, label in (
+            (source.imap_host_env, "IMAP host"),
+            (source.username_env, "username"),
+            (source.password_env, "password"),
+        ):
+            if env_name in checked_envs:
+                continue
+            checked_envs.add(env_name)
+            if not env_map.get(env_name, "").strip():
+                errors.append(f"{env_name} is required for email {label}.")
+        if source.imap_port_env not in checked_envs:
+            checked_envs.add(source.imap_port_env)
+            port_value = env_map.get(source.imap_port_env, "").strip()
+            if port_value and not port_value.isdigit():
+                errors.append(f"{source.imap_port_env} must be an integer IMAP port when set.")
     return errors
 
 
@@ -494,6 +537,164 @@ def _parse_top_level_feeds(raw: Any, settings: Settings, errors: list[str]) -> l
     )
 
 
+def _parse_email_sources(raw: Any, settings: Settings, errors: list[str]) -> list[EmailSourceConfig]:
+    path = "emailSources"
+    if raw in (None, []):
+        return []
+    if not isinstance(raw, list):
+        errors.append(f"{path} must be an array.")
+        return []
+
+    sources: list[EmailSourceConfig] = []
+    seen_ids: set[str] = set()
+    for index, source_raw in enumerate(raw):
+        source_path = f"{path}[{index}]"
+        source_obj = _object(source_raw, source_path, errors)
+        source_id_value = _string(source_obj.get("id"), f"{source_path}.id", errors)
+        if source_id_value and not KEY_RE.match(source_id_value):
+            errors.append(f"{source_path}.id must use lowercase letters, numbers, hyphens, or underscores.")
+        if source_id_value in seen_ids:
+            errors.append(f"{source_path}.id duplicates another email source id: {source_id_value}")
+        seen_ids.add(source_id_value)
+
+        name = _string(source_obj.get("name"), f"{source_path}.name", errors)
+        from_contains = _lower_string_tuple(source_obj.get("fromContains", []), f"{source_path}.fromContains", errors)
+        list_id_contains = _lower_string_tuple(
+            source_obj.get("listIdContains", []),
+            f"{source_path}.listIdContains",
+            errors,
+        )
+        subject_contains = _lower_string_tuple(
+            source_obj.get("subjectContains", []),
+            f"{source_path}.subjectContains",
+            errors,
+        )
+        match_all = _bool(source_obj.get("matchAll", False), f"{source_path}.matchAll", errors)
+        if match_all and (from_contains or list_id_contains or subject_contains):
+            errors.append(f"{source_path}.matchAll cannot be combined with fromContains, listIdContains, or subjectContains.")
+        if not match_all and not from_contains and not list_id_contains and not subject_contains:
+            errors.append(
+                f"{source_path} must set matchAll=true or at least one of fromContains, listIdContains, or subjectContains."
+            )
+
+        timeout = source_obj.get("fetchTimeoutSeconds")
+        fetch_timeout_seconds = None
+        if timeout is not None:
+            fetch_timeout_seconds = _int(
+                timeout,
+                f"{source_path}.fetchTimeoutSeconds",
+                errors,
+                min_value=1,
+                max_value=120,
+            )
+        interval = source_obj.get("pollIntervalSeconds")
+        if interval is None:
+            interval_seconds = settings.polling.default_interval_seconds
+        else:
+            interval_seconds = _int(
+                interval,
+                f"{source_path}.pollIntervalSeconds",
+                errors,
+                min_value=30,
+                max_value=86400,
+            )
+        route_policy = _choice(
+            source_obj.get("routePolicy", "normal"),
+            f"{source_path}.routePolicy",
+            errors,
+            {"normal", "ignore", "direct"},
+        )
+        target_channel_ids = _snowflake_tuple(
+            source_obj.get("targetChannelIds", []),
+            f"{source_path}.targetChannelIds",
+            errors,
+        )
+        fast_lane_channel_ids = _snowflake_tuple(
+            source_obj.get("fastLaneChannelIds", []),
+            f"{source_path}.fastLaneChannelIds",
+            errors,
+        )
+        if route_policy == "direct" and not target_channel_ids:
+            errors.append(f"{source_path}.targetChannelIds is required when routePolicy is direct.")
+        initial_backfill_hours = _int(
+            source_obj.get("initialBackfillHours", 24),
+            f"{source_path}.initialBackfillHours",
+            errors,
+            min_value=0,
+            max_value=168,
+        )
+        no_match_policy = _choice(
+            source_obj.get("noMatchPolicy", "drop"),
+            f"{source_path}.noMatchPolicy",
+            errors,
+            {"drop", "review"},
+        )
+        max_messages_per_poll_raw = source_obj.get("maxMessagesPerPoll")
+        max_messages_per_poll = None
+        if max_messages_per_poll_raw is not None:
+            max_messages_per_poll = _int(
+                max_messages_per_poll_raw,
+                f"{source_path}.maxMessagesPerPoll",
+                errors,
+                min_value=1,
+                max_value=500,
+            )
+        sources.append(
+            EmailSourceConfig(
+                id=source_id_value,
+                name=name,
+                imap_host_env=_env_var(
+                    source_obj.get("imapHostEnv", "EMAIL_IMAP_HOST"),
+                    f"{source_path}.imapHostEnv",
+                    errors,
+                ),
+                imap_port_env=_env_var(
+                    source_obj.get("imapPortEnv", "EMAIL_IMAP_PORT"),
+                    f"{source_path}.imapPortEnv",
+                    errors,
+                ),
+                username_env=_env_var(
+                    source_obj.get("usernameEnv", "EMAIL_USERNAME"),
+                    f"{source_path}.usernameEnv",
+                    errors,
+                ),
+                password_env=_env_var(
+                    source_obj.get("passwordEnv", "EMAIL_PASSWORD"),
+                    f"{source_path}.passwordEnv",
+                    errors,
+                ),
+                mailbox=_string(source_obj.get("mailbox", "INBOX"), f"{source_path}.mailbox", errors),
+                from_contains=from_contains,
+                list_id_contains=list_id_contains,
+                subject_contains=subject_contains,
+                match_all=match_all,
+                source_id=_optional_key(
+                    source_obj.get("sourceId"),
+                    f"{source_path}.sourceId",
+                    errors,
+                    fallback=source_id_value or "email",
+                ),
+                source_class=_optional_key(
+                    source_obj.get("sourceClass"),
+                    f"{source_path}.sourceClass",
+                    errors,
+                    fallback="newsletter",
+                ),
+                poll_interval_seconds=max(interval_seconds, settings.polling.min_interval_seconds),
+                fetch_timeout_seconds=fetch_timeout_seconds,
+                route_policy=route_policy,
+                initial_backfill_hours=initial_backfill_hours,
+                no_match_policy=no_match_policy,
+                target_channel_ids=target_channel_ids,
+                fast_lane_channel_ids=fast_lane_channel_ids,
+                routing_tags=_key_tuple(source_obj.get("routingTags", []), f"{source_path}.routingTags", errors),
+                max_messages_per_poll=max_messages_per_poll,
+                priority=_bool(source_obj.get("priority", bool(fast_lane_channel_ids)), f"{source_path}.priority", errors),
+            )
+        )
+    return sources
+
+
 def _parse_feeds(
     raw: Any,
     owner_path: str,
@@ -613,6 +814,13 @@ def _optional_key(value: Any, path: str, errors: list[str], fallback: str) -> st
     return parsed or fallback
 
 
+def _env_var(value: Any, path: str, errors: list[str]) -> str:
+    parsed = _string(value, path, errors)
+    if parsed and not re.fullmatch(r"[A-Z_][A-Z0-9_]*", parsed):
+        errors.append(f"{path} must be an uppercase environment variable name.")
+    return parsed
+
+
 def _string_list(value: Any, path: str, errors: list[str]) -> list[str]:
     if not isinstance(value, list):
         errors.append(f"{path} must be an array of strings.")
@@ -624,6 +832,26 @@ def _string_list(value: Any, path: str, errors: list[str]) -> list[str]:
         else:
             errors.append(f"{path}[{index}] must be a non-empty string.")
     return parsed
+
+
+def _lower_string_tuple(value: Any, path: str, errors: list[str]) -> tuple[str, ...]:
+    return tuple(item.casefold() for item in _string_list(value, path, errors))
+
+
+def _key_tuple(value: Any, path: str, errors: list[str]) -> tuple[str, ...]:
+    values = _string_list(value, path, errors)
+    for item in values:
+        if not KEY_RE.match(item):
+            errors.append(f"{path} values must use lowercase letters, numbers, hyphens, or underscores.")
+    return tuple(values)
+
+
+def _snowflake_tuple(value: Any, path: str, errors: list[str]) -> tuple[str, ...]:
+    values = _string_list(value, path, errors)
+    for item in values:
+        if not SNOWFLAKE_RE.match(item):
+            errors.append(f"{path} values must be valid Discord channel IDs.")
+    return tuple(values)
 
 
 def _object(value: Any, path: str, errors: list[str]) -> dict[str, Any]:

@@ -18,7 +18,7 @@ from app.routing import RoutingConfigError, RoutingEngine, load_routing_config
 from app.routing.bootstrap import bootstrap_routing_config, recent_seed_report
 from app.routing.models import RoutingArticle
 from app.routing.reporting import format_backtest_summary, format_decision
-from app.scheduler import build_feed_runtime_map
+from app.scheduler import build_email_source_runtime_map, build_feed_runtime_map
 
 logger = logging.getLogger(__name__)
 
@@ -109,7 +109,8 @@ def main() -> int:
                 feed_entry_seen_retention_days=maintenance.feed_entry_seen_retention_days,
                 article_batch_size=maintenance.article_batch_size,
             )
-            inactive_feed_status = db.prune_inactive_feed_status(frozenset(build_feed_runtime_map(config)))
+            active_feed_keys = frozenset(set(build_feed_runtime_map(config)) | set(build_email_source_runtime_map(config)))
+            inactive_feed_status = db.prune_inactive_feed_status(active_feed_keys)
             if inactive_feed_status:
                 stats["inactive_feed_status"] = inactive_feed_status
             if maintenance.optimize_on_maintenance:
@@ -235,11 +236,13 @@ def format_routing_diagnostics(config, routing_config) -> str:
         feed.source_id
         for feed in list(config.feeds) + [feed for channel in config.channels for feed in channel.feeds]
     }
+    feed_source_ids.update(source.source_id for source in config.email_sources)
     lines = [
         "Routing diagnostics",
         (
             f"channels={len(channel_keys)} rules={len(rule_keys)} "
-            f"suppressions={len(routing_config.suppression_entries)} top_level_feeds={len(config.feeds)}"
+            f"suppressions={len(routing_config.suppression_entries)} top_level_feeds={len(config.feeds)} "
+            f"email_sources={len(config.email_sources)}"
         ),
     ]
     missing_channels = sorted(rule_keys - channel_keys)

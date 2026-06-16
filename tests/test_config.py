@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from app.config_loader import ConfigError, load_config
+from app.config_loader import ConfigError, load_config, validate_env
 
 
 def write_config(tmp_path: Path, data: dict) -> Path:
@@ -119,6 +119,55 @@ def test_loads_top_level_feeds_and_destination_only_channels(tmp_path: Path) -> 
     assert config.feeds[0].fetch_timeout_seconds == 20
     assert config.feeds[0].legacy_channel_keys == ("middle-east",)
     assert config.channels[1].feeds == ()
+
+
+def test_loads_email_sources_and_validates_env(tmp_path: Path) -> None:
+    data = minimal_config()
+    data["channels"].append(
+        {
+            "key": "review",
+            "name": "Review",
+            "discordChannelId": "1511541774642843789",
+        }
+    )
+    data["emailSources"] = [
+        {
+            "id": "email-news-inbox",
+            "name": "Email: News Inbox",
+            "imapHostEnv": "EMAIL_IMAP_HOST",
+            "imapPortEnv": "EMAIL_IMAP_PORT",
+            "usernameEnv": "EMAIL_USERNAME",
+            "passwordEnv": "EMAIL_PASSWORD",
+            "mailbox": "INBOX",
+            "matchAll": True,
+            "sourceId": "email-news",
+            "sourceClass": "newsletter",
+            "pollIntervalSeconds": 300,
+            "fetchTimeoutSeconds": 20,
+            "initialBackfillHours": 24,
+            "noMatchPolicy": "review",
+            "routingTags": ["news"],
+            "maxMessagesPerPoll": 100,
+        }
+    ]
+
+    config = load_config(write_config(tmp_path, data))
+
+    source = config.email_sources[0]
+    assert source.id == "email-news-inbox"
+    assert source.source_id == "email-news"
+    assert source.routing_tags == ("news",)
+    assert validate_env(
+        config,
+        {
+            "DISCORD_BOT_TOKEN": "x" * 72,
+            "DISCORD_GUILD_ID": "1500902374787780799",
+            "EMAIL_IMAP_HOST": "imap.gmail.com",
+            "EMAIL_IMAP_PORT": "993",
+            "EMAIL_USERNAME": "bot@example.com",
+            "EMAIL_PASSWORD": "secret",
+        },
+    ) == []
 
 
 def test_loads_publishing_and_maintenance_runtime_settings(tmp_path: Path) -> None:

@@ -114,6 +114,33 @@ class FeedConfig:
 
 
 @dataclass(frozen=True)
+class EmailSourceConfig:
+    id: str
+    name: str
+    imap_host_env: str = "EMAIL_IMAP_HOST"
+    imap_port_env: str = "EMAIL_IMAP_PORT"
+    username_env: str = "EMAIL_USERNAME"
+    password_env: str = "EMAIL_PASSWORD"
+    mailbox: str = "INBOX"
+    from_contains: tuple[str, ...] = ()
+    list_id_contains: tuple[str, ...] = ()
+    subject_contains: tuple[str, ...] = ()
+    match_all: bool = False
+    source_id: str = "email"
+    source_class: str = "newsletter"
+    poll_interval_seconds: int | None = None
+    fetch_timeout_seconds: int | None = None
+    route_policy: str = "normal"
+    initial_backfill_hours: int = 24
+    no_match_policy: str = "drop"
+    target_channel_ids: tuple[str, ...] = ()
+    fast_lane_channel_ids: tuple[str, ...] = ()
+    routing_tags: tuple[str, ...] = ()
+    max_messages_per_poll: int | None = None
+    priority: bool = False
+
+
+@dataclass(frozen=True)
 class ChannelConfig:
     key: str
     name: str
@@ -131,6 +158,7 @@ class AppConfig:
     feeds: tuple[FeedConfig, ...]
     channels: tuple[ChannelConfig, ...]
     raw: dict[str, Any]
+    email_sources: tuple[EmailSourceConfig, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -146,6 +174,39 @@ class FeedRuntime:
     source_id: str = "unknown"
     source_class: str = "unknown"
     route_policy: str = "normal"
+    source_type: str = "rss"
+    routing_tags: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
+class EmailSourceRuntime:
+    feed_key: str
+    display_name: str
+    imap_host_env: str
+    imap_port_env: str
+    username_env: str
+    password_env: str
+    mailbox: str
+    from_contains: tuple[str, ...]
+    list_id_contains: tuple[str, ...]
+    subject_contains: tuple[str, ...]
+    url: str
+    normalized_url: str
+    interval_seconds: int
+    channel_ids: tuple[str, ...]
+    channel_keys: tuple[str, ...]
+    fetch_timeout_seconds: int | None = None
+    source_id: str = "email"
+    source_class: str = "newsletter"
+    route_policy: str = "normal"
+    initial_backfill_hours: int = 24
+    no_match_policy: str = "drop"
+    target_channel_ids: tuple[str, ...] = ()
+    fast_lane_channel_ids: tuple[str, ...] = ()
+    routing_tags: tuple[str, ...] = ()
+    max_messages_per_poll: int | None = None
+    priority: bool = False
+    match_all: bool = False
 
 
 @dataclass(frozen=True)
@@ -162,6 +223,8 @@ class FeedEntry:
     parsed: dict[str, Any]
     source_id: str = "unknown"
     source_class: str = "unknown"
+    rich_metadata: dict[str, Any] = field(default_factory=dict)
+    routing_tags: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -194,6 +257,8 @@ class ArticleCandidate:
     ingested_at: datetime
     timestamp_status: str
     fingerprints: tuple[tuple[str, str], ...]
+    rich_metadata: dict[str, Any] = field(default_factory=dict)
+    routing_tags: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -216,3 +281,4 @@ class PostJob:
     timestamp_status: str = "valid"
     source_id: str = "unknown"
     source_class: str = "unknown"
+    rich_metadata: dict[str, Any] = field(default_factory=dict)

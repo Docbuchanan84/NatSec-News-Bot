@@ -14,6 +14,29 @@ from app.normalizer import isoformat, source_family, stable_hash, title_signatur
 logger = logging.getLogger(__name__)
 
 
+def _json_dumps(value: dict[str, Any] | None) -> str:
+    if not value:
+        return "{}"
+    try:
+        return json.dumps(value, sort_keys=True)
+    except TypeError:
+        return "{}"
+
+
+def _json_dict(value: object) -> dict[str, Any]:
+    if not value:
+        return {}
+    if isinstance(value, dict):
+        return value
+    if not isinstance(value, str):
+        return {}
+    try:
+        parsed = json.loads(value)
+    except json.JSONDecodeError:
+        return {}
+    return parsed if isinstance(parsed, dict) else {}
+
+
 SCHEMA = """
 PRAGMA journal_mode = DELETE;
 PRAGMA synchronous = NORMAL;
@@ -32,6 +55,7 @@ CREATE TABLE IF NOT EXISTS articles (
     url TEXT,
     normalized_url TEXT,
     summary TEXT,
+    rich_metadata TEXT,
     image_url TEXT,
     image_source TEXT,
     source_name TEXT,
@@ -152,6 +176,13 @@ CREATE TABLE IF NOT EXISTS feed_status (
     next_poll_at TEXT
 );
 
+CREATE TABLE IF NOT EXISTS email_source_cursors (
+    source_key TEXT PRIMARY KEY,
+    mailbox TEXT NOT NULL,
+    last_uid TEXT,
+    updated_at TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS article_routing_decisions (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     article_id INTEGER NOT NULL,
@@ -253,10 +284,22 @@ class Database:
             self._conn.execute("ALTER TABLE articles ADD COLUMN story_cluster_key TEXT")
         if "summary" not in article_columns:
             self._conn.execute("ALTER TABLE articles ADD COLUMN summary TEXT")
+        if "rich_metadata" not in article_columns:
+            self._conn.execute("ALTER TABLE articles ADD COLUMN rich_metadata TEXT")
         if "image_url" not in article_columns:
             self._conn.execute("ALTER TABLE articles ADD COLUMN image_url TEXT")
         if "image_source" not in article_columns:
             self._conn.execute("ALTER TABLE articles ADD COLUMN image_source TEXT")
+        self._conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS email_source_cursors (
+                source_key TEXT PRIMARY KEY,
+                mailbox TEXT NOT NULL,
+                last_uid TEXT,
+                updated_at TEXT NOT NULL
+            )
+            """
+        )
         self._conn.execute(
             """
             CREATE INDEX IF NOT EXISTS idx_articles_title_signature_time
@@ -461,11 +504,11 @@ class Database:
             """
             INSERT INTO articles (
                 canonical_key, title, normalized_title, title_signature, source_family, source_id, source_class,
-                story_cluster_key, url, normalized_url, summary,
+                story_cluster_key, url, normalized_url, summary, rich_metadata,
                 image_url, image_source, source_name,
                 raw_published_at, normalized_published_at, ingested_at, timestamp_status, first_seen_at
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 canonical_key,
@@ -479,6 +522,7 @@ class Database:
                 candidate.url,
                 candidate.normalized_url,
                 candidate.summary,
+                _json_dumps(candidate.rich_metadata),
                 candidate.image_url,
                 candidate.image_source,
                 candidate.source_name,
@@ -852,6 +896,35 @@ class Database:
                 return 0
             return int(row["consecutive_failures"] or 0)
 
+    def email_cursor_uid(self, source_key: str, mailbox: str) -> str | None:
+        with self._lock:
+            row = self._conn.execute(
+                """
+                SELECT last_uid
+                FROM email_source_cursors
+                WHERE source_key = ? AND mailbox = ?
+                """,
+                (source_key, mailbox),
+            ).fetchone()
+            return str(row["last_uid"]) if row and row["last_uid"] else None
+
+    def update_email_cursor(self, source_key: str, mailbox: str, last_uid: str | None) -> None:
+        if not last_uid:
+            return
+        with self._lock:
+            self._conn.execute(
+                """
+                INSERT INTO email_source_cursors (source_key, mailbox, last_uid, updated_at)
+                VALUES (?, ?, ?, ?)
+                ON CONFLICT(source_key) DO UPDATE SET
+                    mailbox = excluded.mailbox,
+                    last_uid = excluded.last_uid,
+                    updated_at = excluded.updated_at
+                """,
+                (source_key, mailbox, last_uid, datetime.now(UTC).isoformat()),
+            )
+            self._conn.commit()
+
     def feed_status_rows(self, limit: int = 10, failures_first: bool = False) -> list[sqlite3.Row]:
         order_by = (
             "consecutive_failures DESC, coalesce(last_attempt_at, '') DESC"
@@ -1187,7 +1260,7 @@ class Database:
         with self._lock:
             row = self._conn.execute(
                 """
-                SELECT id, title, url, summary, image_url, image_source, source_name, source_id, source_class,
+                SELECT id, title, url, summary, rich_metadata, image_url, image_source, source_name, source_id, source_class,
                        normalized_published_at, timestamp_status
                 FROM articles WHERE id = ?
                 """,
@@ -1206,6 +1279,7 @@ class Database:
                 source_name=row["source_name"] or "RSS",
                 source_id=row["source_id"] or "unknown",
                 source_class=row["source_class"] or "unknown",
+                rich_metadata=_json_dict(row["rich_metadata"]),
                 normalized_published_at=datetime.fromisoformat(row["normalized_published_at"]),
                 timestamp_status=row["timestamp_status"] or "valid",
             )

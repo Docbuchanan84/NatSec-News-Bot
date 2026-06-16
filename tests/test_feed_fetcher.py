@@ -35,6 +35,7 @@ def test_bluesky_entry_uses_post_text_title_and_external_link() -> None:
     assert entry.raw_title == "Market story moves quickly"
     assert entry.raw_url == "https://reut.rs/abc"
     assert entry.summary == "Market story moves quickly reut.rs/abc\nhttps://reut.rs/abc"
+    assert entry.rich_metadata["social_url"] == "https://bsky.app/profile/reuters.com/post/abc"
 
 
 def test_bluesky_entry_falls_back_to_bluesky_post_link() -> None:
@@ -51,6 +52,7 @@ def test_bluesky_entry_falls_back_to_bluesky_post_link() -> None:
 
     assert entry.raw_title == "Plain post with no external link"
     assert entry.raw_url == "https://bsky.app/profile/reuters.com/post/abc"
+    assert entry.rich_metadata["social_url"] == "https://bsky.app/profile/reuters.com/post/abc"
 
 
 def test_bluesky_external_card_media_is_extracted() -> None:
@@ -182,6 +184,7 @@ async def test_bluesky_media_lookup_updates_entry_url_and_image() -> None:
         image_source=None,
         raw_published_at=None,
         parsed={},
+        rich_metadata={"social_url": "https://bsky.app/profile/cnn.com/post/abc"},
     )
 
     enriched = await service._enrich_bluesky_entry(
@@ -206,6 +209,7 @@ async def test_bluesky_media_lookup_updates_entry_url_and_image() -> None:
     assert enriched.raw_url == "https://www.cnn.com/full-story"
     assert enriched.image_url == "https://cdn.bsky.app/img/feed_thumbnail/plain/did/thumb"
     assert enriched.image_source == "bluesky_external_thumb"
+    assert enriched.rich_metadata["social_url"] == "https://bsky.app/profile/cnn.com/post/abc"
 
 
 @pytest.mark.asyncio

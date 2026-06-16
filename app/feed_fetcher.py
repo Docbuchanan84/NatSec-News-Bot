@@ -57,6 +57,7 @@ class FeedFetchResult:
     feed: FeedRuntime
     entries: tuple[FeedEntry, ...]
     first_success: bool = False
+    cursor_high_water: str | None = None
 
 
 class FeedFetchError(Exception):
@@ -118,6 +119,7 @@ class FeedService:
     def _entry_from_parsed(self, feed: FeedRuntime, raw: Any) -> FeedEntry:
         raw_dict = dict(raw)
         url = raw_dict.get("link") or raw_dict.get("id")
+        social_url = str(url) if _is_bluesky_rss(feed.url) and url else None
         guid = raw_dict.get("id") or raw_dict.get("guid")
         raw_summary = raw_dict.get("summary") or raw_dict.get("description")
         summary = clean_html_text(raw_summary)
@@ -140,6 +142,7 @@ class FeedService:
             parsed=raw_dict,
             source_id=feed.source_id,
             source_class=feed.source_class,
+            rich_metadata=_bluesky_metadata(social_url),
         )
 
     async def _enrich_bluesky_entries(
@@ -181,11 +184,16 @@ class FeedService:
         if media is None:
             return entry
         article_url, image_url, image_source = media
+        metadata = dict(entry.rich_metadata or {})
+        if _is_bluesky_post_url(entry.raw_url):
+            metadata.setdefault("social_url", entry.raw_url)
+            metadata.setdefault("bluesky_post_url", entry.raw_url)
         return replace(
             entry,
             raw_url=article_url or entry.raw_url,
             image_url=image_url or entry.image_url,
             image_source=image_source or entry.image_source,
+            rich_metadata=metadata,
         )
 
     async def _fetch_dvids_api_fallback(
@@ -644,6 +652,22 @@ def _is_rss_boilerplate(line: str) -> bool:
 def _is_bluesky_rss(url: str) -> bool:
     parsed = urlparse(url)
     return parsed.netloc.casefold() == BLUESKY_PROFILE_HOST and parsed.path.endswith("/rss")
+
+
+def _bluesky_metadata(social_url: str | None) -> dict[str, Any]:
+    if not _is_bluesky_post_url(social_url):
+        return {}
+    return {"social_url": social_url, "bluesky_post_url": social_url}
+
+
+def _is_bluesky_post_url(url: str | None) -> bool:
+    if not url:
+        return False
+    parsed = urlparse(url)
+    host = parsed.netloc.casefold()
+    if host.startswith("www."):
+        host = host[4:]
+    return host == BLUESKY_PROFILE_HOST and "/post/" in parsed.path
 
 
 def _is_dvids_rss(url: str) -> bool:

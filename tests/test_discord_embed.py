@@ -15,11 +15,15 @@ class FakeMessage:
 class FakeChannel:
     def __init__(self) -> None:
         self.embed = None
+        self.embeds = None
         self.content = None
+        self.suppress_embeds = None
 
-    async def send(self, content=None, *, embed):
+    async def send(self, content=None, *, embed=None, embeds=None, suppress_embeds=False):
         self.content = content
         self.embed = embed
+        self.embeds = embeds
+        self.suppress_embeds = suppress_embeds
         return FakeMessage()
 
 
@@ -141,3 +145,82 @@ async def test_discord_embed_sends_youtube_url_as_content_for_native_preview() -
     await adapter.send(job)
 
     assert channel.content == "https://www.youtube.com/watch?v=abc123"
+
+
+@pytest.mark.asyncio
+async def test_discord_embed_formats_bluesky_post_without_native_preview() -> None:
+    channel = FakeChannel()
+    adapter = DiscordPublisherAdapter(FakeClient(channel))
+    job = PostJob(
+        article_id=1,
+        channel_id="111111111111111111",
+        title="Reuters post",
+        url="https://www.reuters.com/world/story",
+        summary="Story summary",
+        image_url="https://cdn.bsky.app/img/feed_fullsize/plain/did/full",
+        image_source="bluesky_image",
+        source_name="Bluesky: Reuters",
+        normalized_published_at=datetime(2026, 6, 2, tzinfo=UTC),
+        rich_metadata={"social_url": "https://bsky.app/profile/reuters.com/post/abc"},
+    )
+
+    await adapter.send(job)
+
+    assert channel.content is None
+    assert channel.suppress_embeds is False
+    assert channel.embeds is None
+    assert channel.embed.image.url == "https://cdn.bsky.app/img/feed_fullsize/plain/did/full"
+    assert channel.embed.title == "Reuters"
+    assert channel.embed.description == "Story summary"
+    assert channel.embed.url == "https://bsky.app/profile/reuters.com/post/abc"
+
+
+@pytest.mark.asyncio
+async def test_discord_embed_formats_x_post_without_native_preview() -> None:
+    channel = FakeChannel()
+    adapter = DiscordPublisherAdapter(FakeClient(channel))
+    job = PostJob(
+        article_id=1,
+        channel_id="111111111111111111",
+        title="Drone footage from the front",
+        url="https://x.com/example/status/1234567890",
+        summary="Drone footage from the front\nhttps://example.com/report",
+        image_url="https://pbs.twimg.com/media/example.jpg",
+        image_source="x_media",
+        source_name="X: @example",
+        source_id="x-example",
+        source_class="social_core",
+        normalized_published_at=datetime(2026, 6, 2, tzinfo=UTC),
+        rich_metadata={"social_url": "https://x.com/example/status/1234567890"},
+    )
+
+    await adapter.send(job)
+
+    assert channel.content is None
+    assert channel.suppress_embeds is False
+    assert channel.embeds is None
+    assert channel.embed.image.url == "https://pbs.twimg.com/media/example.jpg"
+    assert channel.embed.title == "@example"
+    assert channel.embed.description == "Drone footage from the front\nhttps://example.com/report"
+    assert channel.embed.url == "https://x.com/example/status/1234567890"
+
+
+@pytest.mark.asyncio
+async def test_discord_embed_humanizes_urlish_title() -> None:
+    channel = FakeChannel()
+    adapter = DiscordPublisherAdapter(FakeClient(channel))
+    job = PostJob(
+        article_id=1,
+        channel_id="111111111111111111",
+        title="defensescoop.com/2026/06/14/army-counter-drone-package-europe/",
+        url="https://defensescoop.com/2026/06/14/army-counter-drone-package-europe/",
+        summary="Officials said the prototype is moving into field trials.",
+        image_url=None,
+        image_source=None,
+        source_name="Email: News Inbox",
+        normalized_published_at=datetime(2026, 6, 2, tzinfo=UTC),
+    )
+
+    await adapter.send(job)
+
+    assert channel.embed.title == "Army counter drone package europe"

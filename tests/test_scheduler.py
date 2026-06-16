@@ -2,13 +2,15 @@ from __future__ import annotations
 
 import time
 from datetime import UTC, datetime, timedelta
+from types import SimpleNamespace
 
 import pytest
 
 from app.config_loader import load_config
 from app.feed_fetcher import FeedFetchError
-from app.models import AppConfig, FailureBackoffSettings, FeedRuntime, MaintenanceSettings, Settings
-from app.scheduler import build_feed_runtime_map
+from app.models import AppConfig, EmailSourceRuntime, FailureBackoffSettings, FeedRuntime, MaintenanceSettings, Settings
+from app.routing.models import RoutingDecision
+from app.scheduler import build_email_source_runtime_map, build_feed_runtime_map
 from app.scheduler import SchedulerService
 
 
@@ -115,6 +117,135 @@ def test_top_level_feed_uses_legacy_channel_keys_for_observe_mode(tmp_path):
     assert feed.source_class == "wire_service"
     assert feed.fetch_timeout_seconds == 20
     assert feed.channel_ids == ("111111111111111111",)
+
+
+def test_email_source_runtime_map_uses_configured_metadata(tmp_path):
+    path = tmp_path / "config.json"
+    path.write_text(
+        """
+        {
+          "version": 1,
+          "emailSources": [
+            {
+              "id": "email-news-inbox",
+              "name": "Email: News Inbox",
+              "matchAll": true,
+              "sourceId": "email-news",
+              "sourceClass": "newsletter",
+              "routingTags": ["news"],
+              "noMatchPolicy": "review",
+              "maxMessagesPerPoll": 100
+            }
+          ],
+          "channels": [
+            {
+              "key": "review",
+              "name": "Review",
+              "discordChannelId": "1511541774642843789"
+            }
+          ]
+        }
+        """,
+        encoding="utf-8",
+    )
+    config = load_config(path)
+    sources = build_email_source_runtime_map(config)
+    source = sources["email-news-inbox"]
+
+    assert source.source_id == "email-news"
+    assert source.source_class == "newsletter"
+    assert source.routing_tags == ("news",)
+    assert source.no_match_policy == "review"
+    assert source.max_messages_per_poll == 100
+
+
+def test_email_no_match_policy_routes_high_signal_to_review_channel():
+    scheduler = SchedulerService(db=object(), publisher=object())
+    scheduler.routing_mode = "enforced"
+    scheduler.channel_key_to_id = {"review": "1511541774642843789"}
+    source = EmailSourceRuntime(
+        feed_key="email-news-inbox",
+        display_name="Email: News Inbox",
+        imap_host_env="EMAIL_IMAP_HOST",
+        imap_port_env="EMAIL_IMAP_PORT",
+        username_env="EMAIL_USERNAME",
+        password_env="EMAIL_PASSWORD",
+        mailbox="INBOX",
+        from_contains=(),
+        list_id_contains=(),
+        subject_contains=(),
+        match_all=True,
+        url="imap://EMAIL_IMAP_HOST/INBOX/email-news-inbox",
+        normalized_url="imap://email_imap_host/INBOX/email-news-inbox",
+        interval_seconds=300,
+        channel_ids=(),
+        channel_keys=(),
+        no_match_policy="review",
+    )
+    decision = RoutingDecision(
+        content_mode="title_only",
+        matched_entries=(),
+        emitted_tags=(),
+        expanded_tags=(),
+        channel_scores=(),
+        selected_channel_keys=(),
+        decision_status="no_match",
+        top_score=0,
+        explanation=(),
+    )
+
+    candidate = SimpleNamespace(
+        title="ShinyHunters exploits Oracle PeopleSoft zero-day",
+        summary="Researchers say the cyber campaign targeted enterprise systems.",
+        url="https://cyberscoop.com/shinyhunters-oracle-peoplesoft-zero-day",
+        rich_metadata={"routing_summary": "Cybersecurity researchers described a zero-day exploitation campaign."},
+    )
+
+    assert scheduler._target_channel_ids((), decision, source, candidate) == ("1511541774642843789",)
+
+
+def test_email_no_match_policy_drops_low_signal_review_noise():
+    scheduler = SchedulerService(db=object(), publisher=object())
+    scheduler.routing_mode = "enforced"
+    scheduler.channel_key_to_id = {"review": "1511541774642843789"}
+    source = EmailSourceRuntime(
+        feed_key="email-news-inbox",
+        display_name="Email: News Inbox",
+        imap_host_env="EMAIL_IMAP_HOST",
+        imap_port_env="EMAIL_IMAP_PORT",
+        username_env="EMAIL_USERNAME",
+        password_env="EMAIL_PASSWORD",
+        mailbox="INBOX",
+        from_contains=(),
+        list_id_contains=(),
+        subject_contains=(),
+        match_all=True,
+        url="imap://EMAIL_IMAP_HOST/INBOX/email-news-inbox",
+        normalized_url="imap://email_imap_host/INBOX/email-news-inbox",
+        interval_seconds=300,
+        channel_ids=(),
+        channel_keys=(),
+        no_match_policy="review",
+    )
+    decision = RoutingDecision(
+        content_mode="title_only",
+        matched_entries=(),
+        emitted_tags=(),
+        expanded_tags=(),
+        channel_scores=(),
+        selected_channel_keys=(),
+        decision_status="no_match",
+        top_score=0,
+        explanation=(),
+    )
+    candidate = SimpleNamespace(
+        title="Weekly video recap",
+        summary="Register now for the next briefing.",
+        url="https://example.com/event",
+        rich_metadata={"email_low_signal": True},
+    )
+
+    assert scheduler._target_channel_ids((), decision, source, candidate) == ()
 
 
 def test_dvids_waf_challenge_retries_without_hour_long_backoff():

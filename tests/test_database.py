@@ -18,6 +18,7 @@ def make_candidate(
     source_id: str = "cbs",
     source_class: str = "major_media",
     feed_name: str = "CBS World",
+    rich_metadata: dict | None = None,
 ):
     return build_candidate(
         FeedEntry(
@@ -33,6 +34,7 @@ def make_candidate(
             parsed={},
             source_id=source_id,
             source_class=source_class,
+            rich_metadata=rich_metadata or {},
         ),
         TimestampSettings(),
         now=datetime(2026, 5, 28, tzinfo=UTC),
@@ -75,6 +77,16 @@ def test_channel_posts_are_unique(tmp_path: Path) -> None:
     assert db.record_channel_post(article.article_id, "111111111111111111", "m1") is True
     assert db.record_channel_post(article.article_id, "111111111111111111", "m2") is False
     assert db.record_channel_post(article.article_id, "222222222222222222", "m3") is True
+
+
+def test_email_cursor_persists_high_water_uid(tmp_path: Path) -> None:
+    db = Database(tmp_path / "rss.sqlite")
+    db.initialize()
+
+    assert db.email_cursor_uid("email-news-inbox", "INBOX") is None
+    db.update_email_cursor("email-news-inbox", "INBOX", "123")
+
+    assert db.email_cursor_uid("email-news-inbox", "INBOX") == "123"
 
 
 def test_channel_title_reservation_blocks_same_title_in_channel(tmp_path: Path) -> None:
@@ -200,6 +212,23 @@ def test_post_job_includes_article_image(tmp_path: Path) -> None:
     assert job.image_source == "media_thumbnail"
 
 
+def test_post_job_includes_rich_metadata(tmp_path: Path) -> None:
+    db = Database(tmp_path / "rss.sqlite")
+    db.initialize()
+    article = db.resolve_article(
+        make_candidate(
+            "Bluesky post",
+            "https://example.com/story",
+            "1",
+            rich_metadata={"social_url": "https://bsky.app/profile/example.com/post/abc"},
+        ),
+        24,
+    )
+    job = db.get_post_job(article.article_id, "111111111111111111")
+
+    assert job.rich_metadata == {"social_url": "https://bsky.app/profile/example.com/post/abc"}
+
+
 def test_initialize_migrates_existing_articles_with_image_columns(tmp_path: Path) -> None:
     db_path = tmp_path / "rss.sqlite"
     conn = sqlite3.connect(db_path)
@@ -233,6 +262,7 @@ def test_initialize_migrates_existing_articles_with_image_columns(tmp_path: Path
 
     assert "image_url" in columns
     assert "image_source" in columns
+    assert "rich_metadata" in columns
 
 
 def test_feed_status_success_and_failure_upsert_once_per_completion(tmp_path: Path) -> None:
