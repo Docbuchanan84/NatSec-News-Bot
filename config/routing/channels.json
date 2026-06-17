@@ -893,7 +893,8 @@
         "hypersonic_weapon": 5,
         "arms_control": 5,
         "missile_warning": 5,
-        "command_control": 2
+        "command_control": 2,
+        "nuclear_policy": 11
       },
       "tag_penalties": {
         "skip_candidate": 9,

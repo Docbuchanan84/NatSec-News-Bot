@@ -942,6 +942,12 @@
         "strategic_weapon"
       ],
       "description": "Missile warning, tracking, and integrated strategic warning."
+    },
+    "nuclear_policy": {
+      "parent_tags": [
+        "strategic_weapon"
+      ],
+      "description": "Nuclear policy and strategy coverage."
     }
   }
 }

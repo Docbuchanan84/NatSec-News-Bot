@@ -32,19 +32,22 @@ Structured routing is configured in `config/routing/` and documented in `docs/ro
 4. Validate the config:
 
    ```powershell
+   docker volume create rssbot-data
    docker compose run --rm rssbot python -m app.main --validate-config
+   docker compose run --rm rssbot python -m app.main --validate-routing
    ```
 
 5. Start the bot:
 
    ```powershell
-   docker compose up --build
+   docker compose up -d --build
+   docker compose logs -f rssbot
    ```
 
 Under Docker, the SQLite database lives in the `rssbot-data` Docker volume and survives restarts.
-Create it once before the first Docker run if it does not already exist:
+Create it once before the first Docker run if it does not already exist. The Compose file marks this volume as external so local state is never destroyed by recreating the service:
 
-```bash
+```powershell
 docker volume create rssbot-data
 ```
 
@@ -86,6 +89,8 @@ Then run this in Discord:
 ```
 
 If the config is invalid, the bot reports the errors and keeps the previous working config active.
+
+Routing destinations are configured separately. Add the destination channel under `channels`, then update `config/routing/channels.json` when the channel should receive routed stories by topic, source, or concept. Keep `settings.routing.mode` as `observe_only` while validating a new routing setup, then switch to enforced routing once `/rss route-test`, `/rss route-backtest`, and local validation look correct.
 
 ## Slash Commands
 
@@ -169,6 +174,7 @@ Validate routing config:
 
 ```powershell
 python -m app.main --validate-routing
+python -m app.main --routing-diagnostics
 ```
 
 Preview routing locally:

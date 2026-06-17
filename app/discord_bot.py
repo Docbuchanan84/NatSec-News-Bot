@@ -72,9 +72,8 @@ class DiscordPublisherAdapter(PublisherAdapter):
                     files = [discord.File(media.path, filename=media.filename) for media in prepared]
                     return await send(files=files, embed=text_embed, **send_kwargs)
         if job.image_url:
-            media_embed = discord.Embed(url=_social_post_url(job) or job.url)
-            media_embed.set_image(url=job.image_url)
-            return await send(embeds=[media_embed, text_embed], **send_kwargs)
+            text_embed.set_image(url=job.image_url)
+            return await send(embed=text_embed, **send_kwargs)
         return await send(embed=text_embed, **send_kwargs)
 
 

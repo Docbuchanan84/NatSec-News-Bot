@@ -455,6 +455,25 @@ def test_nuclear_arms_route_to_strategic_weapons(tmp_path: Path) -> None:
     assert "strategic-weapons" in decision.selected_channel_keys
 
 
+def test_nuclear_policy_newsletter_routes_to_strategic_weapons() -> None:
+    decision = production_engine().route(
+        RoutingArticle(
+            title="Nuclear Policy News - June 17, 2026",
+            summary=(
+                "Your daily briefing of the nuclear policy news and analysis.\n"
+                "CSIS Defense and Security Department will be hosting its annual Global Security Forum.\n"
+                "The German Marshall Fund has launched NEXUS for nuclear issues in Washington DC."
+            ),
+            source_name="Email: News Inbox",
+            source_id="email-news",
+            source_class="newsletter",
+        )
+    )
+
+    assert "strategic-weapons" in decision.final_channel_keys
+    assert "europe" not in decision.primary_channel_keys
+
+
 def test_icbm_routes_to_strategic_weapons(tmp_path: Path) -> None:
     decision = engine(tmp_path).route(RoutingArticle(title="North Korea tests ICBM"))
     assert "strategic-weapons" in decision.selected_channel_keys
@@ -519,6 +538,20 @@ def test_defense_contract_routes_industrial_base() -> None:
         RoutingArticle(title="Lockheed wins Pentagon contract for missile interceptors", source_name="Defense News Industry")
     )
     assert "industrial-base" in decision.selected_channel_keys
+
+
+def test_official_dow_contract_awards_route_industrial_base() -> None:
+    decision = production_engine().route(
+        RoutingArticle(
+            title="Contracts for June 15, 2026",
+            summary="Today's Department of War contracts valued at $7.5 million or more are now live on War.gov.",
+            source_name="Defense.gov Contracts",
+            source_id="defense-gov",
+            source_class="official_us_defense",
+        )
+    )
+
+    assert "industrial-base" in decision.final_channel_keys
 
 
 def test_generic_procurement_does_not_route_industrial_base() -> None:
