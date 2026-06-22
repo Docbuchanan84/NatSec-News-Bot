@@ -49,6 +49,7 @@ Edit `config/config.json`:
 - Replace every example `discordChannelId` with a real Discord channel ID.
 - Add, remove, or rename channels under `channels`.
 - Add RSS/Atom feeds under the top-level `feeds` list. Each feed should have a stable `id`, `sourceId`, `sourceClass`, `name`, `url`, and `routePolicy`.
+- RSS and email ingest run independently. Use `settings.polling.maxConcurrentFeedFetches` for RSS parallelism and `settings.polling.maxConcurrentEmailFetches` for email parallelism.
 - Use `legacyChannelKeys` only when a feed should still target a destination directly while routing is being tested.
 - Routing rules live in `config/routing/`. Start with `settings.routing.mode` set to `observe_only`, validate the scoring, then switch to enforced routing when ready.
 - Leave `postOldArticlesOnFirstRun` as `false` unless you want the bot to post older feed entries on first startup.

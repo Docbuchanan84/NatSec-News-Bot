@@ -230,6 +230,13 @@ def _parse_settings(raw: dict[str, Any], errors: list[str]) -> Settings:
             min_value=1,
             max_value=100,
         ),
+        max_concurrent_email_fetches=_int(
+            polling_raw.get("maxConcurrentEmailFetches", 4),
+            "settings.polling.maxConcurrentEmailFetches",
+            errors,
+            min_value=1,
+            max_value=50,
+        ),
         post_old_articles_on_first_run=_bool(
             polling_raw.get("postOldArticlesOnFirstRun", False),
             "settings.polling.postOldArticlesOnFirstRun",

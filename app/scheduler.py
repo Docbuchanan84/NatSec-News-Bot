@@ -32,6 +32,12 @@ class RefreshSummary:
     errors: int = 0
 
 
+@dataclass(frozen=True)
+class FetchBatchResult:
+    results: tuple[FeedFetchResult, ...] = ()
+    errors: int = 0
+
+
 class SchedulerService:
     def __init__(self, db: Database, publisher: PublisherService) -> None:
         self.db = db
@@ -47,10 +53,14 @@ class SchedulerService:
         self._host_locks: dict[str, asyncio.Lock] = {}
         self._host_next_available: dict[str, datetime] = {}
         self._task: asyncio.Task[None] | None = None
+        self._email_task: asyncio.Task[None] | None = None
+        self._processor_task: asyncio.Task[None] | None = None
         self._maintenance_task: asyncio.Task[None] | None = None
+        self._result_queue: asyncio.Queue[FeedFetchResult] | None = None
         self._session: aiohttp.ClientSession | None = None
         self._stopping = False
         self._idle_sleep_seconds = 5
+        self._result_queue_size = 500
         self._next_maintenance_at = datetime.now(UTC) + timedelta(hours=2)
 
     def configure(self, config: AppConfig) -> None:
@@ -118,22 +128,43 @@ class SchedulerService:
         )
 
     def start(self) -> None:
+        self._stopping = False
+        if self._result_queue is None:
+            self._result_queue = asyncio.Queue(maxsize=self._result_queue_size)
+        if self._processor_task is None or self._processor_task.done():
+            self._processor_task = asyncio.create_task(self._process_results_loop())
         if self._task is None or self._task.done():
-            self._stopping = False
-            self._task = asyncio.create_task(self._run())
+            self._task = asyncio.create_task(self._run_rss_loop())
+        if self._email_task is None or self._email_task.done():
+            self._email_task = asyncio.create_task(self._run_email_loop())
 
     async def shutdown(self) -> None:
         logger.info("Scheduler shutdown requested")
         self._stopping = True
-        if self._task:
-            self._task.cancel()
-            await asyncio.gather(self._task, return_exceptions=True)
-            self._task = None
+        poll_tasks = [task for task in (self._task, self._email_task) if task is not None]
+        for task in poll_tasks:
+            task.cancel()
+        if poll_tasks:
+            await asyncio.gather(*poll_tasks, return_exceptions=True)
+        self._task = None
+        self._email_task = None
+        if self._result_queue is not None:
+            try:
+                await asyncio.wait_for(
+                    self._result_queue.join(),
+                    timeout=(self.config.settings.publishing.shutdown_drain_seconds if self.config else 20),
+                )
+            except asyncio.TimeoutError:
+                logger.warning("Scheduler result processing timed out with queued results still pending")
+        if self._processor_task:
+            self._processor_task.cancel()
+            await asyncio.gather(self._processor_task, return_exceptions=True)
+            self._processor_task = None
         if self._maintenance_task and not self._maintenance_task.done():
             await asyncio.gather(self._maintenance_task, return_exceptions=True)
         self._maintenance_task = None
 
-    async def _run(self) -> None:
+    async def _run_rss_loop(self) -> None:
         async with self._new_client_session() as session:
             self._session = session
             try:
@@ -142,38 +173,96 @@ class SchedulerService:
                         await asyncio.sleep(1)
                         continue
                     now = datetime.now(UTC)
-                    due_feeds = [
-                        feed for feed_key, feed in self.feeds.items() if self._next_due.get(feed_key, now) <= now
-                    ]
-                    due_email_sources = [
-                        source
-                        for source_key, source in self.email_sources.items()
-                        if self._next_due.get(source_key, now) <= now
-                    ]
-                    if due_email_sources:
-                        await self.poll_email_sources(due_email_sources)
+                    due_feeds = self._due_feeds(now)
                     if due_feeds:
-                        await self.poll_feeds(due_feeds)
-                    if due_feeds or due_email_sources:
+                        batch = await self._fetch_feeds(due_feeds)
+                        await self._enqueue_results(batch.results)
                         self._maybe_prune_runtime_history()
-                    await asyncio.sleep(self._seconds_until_next_poll())
+                    await asyncio.sleep(self._seconds_until_next_poll(self.feeds))
             except asyncio.CancelledError:
-                logger.info("Scheduler loop cancelled")
+                logger.info("RSS scheduler loop cancelled")
                 raise
             finally:
                 self._session = None
 
-    def _seconds_until_next_poll(self) -> float:
-        if not self._next_due:
+    async def _run_email_loop(self) -> None:
+        try:
+            while not self._stopping:
+                if not self.config:
+                    await asyncio.sleep(1)
+                    continue
+                now = datetime.now(UTC)
+                due_email_sources = self._due_email_sources(now)
+                if due_email_sources:
+                    batch = await self._fetch_email_sources(due_email_sources)
+                    await self._enqueue_results(batch.results)
+                    self._maybe_prune_runtime_history()
+                await asyncio.sleep(self._seconds_until_next_poll(self.email_sources))
+        except asyncio.CancelledError:
+            logger.info("Email scheduler loop cancelled")
+            raise
+
+    def _seconds_until_next_poll(self, sources: dict[str, object]) -> float:
+        if not sources:
             return float(self._idle_sleep_seconds)
         now = datetime.now(UTC)
-        next_due = min(self._next_due.values())
+        next_due = min(self._next_due.get(source_key, now) for source_key in sources)
         return max(1.0, min(float(self._idle_sleep_seconds), (next_due - now).total_seconds()))
+
+    def _due_feeds(self, now: datetime) -> list[FeedRuntime]:
+        return [
+            feed for feed_key, feed in self.feeds.items() if self._next_due.get(feed_key, now) <= now
+        ]
+
+    def _due_email_sources(self, now: datetime) -> list[EmailSourceRuntime]:
+        return [
+            source
+            for source_key, source in self.email_sources.items()
+            if self._next_due.get(source_key, now) <= now
+        ]
 
     def next_poll_at(self) -> datetime | None:
         if not self._next_due:
             return None
         return min(self._next_due.values())
+
+    async def _enqueue_results(self, results: tuple[FeedFetchResult, ...]) -> None:
+        if not results:
+            return
+        if self._result_queue is None:
+            self._result_queue = asyncio.Queue(maxsize=self._result_queue_size)
+        for result in results:
+            await self._result_queue.put(result)
+
+    async def _process_results_loop(self) -> None:
+        try:
+            while not self._stopping or (self._result_queue is not None and not self._result_queue.empty()):
+                if self._result_queue is None:
+                    await asyncio.sleep(1)
+                    continue
+                try:
+                    result = await asyncio.wait_for(self._result_queue.get(), timeout=1)
+                except asyncio.TimeoutError:
+                    continue
+                try:
+                    await self._process_queued_result(result)
+                finally:
+                    self._result_queue.task_done()
+        except asyncio.CancelledError:
+            logger.info("Scheduler result processor cancelled")
+            raise
+
+    async def _process_queued_result(self, result: FeedFetchResult) -> RefreshSummary:
+        try:
+            return await self._process_feed_result(result)
+        except Exception:
+            logger.exception("Queued source processing failed for %s", result.feed.display_name)
+            audit_logger.exception(
+                "queued_source_processing_exception source_key=%s source_name=%r",
+                result.feed.feed_key,
+                result.feed.display_name,
+            )
+            return RefreshSummary(errors=1)
 
     async def refresh_channel(self, channel_id: str) -> RefreshSummary:
         feed_keys = self.channel_to_feed_keys.get(channel_id)
@@ -231,30 +320,44 @@ class SchedulerService:
         return stats
 
     async def poll_feeds(self, feeds: list[FeedRuntime]) -> RefreshSummary:
+        batch = await self._fetch_feeds(feeds)
+        summary = RefreshSummary(errors=batch.errors)
+        for result in batch.results:
+            summary = _combine(summary, await self._process_queued_result(result))
+        return summary
+
+    async def _fetch_feeds(self, feeds: list[FeedRuntime]) -> FetchBatchResult:
         if not self.config or not feeds:
-            return RefreshSummary()
+            return FetchBatchResult()
         feed_service = FeedService(
             timeout_seconds=self.config.settings.polling.fetch_timeout_seconds,
             max_entries_per_feed=self.config.settings.polling.max_entries_per_feed,
         )
         semaphore = asyncio.Semaphore(self.config.settings.polling.max_concurrent_feed_fetches)
-        summary = RefreshSummary()
 
         session = self._session
         if session is not None and not session.closed:
-            return await self._poll_feeds_with_session(session, feed_service, semaphore, feeds, summary)
+            return await self._fetch_feeds_with_session(session, feeds, feed_service, semaphore)
         async with self._new_client_session() as temp_session:
-            return await self._poll_feeds_with_session(temp_session, feed_service, semaphore, feeds, summary)
+            return await self._fetch_feeds_with_session(temp_session, feeds, feed_service, semaphore)
 
     async def poll_email_sources(self, sources: list[EmailSourceRuntime]) -> RefreshSummary:
+        batch = await self._fetch_email_sources(sources)
+        summary = RefreshSummary(errors=batch.errors)
+        for result in batch.results:
+            summary = _combine(summary, await self._process_queued_result(result))
+        return summary
+
+    async def _fetch_email_sources(self, sources: list[EmailSourceRuntime]) -> FetchBatchResult:
         if not self.config or not sources:
-            return RefreshSummary()
+            return FetchBatchResult()
         email_service = EmailIngestService(
             timeout_seconds=self.config.settings.polling.fetch_timeout_seconds,
             max_messages_per_source=self.config.settings.polling.max_entries_per_feed,
         )
-        semaphore = asyncio.Semaphore(self.config.settings.polling.max_concurrent_feed_fetches)
-        summary = RefreshSummary()
+        semaphore = asyncio.Semaphore(self.config.settings.polling.max_concurrent_email_fetches)
+        results: list[FeedFetchResult] = []
+        errors = 0
         tasks = [
             asyncio.create_task(self._fetch_email_with_status(email_service, semaphore, source))
             for source in sources
@@ -264,45 +367,35 @@ class SchedulerService:
                 try:
                     result = await completed
                 except FeedFetchError:
-                    summary = _merge(summary, errors=1)
+                    errors += 1
                     continue
                 except Exception:
                     logger.exception("Unexpected email source fetch task failure")
                     audit_logger.exception("email_source_task_exception")
-                    summary = _merge(summary, errors=1)
+                    errors += 1
                     continue
-                try:
-                    source_summary = await self._process_feed_result(result)
-                except Exception:
-                    logger.exception("Email source processing failed for %s", result.feed.display_name)
-                    audit_logger.exception(
-                        "email_source_processing_exception source_key=%s source_name=%r",
-                        result.feed.feed_key,
-                        result.feed.display_name,
-                    )
-                    summary = _merge(summary, errors=1)
-                    continue
-                summary = _combine(summary, source_summary)
+                results.append(result)
         finally:
             pending = [task for task in tasks if not task.done()]
             for task in pending:
                 task.cancel()
             if pending:
                 await asyncio.gather(*pending, return_exceptions=True)
-        return summary
+        return FetchBatchResult(results=tuple(results), errors=errors)
 
     def _new_client_session(self) -> aiohttp.ClientSession:
         connector = aiohttp.TCPConnector(limit=64, limit_per_host=4, ttl_dns_cache=300)
         return aiohttp.ClientSession(max_field_size=32768, connector=connector)
 
-    async def _poll_feeds_with_session(
+    async def _fetch_feeds_with_session(
         self,
         session: aiohttp.ClientSession,
+        feeds: list[FeedRuntime],
         feed_service: FeedService,
         semaphore: asyncio.Semaphore,
-        feeds: list[FeedRuntime],
-        summary: RefreshSummary,
-    ) -> RefreshSummary:
+    ) -> FetchBatchResult:
+        results: list[FeedFetchResult] = []
+        errors = 0
         tasks = [
             asyncio.create_task(self._fetch_with_status(session, feed_service, semaphore, feed))
             for feed in feeds
@@ -312,32 +405,21 @@ class SchedulerService:
                 try:
                     result = await completed
                 except FeedFetchError:
-                    summary = _merge(summary, errors=1)
+                    errors += 1
                     continue
                 except Exception:
                     logger.exception("Unexpected feed fetch task failure")
                     audit_logger.exception("feed_task_exception")
-                    summary = _merge(summary, errors=1)
+                    errors += 1
                     continue
-                try:
-                    feed_summary = await self._process_feed_result(result)
-                except Exception:
-                    logger.exception("Feed processing failed for %s", result.feed.display_name)
-                    audit_logger.exception(
-                        "feed_processing_exception feed_key=%s feed_name=%r",
-                        result.feed.feed_key,
-                        result.feed.display_name,
-                    )
-                    summary = _merge(summary, errors=1)
-                    continue
-                summary = _combine(summary, feed_summary)
+                results.append(result)
         finally:
             pending = [task for task in tasks if not task.done()]
             for task in pending:
                 task.cancel()
             if pending:
                 await asyncio.gather(*pending, return_exceptions=True)
-        return summary
+        return FetchBatchResult(results=tuple(results), errors=errors)
 
     async def _fetch_with_status(
         self,

@@ -4,13 +4,21 @@ import time
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 
+import asyncio
 import pytest
 
 from app.config_loader import load_config
-from app.feed_fetcher import FeedFetchError
-from app.models import AppConfig, EmailSourceRuntime, FailureBackoffSettings, FeedRuntime, MaintenanceSettings, Settings
+from app.feed_fetcher import FeedFetchError, FeedFetchResult
+from app.models import (
+    AppConfig,
+    EmailSourceRuntime,
+    FailureBackoffSettings,
+    FeedRuntime,
+    MaintenanceSettings,
+    Settings,
+)
 from app.routing.models import RoutingDecision
-from app.scheduler import build_email_source_runtime_map, build_feed_runtime_map
+from app.scheduler import FetchBatchResult, RefreshSummary, build_email_source_runtime_map, build_feed_runtime_map
 from app.scheduler import SchedulerService
 
 
@@ -39,6 +47,39 @@ class FakeMaintenanceDb:
 
     def optimize(self) -> None:
         self.optimize_calls += 1
+
+
+def make_feed_runtime(feed_key: str = "feed-1") -> FeedRuntime:
+    return FeedRuntime(
+        feed_key=feed_key,
+        display_name=f"Feed {feed_key}",
+        url=f"https://example.com/{feed_key}.xml",
+        normalized_url=f"https://example.com/{feed_key}.xml",
+        interval_seconds=300,
+        channel_ids=("111111111111111111",),
+        channel_keys=("middle-east",),
+    )
+
+
+def make_email_runtime(feed_key: str = "email-news-inbox") -> EmailSourceRuntime:
+    return EmailSourceRuntime(
+        feed_key=feed_key,
+        display_name="Email: News Inbox",
+        imap_host_env="EMAIL_IMAP_HOST",
+        imap_port_env="EMAIL_IMAP_PORT",
+        username_env="EMAIL_USERNAME",
+        password_env="EMAIL_PASSWORD",
+        mailbox="INBOX",
+        from_contains=(),
+        list_id_contains=(),
+        subject_contains=(),
+        match_all=True,
+        url=f"imap://EMAIL_IMAP_HOST/INBOX/{feed_key}",
+        normalized_url=f"imap://email_imap_host/INBOX/{feed_key}",
+        interval_seconds=300,
+        channel_ids=(),
+        channel_keys=(),
+    )
 
 
 def test_same_feed_under_two_channels_is_one_runtime_feed(tmp_path):
@@ -246,6 +287,113 @@ def test_email_no_match_policy_drops_low_signal_review_noise():
     )
 
     assert scheduler._target_channel_ids((), decision, source, candidate) == ()
+
+
+@pytest.mark.asyncio
+async def test_email_loop_runs_while_rss_fetch_is_slow(monkeypatch):
+    scheduler = SchedulerService(db=object(), publisher=object())
+    scheduler.config = AppConfig(
+        version=1,
+        bot=object(),
+        discord=object(),
+        settings=Settings(maintenance=MaintenanceSettings(enabled=False)),
+        feeds=(),
+        channels=(),
+        raw={},
+    )
+    scheduler.feeds = {"feed-1": make_feed_runtime("feed-1")}
+    scheduler.email_sources = {"email-news-inbox": make_email_runtime("email-news-inbox")}
+    scheduler._next_due = {key: datetime.now(UTC) for key in (*scheduler.feeds, *scheduler.email_sources)}
+    events: list[str] = []
+
+    async def slow_fetch_feeds(_feeds):
+        events.append("rss-start")
+        await asyncio.sleep(0.2)
+        events.append("rss-done")
+        return FetchBatchResult()
+
+    async def fast_fetch_email(_sources):
+        events.append("email")
+        scheduler._stopping = True
+        return FetchBatchResult()
+
+    monkeypatch.setattr(scheduler, "_fetch_feeds", slow_fetch_feeds)
+    monkeypatch.setattr(scheduler, "_fetch_email_sources", fast_fetch_email)
+
+    scheduler.start()
+    await asyncio.sleep(0.05)
+
+    assert "email" in events
+    assert "rss-done" not in events
+    await scheduler.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_rss_loop_runs_while_email_fetch_is_slow(monkeypatch):
+    scheduler = SchedulerService(db=object(), publisher=object())
+    scheduler.config = AppConfig(
+        version=1,
+        bot=object(),
+        discord=object(),
+        settings=Settings(maintenance=MaintenanceSettings(enabled=False)),
+        feeds=(),
+        channels=(),
+        raw={},
+    )
+    scheduler.feeds = {"feed-1": make_feed_runtime("feed-1")}
+    scheduler.email_sources = {"email-news-inbox": make_email_runtime("email-news-inbox")}
+    scheduler._next_due = {key: datetime.now(UTC) for key in (*scheduler.feeds, *scheduler.email_sources)}
+    events: list[str] = []
+
+    async def fast_fetch_feeds(_feeds):
+        events.append("rss")
+        scheduler._stopping = True
+        return FetchBatchResult()
+
+    async def slow_fetch_email(_sources):
+        events.append("email-start")
+        await asyncio.sleep(0.2)
+        events.append("email-done")
+        return FetchBatchResult()
+
+    monkeypatch.setattr(scheduler, "_fetch_feeds", fast_fetch_feeds)
+    monkeypatch.setattr(scheduler, "_fetch_email_sources", slow_fetch_email)
+
+    scheduler.start()
+    await asyncio.sleep(0.05)
+
+    assert "rss" in events
+    assert "email-done" not in events
+    await scheduler.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_fetch_results_are_processed_from_shared_queue(monkeypatch):
+    scheduler = SchedulerService(db=object(), publisher=object())
+    scheduler.config = AppConfig(
+        version=1,
+        bot=object(),
+        discord=object(),
+        settings=Settings(maintenance=MaintenanceSettings(enabled=False)),
+        feeds=(),
+        channels=(),
+        raw={},
+    )
+    processed: list[str] = []
+    result = FeedFetchResult(feed=make_feed_runtime("feed-1"), entries=())
+
+    async def process_result(fetch_result):
+        processed.append(fetch_result.feed.feed_key)
+        return RefreshSummary(feeds_checked=1)
+
+    monkeypatch.setattr(scheduler, "_process_queued_result", process_result)
+
+    scheduler.start()
+    await scheduler._enqueue_results((result,))
+    await asyncio.wait_for(scheduler._result_queue.join(), timeout=1)
+    await scheduler.shutdown()
+
+    assert processed == ["feed-1"]
 
 
 def test_dvids_waf_challenge_retries_without_hour_long_backoff():

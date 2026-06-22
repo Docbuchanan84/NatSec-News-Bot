@@ -23,6 +23,7 @@ class PollingSettings:
     fetch_timeout_seconds: int = 10
     max_entries_per_feed: int = 30
     max_concurrent_feed_fetches: int = 10
+    max_concurrent_email_fetches: int = 4
     post_old_articles_on_first_run: bool = False
 
 

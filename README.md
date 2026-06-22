@@ -53,6 +53,12 @@ docker volume create rssbot-data
 
 Detailed audit and error logs can be enabled in `config/config.json` under `settings.logging`.
 
+## Ingest Scheduling
+
+RSS feeds and email sources run in independent async scheduler lanes. A slow RSS batch does not block email polling, and a slow email mailbox does not block RSS polling. Fetched items from all source types then flow through a shared result processor so dedupe, routing, database writes, and Discord publishing keep using the same article pipeline.
+
+Tune RSS fetch parallelism with `settings.polling.maxConcurrentFeedFetches`. Tune email fetch parallelism separately with `settings.polling.maxConcurrentEmailFetches` (default `4`) so mailbox checks can stay fast without changing RSS pressure on external servers.
+
 ## Native Local Run
 
 ```powershell
@@ -134,8 +140,9 @@ Privileged message content intent is not required.
 - First run defaults to suppressing old visible feed entries. They are marked seen so the bot does not dump a backlog into Discord.
 - Articles are deduplicated globally using normalized URLs, feed GUIDs, and normalized title/source fingerprints.
 - `channel_posts` enforces one successful post per article per Discord channel.
-- Feed fetching is asynchronous with bounded concurrency and per-feed timeouts.
-- The scheduler reuses one HTTP session during normal operation to reduce connection churn.
+- Feed and email fetching are asynchronous with bounded per-source concurrency and per-source timeouts.
+- RSS and email polling use independent scheduler lanes and a shared result processor, so one source class does not wait behind another during normal operation.
+- The RSS scheduler reuses one HTTP session during normal operation to reduce connection churn.
 - Feed health writes are recorded once per completed fetch instead of once at attempt start plus once at completion.
 - Chronic feed failures back off automatically so dead RSS endpoints do not keep consuming fetch slots every cycle.
 - Publishing uses one queue per configured Discord channel so one busy channel does not block another.

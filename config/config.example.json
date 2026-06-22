@@ -13,6 +13,7 @@
       "fetchTimeoutSeconds": 10,
       "maxEntriesPerFeed": 30,
       "maxConcurrentFeedFetches": 10,
+      "maxConcurrentEmailFetches": 4,
       "postOldArticlesOnFirstRun": false
     },
     "failureBackoff": {
