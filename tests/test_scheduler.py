@@ -356,7 +356,7 @@ async def test_rss_loop_runs_while_email_fetch_is_slow(monkeypatch):
         events.append("email-done")
         return FetchBatchResult()
 
-    monkeypatch.setattr(scheduler, "_fetch_feeds", fast_fetch_feeds)
+    monkeypatch.setattr(scheduler, "_fetch_and_enqueue_feeds", fast_fetch_feeds)
     monkeypatch.setattr(scheduler, "_fetch_email_sources", slow_fetch_email)
 
     scheduler.start()

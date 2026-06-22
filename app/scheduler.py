@@ -175,8 +175,7 @@ class SchedulerService:
                     now = datetime.now(UTC)
                     due_feeds = self._due_feeds(now)
                     if due_feeds:
-                        batch = await self._fetch_feeds(due_feeds)
-                        await self._enqueue_results(batch.results)
+                        await self._fetch_and_enqueue_feeds(due_feeds)
                         self._maybe_prune_runtime_history()
                     await asyncio.sleep(self._seconds_until_next_poll(self.feeds))
             except asyncio.CancelledError:
@@ -340,6 +339,53 @@ class SchedulerService:
             return await self._fetch_feeds_with_session(session, feeds, feed_service, semaphore)
         async with self._new_client_session() as temp_session:
             return await self._fetch_feeds_with_session(temp_session, feeds, feed_service, semaphore)
+
+    async def _fetch_and_enqueue_feeds(self, feeds: list[FeedRuntime]) -> FetchBatchResult:
+        if not self.config or not feeds:
+            return FetchBatchResult()
+        feed_service = FeedService(
+            timeout_seconds=self.config.settings.polling.fetch_timeout_seconds,
+            max_entries_per_feed=self.config.settings.polling.max_entries_per_feed,
+        )
+        semaphore = asyncio.Semaphore(self.config.settings.polling.max_concurrent_feed_fetches)
+        session = self._session
+        if session is not None and not session.closed:
+            return await self._fetch_and_enqueue_feeds_with_session(session, feeds, feed_service, semaphore)
+        async with self._new_client_session() as temp_session:
+            return await self._fetch_and_enqueue_feeds_with_session(temp_session, feeds, feed_service, semaphore)
+
+    async def _fetch_and_enqueue_feeds_with_session(
+        self,
+        session: aiohttp.ClientSession,
+        feeds: list[FeedRuntime],
+        feed_service: FeedService,
+        semaphore: asyncio.Semaphore,
+    ) -> FetchBatchResult:
+        errors = 0
+        tasks = [
+            asyncio.create_task(self._fetch_with_status(session, feed_service, semaphore, feed))
+            for feed in feeds
+        ]
+        try:
+            for completed in asyncio.as_completed(tasks):
+                try:
+                    result = await completed
+                except FeedFetchError:
+                    errors += 1
+                    continue
+                except Exception:
+                    logger.exception("Unexpected feed fetch task failure")
+                    audit_logger.exception("feed_task_exception")
+                    errors += 1
+                    continue
+                await self._enqueue_results((result,))
+        finally:
+            pending = [task for task in tasks if not task.done()]
+            for task in pending:
+                task.cancel()
+            if pending:
+                await asyncio.gather(*pending, return_exceptions=True)
+        return FetchBatchResult(errors=errors)
 
     async def poll_email_sources(self, sources: list[EmailSourceRuntime]) -> RefreshSummary:
         batch = await self._fetch_email_sources(sources)
