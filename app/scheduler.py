@@ -22,6 +22,8 @@ from app.routing.models import RoutingArticle, RoutingDecision
 logger = logging.getLogger(__name__)
 audit_logger = logging.getLogger("app.audit")
 
+BACKGROUND_FEED_BATCH_MULTIPLIER = 8
+
 
 @dataclass(frozen=True)
 class RefreshSummary:
@@ -209,9 +211,24 @@ class SchedulerService:
         return max(1.0, min(float(self._idle_sleep_seconds), (next_due - now).total_seconds()))
 
     def _due_feeds(self, now: datetime) -> list[FeedRuntime]:
-        return [
+        due_feeds = [
             feed for feed_key, feed in self.feeds.items() if self._next_due.get(feed_key, now) <= now
         ]
+        due_feeds.sort(
+            key=lambda feed: (
+                feed.interval_seconds,
+                _is_low_priority_backlog_host(feed),
+                self._next_due.get(feed.feed_key, now),
+                feed.feed_key,
+            )
+        )
+        if self.config:
+            batch_size = max(
+                1,
+                self.config.settings.polling.max_concurrent_feed_fetches * BACKGROUND_FEED_BATCH_MULTIPLIER,
+            )
+            return due_feeds[:batch_size]
+        return due_feeds
 
     def _due_email_sources(self, now: datetime) -> list[EmailSourceRuntime]:
         return [
@@ -1016,6 +1033,10 @@ def build_email_source_runtime_map(config: AppConfig) -> dict[str, EmailSourceRu
             priority=source.priority,
         )
     return sources
+
+
+def _is_low_priority_backlog_host(feed: FeedRuntime) -> bool:
+    return urlparse(feed.url).netloc.casefold() == "www.dvidshub.net"
 
 
 def _dedupe_channel_ids(channel_ids: tuple[str, ...]) -> tuple[str, ...]:

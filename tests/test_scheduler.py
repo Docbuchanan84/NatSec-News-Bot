@@ -49,13 +49,19 @@ class FakeMaintenanceDb:
         self.optimize_calls += 1
 
 
-def make_feed_runtime(feed_key: str = "feed-1") -> FeedRuntime:
+def make_feed_runtime(
+    feed_key: str = "feed-1",
+    *,
+    url: str | None = None,
+    interval_seconds: int = 300,
+) -> FeedRuntime:
+    feed_url = url or f"https://example.com/{feed_key}.xml"
     return FeedRuntime(
         feed_key=feed_key,
         display_name=f"Feed {feed_key}",
-        url=f"https://example.com/{feed_key}.xml",
-        normalized_url=f"https://example.com/{feed_key}.xml",
-        interval_seconds=300,
+        url=feed_url,
+        normalized_url=feed_url,
+        interval_seconds=interval_seconds,
         channel_ids=("111111111111111111",),
         channel_keys=("middle-east",),
     )
@@ -80,6 +86,43 @@ def make_email_runtime(feed_key: str = "email-news-inbox") -> EmailSourceRuntime
         channel_ids=(),
         channel_keys=(),
     )
+
+
+def test_due_feeds_are_bounded_and_prioritize_short_interval_feeds():
+    scheduler = SchedulerService(db=object(), publisher=object())
+    scheduler.config = AppConfig(
+        version=1,
+        bot=object(),
+        discord=object(),
+        settings=Settings(),
+        feeds=(),
+        channels=(),
+        raw={},
+    )
+    now = datetime.now(UTC)
+    hourly_dvids = {
+        f"dvids-{index}": make_feed_runtime(
+            f"dvids-{index}",
+            url=f"https://www.dvidshub.net/rss/unit/{index}",
+            interval_seconds=3600,
+        )
+        for index in range(100)
+    }
+    regular = make_feed_runtime(
+        "regular-feed",
+        url="https://example.com/regular-feed.xml",
+        interval_seconds=300,
+    )
+    scheduler.feeds = {**hourly_dvids, regular.feed_key: regular}
+    scheduler._next_due = {
+        feed_key: now - timedelta(hours=1) for feed_key in hourly_dvids
+    }
+    scheduler._next_due[regular.feed_key] = now - timedelta(minutes=1)
+
+    due = scheduler._due_feeds(now)
+
+    assert len(due) == 80
+    assert due[0].feed_key == "regular-feed"
 
 
 def test_same_feed_under_two_channels_is_one_runtime_feed(tmp_path):
