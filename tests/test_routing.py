@@ -602,6 +602,60 @@ def test_official_dod_source_can_route_dept_of_war() -> None:
     assert "dept-of-war" in decision.final_channel_keys
 
 
+def test_dvids_routes_to_dvids_mirror_not_dept_of_war() -> None:
+    decision = production_engine().route(
+        RoutingArticle(
+            title="Army sustainment brigade opens logistics hub during joint exercise",
+            source_name="DVIDS",
+            source_id="dvids",
+            source_class="official_us_defense",
+        )
+    )
+    assert "dvids" in decision.mirror_channel_keys
+    assert "dept-of-war" not in decision.mirror_channel_keys
+    assert "dvids" in decision.final_channel_keys
+
+
+def test_dvids_current_war_routes_region_without_dvids_mirror() -> None:
+    decision = production_engine().route(
+        RoutingArticle(
+            title="Russia launches missile attack on Kyiv as Ukraine war intensifies",
+            source_name="DVIDS",
+            source_id="dvids",
+            source_class="official_us_defense",
+        )
+    )
+    assert "europe" in decision.primary_channel_keys
+    assert "dvids" not in decision.mirror_channel_keys
+    assert "dept-of-war" not in decision.mirror_channel_keys
+
+
+def test_defense_media_current_war_routes_region_without_defense_media_mirror() -> None:
+    decision = production_engine().route(
+        RoutingArticle(
+            title="Russia launches missile attack on Kyiv as Ukraine war intensifies",
+            source_name="Defense News",
+            source_id="defense-news",
+            source_class="defense_media",
+        )
+    )
+    assert "europe" in decision.primary_channel_keys
+    assert "defense-media" not in decision.mirror_channel_keys
+
+
+def test_defense_media_non_conflict_still_mirrors_defense_media() -> None:
+    decision = production_engine().route(
+        RoutingArticle(
+            title="Defense One reports Pentagon contract for Patriot missile defense radar modernization",
+            source_name="Defense One",
+            source_id="defense-one",
+            source_class="defense_media",
+        )
+    )
+    assert "defense-media" in decision.mirror_channel_keys
+    assert "defense-media" in decision.final_channel_keys
+
+
 def test_no_match_drops_source_mirror() -> None:
     decision = production_engine().route(
         RoutingArticle(

@@ -1268,6 +1268,9 @@
       "required_source_classes": [
         "official_us_defense"
       ],
+      "excluded_source_ids": [
+        "dvids"
+      ],
       "profile": "source_mirror"
     },
     {
@@ -1278,7 +1281,23 @@
         "defense_media",
         "osint"
       ],
-      "notes": " Source mirror; added after primary routing and never for skipped/no-match items.",
+      "excluded_tags": [
+        "active_conflict"
+      ],
+      "notes": "Defense media and OSINT outlets only. Current-war coverage routes by region/topic and does not mirror here. Source mirror; added after primary routing and never for skipped/no-match items.",
+      "profile": "source_mirror"
+    },
+    {
+      "channel_key": "dvids",
+      "priority": 70,
+      "destination_class": "mirror",
+      "required_source_ids": [
+        "dvids"
+      ],
+      "excluded_tags": [
+        "active_conflict"
+      ],
+      "notes": "DVIDS source mirror. Current-war coverage routes by region/topic and does not mirror here.",
       "profile": "source_mirror"
     },
     {
