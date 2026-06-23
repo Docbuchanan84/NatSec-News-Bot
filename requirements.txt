@@ -2,6 +2,7 @@ aiohttp>=3.9,<4
 discord.py>=2.4,<3
 feedparser>=6.0,<7
 Pillow>=10.0,<12
+pypdf>=4.0,<6
 python-dotenv>=1.0,<2
 pytest>=8.0,<9
 pytest-asyncio>=0.23,<1

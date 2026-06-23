@@ -237,6 +237,18 @@ def _parse_settings(raw: dict[str, Any], errors: list[str]) -> Settings:
             min_value=1,
             max_value=50,
         ),
+        result_processor_workers=_int(
+            polling_raw.get("resultProcessorWorkers", 2),
+            "settings.polling.resultProcessorWorkers",
+            errors,
+            min_value=1,
+            max_value=8,
+        ),
+        backlog_drain_enabled=_bool(
+            polling_raw.get("backlogDrainEnabled", True),
+            "settings.polling.backlogDrainEnabled",
+            errors,
+        ),
         post_old_articles_on_first_run=_bool(
             polling_raw.get("postOldArticlesOnFirstRun", False),
             "settings.polling.postOldArticlesOnFirstRun",
@@ -406,6 +418,13 @@ def _parse_settings(raw: dict[str, Any], errors: list[str]) -> Settings:
             routing_raw.get("configDir", "config/routing"),
             "settings.routing.configDir",
             errors,
+        ),
+        max_routing_summary_chars=_int(
+            routing_raw.get("maxRoutingSummaryChars", 2000),
+            "settings.routing.maxRoutingSummaryChars",
+            errors,
+            min_value=200,
+            max_value=8000,
         ),
     )
     maintenance = MaintenanceSettings(
@@ -819,6 +838,11 @@ def _parse_feeds(
             f"{feed_path}.legacyChannelKeys",
             errors,
         )
+        configured_mirror_keys = _string_list(
+            feed_obj.get("mirrorChannelKeys", []),
+            f"{feed_path}.mirrorChannelKeys",
+            errors,
+        )
         feeds.append(
             FeedConfig(
                 id=feed_id,
@@ -830,6 +854,7 @@ def _parse_feeds(
                 fetch_timeout_seconds=timeout_seconds,
                 route_policy=route_policy,
                 legacy_channel_keys=tuple(configured_legacy_keys),
+                mirror_channel_keys=tuple(configured_mirror_keys),
             )
         )
     return feeds

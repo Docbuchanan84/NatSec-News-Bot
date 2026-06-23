@@ -30,6 +30,26 @@ audit_logger = logging.getLogger("app.audit")
 URLISH_RE = re.compile(r"^(https?://\S+|[\w.-]+\.[a-z]{2,}/\S*)$", re.IGNORECASE)
 URLISH_TITLE_RE = re.compile(r"^(?:https?://)?(?:www\.)?[\w.-]+\.[a-z]{2,}(?:[/\?#].*)?$", re.IGNORECASE)
 LINK_LABEL_RE = re.compile(r"^(more|watch and subscribe|read more|full story|link)\s*:?\s*", re.IGNORECASE)
+YOUTUBE_MARKETING_LINE_RE = re.compile(
+    r"^(?:"
+    r"subscribe\s+to\s+our\s+(?:youtube\s+)?channel\b|"
+    r"follow\s+us\s+on\b|"
+    r"find\s+us\s+on\b|"
+    r"like\s+us\s+on\b|"
+    r"check\s+(?:our\s+website|out\s+our\s+instagram\s+page)\b|"
+    r"download\s+(?:aje\s+)?mobile\s+app\b|"
+    r"for\s+more\s+content\s+go\s+to\b|"
+    r"listen\s+to\s+.{0,80}\bpodcast\b|"
+    r"sky\s+news\s+daily\s+podcast\b|"
+    r"to\s+enquire\s+about\s+licensing\b"
+    r")",
+    re.IGNORECASE,
+)
+HASHTAG_ONLY_RE = re.compile(r"^(?:#[A-Za-z0-9_][\w-]*\s*)+$")
+MARKETING_CONTINUATION_URL_RE = re.compile(
+    r"(?:podfollow\.com|itunes\.apple\.com|play\.google\.com|youtube\.com/skynews)",
+    re.IGNORECASE,
+)
 REVIEW_CHANNEL_ID = "1511541774642843789"
 TRACKING_TITLE_HOST_FRAGMENTS = (
     "hubspotlinks.com",
@@ -83,17 +103,23 @@ def _build_post_embed(job: PostJob, client: discord.Client) -> discord.Embed:
         title = social_post["account_name"]
         description = social_post["body"]
         embed_url = social_post["post_url"] or job.url
+    elif _is_email_post(job):
+        title = _clean_embed_title(clean_html_text(job.title) or job.title, job.url, job.source_name)
+        description = _format_email_post_description(job)
+        embed_url = job.url
     else:
         title = _clean_embed_title(clean_html_text(job.title) or job.title, job.url, job.source_name)
         description = clean_html_text(job.summary) if job.summary else None
+        if _is_video_reference(job.url):
+            description = _scrub_youtube_description(description)
         description = _dedupe_description(title, description)
         embed_url = job.url
     if job.timestamp_status in {"valid", "timezone_corrected"}:
         display_timestamp = job.normalized_published_at.astimezone(UTC)
-        footer = f"{job.source_name} · published"
+        footer = _post_footer(job, "published")
     else:
         display_timestamp = datetime.now(UTC)
-        footer = f"{job.source_name} · detected"
+        footer = _post_footer(job, "detected")
     embed = discord.Embed(
         title=title[:256],
         url=embed_url,
@@ -185,6 +211,7 @@ class RSSDiscordClient(discord.Client):
                 return
             uptime_seconds = int(time.monotonic() - self.started_at)
             queue_total = sum(stat.size for stat in self.publisher.queue_stats())
+            result_queue = self.scheduler.result_queue_size()
             health = self.db.feed_health_summary()
             status_rows = self.db.feed_status_rows(limit=8, failures_first=True)
             next_poll = self.scheduler.next_poll_at()
@@ -198,7 +225,7 @@ class RSSDiscordClient(discord.Client):
                 f"Uptime: {_format_duration(uptime_seconds)}",
                 f"Channels: {len(config.channels)} | Unique feeds: {len(self.scheduler.feeds)} | Tracked feeds: {health['tracked']}",
                 f"Feed health: {health['healthy']} healthy, {health['failing']} failing, {health['never_succeeded']} never succeeded",
-                f"Queue: {queue_total} pending | Posted last 24h: {recent_posts}",
+                f"Queue: {queue_total} pending posts, {result_queue} fetched results | Posted last 24h: {recent_posts}",
                 f"Next poll: {next_poll_text} | Routing: {routing_state} | Debug embeds: {'on' if self.debug_mode_enabled else 'off'}",
                 "",
                 "**Feed watchlist**",
@@ -224,6 +251,7 @@ class RSSDiscordClient(discord.Client):
             configure_logging(config)
             self.publisher.configure(config)
             self.scheduler.configure(config)
+            self.scheduler.start()
             self.social_link_embeds.configure(config)
             await interaction.response.send_message(
                 f"Config reloaded: {len(config.channels)} channels, {len(self.scheduler.feeds)} unique feeds.",
@@ -540,6 +568,39 @@ def _same_display_text(left: str, right: str) -> bool:
     return " ".join(left.split()).casefold() == " ".join(right.split()).casefold()
 
 
+def _is_email_post(job: PostJob) -> bool:
+    metadata = job.rich_metadata or {}
+    return str(metadata.get("source") or "").casefold() == "email"
+
+
+def _format_email_post_description(job: PostJob) -> str | None:
+    if not job.summary:
+        return None
+    title = _clean_embed_title(clean_html_text(job.title) or job.title, job.url, job.source_name)
+    useful: list[str] = []
+    for raw_line in job.summary.replace("\r\n", "\n").replace("\r", "\n").splitlines():
+        line = re.sub(r"[ \t]+", " ", raw_line).strip()
+        if not line:
+            continue
+        if _same_display_text(_clean_embed_title(line, job.url, job.source_name), title):
+            continue
+        useful.append(line)
+        if len(useful) >= 4:
+            break
+    description = _dedupe_description(title, "\n".join(useful).strip())
+    return description[:4096] if description else None
+
+
+def _post_footer(job: PostJob, status: str) -> str:
+    if not _is_email_post(job):
+        return f"{job.source_name} · {status}"
+    metadata = job.rich_metadata or {}
+    sender = str(metadata.get("from") or "").strip()
+    if not sender:
+        return f"{job.source_name} · {status}"
+    return f"{job.source_name} · {sender[:80]} · {status}"
+
+
 def _clean_embed_title(title: str, url: str | None, source_name: str | None) -> str:
     cleaned = " ".join(title.replace("**", "").split()).strip() or "Untitled article"
     if not _looks_like_url_title(cleaned):
@@ -588,6 +649,33 @@ def _dedupe_description(title: str, description: str | None) -> str | None:
             return None
         return remainder
     return description
+
+
+def _scrub_youtube_description(description: str | None) -> str | None:
+    if not description:
+        return None
+    kept: list[str] = []
+    skip_marketing_url = False
+    for raw_line in description.replace("\r\n", "\n").replace("\r", "\n").splitlines():
+        line = re.sub(r"[ \t]+", " ", raw_line).strip()
+        if not line:
+            if kept:
+                kept.append("")
+            continue
+        if skip_marketing_url and MARKETING_CONTINUATION_URL_RE.search(line):
+            continue
+        skip_marketing_url = False
+        if HASHTAG_ONLY_RE.match(line):
+            continue
+        if YOUTUBE_MARKETING_LINE_RE.match(line):
+            skip_marketing_url = True
+            if kept:
+                break
+            continue
+        kept.append(line)
+    cleaned = "\n".join(kept).strip()
+    cleaned = re.sub(r"\n{3,}", "\n\n", cleaned)
+    return cleaned or None
 
 
 def _starts_with_display_text(text: str, prefix: str) -> bool:

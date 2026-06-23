@@ -1015,6 +1015,21 @@ def test_f15e_ejection_article_routes_air() -> None:
     assert "air" in decision.selected_channel_keys
 
 
+def test_air_force_one_conversion_routes_air_not_middle_east() -> None:
+    decision = production_engine().route(
+        RoutingArticle(
+            title="Inside The Making Of The New Air Force One",
+            summary="How L3Harris transformed the gifted Qatari 747-8i into a VC-25B presidential transport in just 10 months.",
+            source_name="The War Zone",
+            source_id="war-zone",
+            source_class="defense_media",
+            url="https://www.twz.com/air/inside-the-making-of-the-new-air-force-one",
+        )
+    )
+    assert decision.primary_channel_keys == ("air",)
+    assert "middle-east" not in decision.final_channel_keys
+
+
 def test_military_sealift_routes_sea() -> None:
     decision = production_engine().route(
         RoutingArticle(title="Military Sealift Command oiler supports carrier strike group", source_name="DVIDS")
@@ -1060,6 +1075,55 @@ def test_feed_routing_tags_route_generic_ukraine_feed_item_to_europe() -> None:
 def test_arctic_security_item_routes_arctic() -> None:
     decision = production_engine().route(
         RoutingArticle(title="Coast Guard expands Arctic patrols near Greenland", source_name="USNI News")
+    )
+    assert "arctic" in decision.primary_channel_keys
+
+
+def test_uscg_sitka_jayhawk_crash_routes_arctic() -> None:
+    decision = production_engine().route(
+        RoutingArticle(
+            title="Coast Guard helicopter crashes in Sitka, Alaska",
+            summary="A Coast Guard MH-60 Jayhawk from Air Station Sitka crashed near Harbor Mountain.",
+            source_name="U.S. Coast Guard Arctic District News",
+            source_id="us-coast-guard",
+            source_class="official_us_gov",
+        )
+    )
+    assert "arctic" in decision.primary_channel_keys
+
+
+def test_norad_alaska_adiz_item_routes_arctic() -> None:
+    decision = production_engine().route(
+        RoutingArticle(
+            title="NORAD detects Russian aircraft in the Alaskan Air Defense Identification Zone",
+            source_name="NORAD Arctic / Alaska ADIZ via Google News",
+            source_id="norad",
+            source_class="official_us_defense",
+        )
+    )
+    assert "arctic" in decision.primary_channel_keys
+
+
+def test_arctic_security_cutter_item_routes_arctic() -> None:
+    decision = production_engine().route(
+        RoutingArticle(
+            title="Coast Guard selects Kodiak and Seward homeports for Arctic Security Cutters",
+            source_name="The Maritime Executive Arctic via Google News",
+            source_id="maritime-executive",
+            source_class="defense_media",
+        )
+    )
+    assert "arctic" in decision.primary_channel_keys
+
+
+def test_high_north_northern_fleet_item_routes_arctic() -> None:
+    decision = production_engine().route(
+        RoutingArticle(
+            title="Russia raises Northern Fleet readiness in the Barents Sea",
+            source_name="High North News Arctic via Google News",
+            source_id="high-north-news",
+            source_class="arctic_media",
+        )
     )
     assert "arctic" in decision.primary_channel_keys
 

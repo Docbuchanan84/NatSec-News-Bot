@@ -56,17 +56,21 @@ class SchedulerService:
         self._host_next_available: dict[str, datetime] = {}
         self._task: asyncio.Task[None] | None = None
         self._email_task: asyncio.Task[None] | None = None
-        self._processor_task: asyncio.Task[None] | None = None
+        self._processor_tasks: list[asyncio.Task[None]] = []
         self._maintenance_task: asyncio.Task[None] | None = None
         self._result_queue: asyncio.Queue[FeedFetchResult] | None = None
         self._session: aiohttp.ClientSession | None = None
         self._stopping = False
         self._idle_sleep_seconds = 5
         self._result_queue_size = 500
+        self._result_processor_workers = 2
+        self._backlog_drain_enabled = True
         self._next_maintenance_at = datetime.now(UTC) + timedelta(hours=2)
 
     def configure(self, config: AppConfig) -> None:
         self.config = config
+        self._result_processor_workers = max(1, config.settings.polling.result_processor_workers)
+        self._backlog_drain_enabled = config.settings.polling.backlog_drain_enabled
         self.feeds = build_feed_runtime_map(config)
         self.email_sources = build_email_source_runtime_map(config)
         active_feed_keys = frozenset(set(self.feeds) | set(self.email_sources))
@@ -133,8 +137,10 @@ class SchedulerService:
         self._stopping = False
         if self._result_queue is None:
             self._result_queue = asyncio.Queue(maxsize=self._result_queue_size)
-        if self._processor_task is None or self._processor_task.done():
-            self._processor_task = asyncio.create_task(self._process_results_loop())
+        self._processor_tasks = [task for task in self._processor_tasks if not task.done()]
+        while len(self._processor_tasks) < self._result_processor_workers:
+            worker_id = len(self._processor_tasks) + 1
+            self._processor_tasks.append(asyncio.create_task(self._process_results_loop(worker_id)))
         if self._task is None or self._task.done():
             self._task = asyncio.create_task(self._run_rss_loop())
         if self._email_task is None or self._email_task.done():
@@ -158,10 +164,11 @@ class SchedulerService:
                 )
             except asyncio.TimeoutError:
                 logger.warning("Scheduler result processing timed out with queued results still pending")
-        if self._processor_task:
-            self._processor_task.cancel()
-            await asyncio.gather(self._processor_task, return_exceptions=True)
-            self._processor_task = None
+        if self._processor_tasks:
+            for task in self._processor_tasks:
+                task.cancel()
+            await asyncio.gather(*self._processor_tasks, return_exceptions=True)
+            self._processor_tasks = []
         if self._maintenance_task and not self._maintenance_task.done():
             await asyncio.gather(self._maintenance_task, return_exceptions=True)
         self._maintenance_task = None
@@ -179,6 +186,9 @@ class SchedulerService:
                     if due_feeds:
                         await self._fetch_and_enqueue_feeds(due_feeds)
                         self._maybe_prune_runtime_history()
+                        if self._backlog_drain_enabled and self._due_feeds(datetime.now(UTC)):
+                            await asyncio.sleep(0)
+                            continue
                     await asyncio.sleep(self._seconds_until_next_poll(self.feeds))
             except asyncio.CancelledError:
                 logger.info("RSS scheduler loop cancelled")
@@ -250,7 +260,10 @@ class SchedulerService:
         for result in results:
             await self._result_queue.put(result)
 
-    async def _process_results_loop(self) -> None:
+    def result_queue_size(self) -> int:
+        return self._result_queue.qsize() if self._result_queue is not None else 0
+
+    async def _process_results_loop(self, worker_id: int = 1) -> None:
         try:
             while not self._stopping or (self._result_queue is not None and not self._result_queue.empty()):
                 if self._result_queue is None:
@@ -265,7 +278,7 @@ class SchedulerService:
                 finally:
                     self._result_queue.task_done()
         except asyncio.CancelledError:
-            logger.info("Scheduler result processor cancelled")
+            logger.info("Scheduler result processor %s cancelled", worker_id)
             raise
 
     async def _process_queued_result(self, result: FeedFetchResult) -> RefreshSummary:
@@ -348,6 +361,7 @@ class SchedulerService:
         feed_service = FeedService(
             timeout_seconds=self.config.settings.polling.fetch_timeout_seconds,
             max_entries_per_feed=self.config.settings.polling.max_entries_per_feed,
+            max_routing_summary_chars=self.config.settings.routing.max_routing_summary_chars,
         )
         semaphore = asyncio.Semaphore(self.config.settings.polling.max_concurrent_feed_fetches)
 
@@ -363,6 +377,7 @@ class SchedulerService:
         feed_service = FeedService(
             timeout_seconds=self.config.settings.polling.fetch_timeout_seconds,
             max_entries_per_feed=self.config.settings.polling.max_entries_per_feed,
+            max_routing_summary_chars=self.config.settings.routing.max_routing_summary_chars,
         )
         semaphore = asyncio.Semaphore(self.config.settings.polling.max_concurrent_feed_fetches)
         session = self._session
@@ -417,6 +432,7 @@ class SchedulerService:
         email_service = EmailIngestService(
             timeout_seconds=self.config.settings.polling.fetch_timeout_seconds,
             max_messages_per_source=self.config.settings.polling.max_entries_per_feed,
+            max_routing_summary_chars=self.config.settings.routing.max_routing_summary_chars,
         )
         semaphore = asyncio.Semaphore(self.config.settings.polling.max_concurrent_email_fetches)
         results: list[FeedFetchResult] = []
@@ -878,10 +894,11 @@ class SchedulerService:
         candidate=None,
     ) -> tuple[str, ...]:
         fast_lane_ids = tuple(getattr(source, "fast_lane_channel_ids", ()) or ())
+        mirror_channel_ids = tuple(getattr(source, "mirror_channel_ids", ()) or ())
         if getattr(source, "route_policy", "normal") == "direct":
-            return _dedupe_channel_ids(fast_lane_ids + existing_channel_ids)
+            return _dedupe_channel_ids(fast_lane_ids + existing_channel_ids + mirror_channel_ids)
         if self.routing_mode != "enforced" or decision is None:
-            return _dedupe_channel_ids(fast_lane_ids + existing_channel_ids)
+            return _dedupe_channel_ids(fast_lane_ids + existing_channel_ids + mirror_channel_ids)
         if decision.decision_status not in {"routed", "review"}:
             if (
                 decision.decision_status == "no_match"
@@ -896,7 +913,7 @@ class SchedulerService:
             for key in decision.final_channel_keys
             if key in self.channel_key_to_id
         )
-        return _dedupe_channel_ids(fast_lane_ids + selected)
+        return _dedupe_channel_ids(fast_lane_ids + selected + mirror_channel_ids)
 
 
 def build_feed_runtime_map(config: AppConfig) -> dict[str, FeedRuntime]:
@@ -912,6 +929,14 @@ def build_feed_runtime_map(config: AppConfig) -> dict[str, FeedRuntime]:
                 continue
             channel_ids.append(channel.discord_channel_id)
             channel_keys.append(channel.key)
+        mirror_channel_ids = []
+        mirror_channel_keys = []
+        for key in feed.mirror_channel_keys:
+            channel = channel_by_key.get(key)
+            if channel is None:
+                continue
+            mirror_channel_ids.append(channel.discord_channel_id)
+            mirror_channel_keys.append(channel.key)
         feed_configs.append(
             FeedRuntime(
                 feed_key=feed.id or f"feed_{stable_hash(normalize_feed_url(feed.url))}",
@@ -925,11 +950,21 @@ def build_feed_runtime_map(config: AppConfig) -> dict[str, FeedRuntime]:
                 route_policy=feed.route_policy,
                 channel_ids=tuple(channel_ids),
                 channel_keys=tuple(channel_keys),
+                mirror_channel_ids=tuple(mirror_channel_ids),
+                mirror_channel_keys=tuple(mirror_channel_keys),
             )
         )
     for channel in config.channels:
         interval = channel.poll_interval_seconds or config.settings.polling.default_interval_seconds
         for feed in channel.feeds:
+            mirror_channel_ids = []
+            mirror_channel_keys = []
+            for key in feed.mirror_channel_keys:
+                mirror_channel = channel_by_key.get(key)
+                if mirror_channel is None:
+                    continue
+                mirror_channel_ids.append(mirror_channel.discord_channel_id)
+                mirror_channel_keys.append(mirror_channel.key)
             feed_configs.append(
                 FeedRuntime(
                     feed_key=feed.id or f"feed_{stable_hash(normalize_feed_url(feed.url))}",
@@ -943,6 +978,8 @@ def build_feed_runtime_map(config: AppConfig) -> dict[str, FeedRuntime]:
                     route_policy=feed.route_policy,
                     channel_ids=(channel.discord_channel_id,),
                     channel_keys=(channel.key,),
+                    mirror_channel_ids=tuple(mirror_channel_ids),
+                    mirror_channel_keys=tuple(mirror_channel_keys),
                 )
             )
     for feed in feed_configs:
@@ -963,6 +1000,8 @@ def build_feed_runtime_map(config: AppConfig) -> dict[str, FeedRuntime]:
                 "route_policy": feed.route_policy,
                 "channel_ids": [],
                 "channel_keys": [],
+                "mirror_channel_ids": [],
+                "mirror_channel_keys": [],
             },
         )
         group["interval_seconds"] = min(int(group["interval_seconds"]), feed.interval_seconds)
@@ -977,6 +1016,14 @@ def build_feed_runtime_map(config: AppConfig) -> dict[str, FeedRuntime]:
             if channel_id not in cast_channel_ids:
                 cast_channel_ids.append(channel_id)
                 cast_channel_keys.append(channel_key)
+        cast_mirror_channel_ids = group["mirror_channel_ids"]
+        cast_mirror_channel_keys = group["mirror_channel_keys"]
+        assert isinstance(cast_mirror_channel_ids, list)
+        assert isinstance(cast_mirror_channel_keys, list)
+        for channel_id, channel_key in zip(feed.mirror_channel_ids, feed.mirror_channel_keys, strict=False):
+            if channel_id not in cast_mirror_channel_ids:
+                cast_mirror_channel_ids.append(channel_id)
+                cast_mirror_channel_keys.append(channel_key)
     return {
         str(group["feed_key"]): FeedRuntime(
             feed_key=str(group["feed_key"]),
@@ -992,6 +1039,8 @@ def build_feed_runtime_map(config: AppConfig) -> dict[str, FeedRuntime]:
             route_policy=str(group["route_policy"]),
             channel_ids=tuple(group["channel_ids"]),
             channel_keys=tuple(group["channel_keys"]),
+            mirror_channel_ids=tuple(group["mirror_channel_ids"]),
+            mirror_channel_keys=tuple(group["mirror_channel_keys"]),
         )
         for group in grouped.values()
     }

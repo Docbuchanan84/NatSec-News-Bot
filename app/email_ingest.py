@@ -102,13 +102,27 @@ class EmailArticle:
 
 
 class EmailIngestService:
-    def __init__(self, timeout_seconds: int, max_messages_per_source: int) -> None:
+    def __init__(
+        self,
+        timeout_seconds: int,
+        max_messages_per_source: int,
+        max_routing_summary_chars: int = 2000,
+    ) -> None:
         self.timeout_seconds = timeout_seconds
         self.max_messages_per_source = max_messages_per_source
+        self.max_routing_summary_chars = max_routing_summary_chars
 
     async def fetch(self, source: EmailSourceRuntime, since_uid: str | None = None) -> FeedFetchResult:
         parsed = await asyncio.to_thread(self._fetch_sync, source, since_uid)
-        entries = tuple(entry for item in parsed for entry in _entries_from_email(source, item))
+        entries = tuple(
+            entry
+            for item in parsed
+            for entry in _entries_from_email(
+                source,
+                item,
+                max_routing_summary_chars=self.max_routing_summary_chars,
+            )
+        )
         high_water = _max_uid((item.uid for item in parsed), since_uid)
         return FeedFetchResult(feed=source, entries=entries, cursor_high_water=high_water)
 
@@ -234,23 +248,33 @@ def email_matches_source(parsed: ParsedEmail, source: EmailSourceRuntime) -> boo
     return True
 
 
-def _entries_from_email(source: EmailSourceRuntime, parsed: ParsedEmail) -> tuple[FeedEntry, ...]:
-    articles = _split_email_articles(parsed)
+def _entries_from_email(
+    source: EmailSourceRuntime,
+    parsed: ParsedEmail,
+    *,
+    max_routing_summary_chars: int = 2000,
+) -> tuple[FeedEntry, ...]:
+    articles = _split_email_articles(parsed, max_routing_summary_chars=max_routing_summary_chars)
     if not articles:
-        return (_entry_from_email(source, parsed),)
-    return tuple(_entry_from_email(source, parsed, article) for article in articles)
+        return (_entry_from_email(source, parsed, max_routing_summary_chars=max_routing_summary_chars),)
+    return tuple(
+        _entry_from_email(source, parsed, article, max_routing_summary_chars=max_routing_summary_chars)
+        for article in articles
+    )
 
 
 def _entry_from_email(
     source: EmailSourceRuntime,
     parsed: ParsedEmail,
     article: EmailArticle | None = None,
+    *,
+    max_routing_summary_chars: int = 2000,
 ) -> FeedEntry:
     guid = parsed.message_id or f"imap:{source.feed_key}:{parsed.uid}"
     title = parsed.subject
     url = _clean_article_url(parsed.canonical_url)
     summary = _display_summary(parsed.formatted_body or parsed.body, title, url)
-    routing_summary = _routing_summary(parsed.formatted_body or parsed.body)
+    routing_summary = _routing_summary(parsed.formatted_body or parsed.body, limit=max_routing_summary_chars)
     split_metadata: dict[str, Any] = {}
     if article is not None:
         guid = f"{guid}#{article.guid_suffix}"
@@ -534,7 +558,11 @@ def _squash_duplicate_lines(lines: list[str]) -> list[str]:
     return output
 
 
-def _split_email_articles(parsed: ParsedEmail) -> tuple[EmailArticle, ...]:
+def _split_email_articles(
+    parsed: ParsedEmail,
+    *,
+    max_routing_summary_chars: int = 2000,
+) -> tuple[EmailArticle, ...]:
     formatted = parsed.formatted_body or parsed.body or ""
     candidates: list[EmailArticle] = []
     seen_urls: set[str] = set()
@@ -553,7 +581,7 @@ def _split_email_articles(parsed: ParsedEmail) -> tuple[EmailArticle, ...]:
         seen_urls.add(url_key)
         index = len(candidates) + 1
         summary = _article_summary_for_link(title, link, formatted)
-        routing_summary = _article_routing_summary_for_link(title, link, formatted)
+        routing_summary = _article_routing_summary_for_link(title, link, formatted, limit=max_routing_summary_chars)
         candidates.append(
             EmailArticle(
                 title=title,
@@ -614,7 +642,13 @@ def _article_summary_for_link(title: str, link: EmailLink, formatted: str) -> st
     return _truncate_summary(summary, 900)
 
 
-def _article_routing_summary_for_link(title: str, link: EmailLink, formatted: str) -> str | None:
+def _article_routing_summary_for_link(
+    title: str,
+    link: EmailLink,
+    formatted: str,
+    *,
+    limit: int = 2000,
+) -> str | None:
     lines = _article_block_lines(link.url, formatted)
     useful: list[str] = []
     for line in lines:
@@ -630,7 +664,7 @@ def _article_routing_summary_for_link(title: str, link: EmailLink, formatted: st
             break
     if not useful:
         return None
-    return _truncate_summary("\n".join(useful), 1800)
+    return _truncate_summary("\n".join(useful), limit)
 
 
 def _display_summary(value: str | None, title: str, url: str | None) -> str | None:
@@ -656,7 +690,7 @@ def _display_summary(value: str | None, title: str, url: str | None) -> str | No
     return _truncate_summary(summary, 900)
 
 
-def _routing_summary(value: str | None) -> str | None:
+def _routing_summary(value: str | None, *, limit: int = 2000) -> str | None:
     if not value:
         return None
     lines: list[str] = []
@@ -669,7 +703,7 @@ def _routing_summary(value: str | None) -> str | None:
         lines.append(MARKDOWN_LINK_RE.sub(lambda match: match.group(1), cleaned))
         if len(lines) >= 14:
             break
-    return _truncate_summary("\n".join(lines), 2000)
+    return _truncate_summary("\n".join(lines), limit)
 
 
 def _truncate_summary(value: str, limit: int) -> str:

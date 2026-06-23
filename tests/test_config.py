@@ -106,6 +106,7 @@ def test_loads_top_level_feeds_and_destination_only_channels(tmp_path: Path) -> 
                 "pollIntervalSeconds": 300,
                 "fetchTimeoutSeconds": 20,
                 "legacyChannelKeys": ["middle-east"],
+                "mirrorChannelKeys": ["sea"],
             }
         ],
         "channels": [
@@ -128,6 +129,7 @@ def test_loads_top_level_feeds_and_destination_only_channels(tmp_path: Path) -> 
     assert config.feeds[0].source_class == "wire_service"
     assert config.feeds[0].fetch_timeout_seconds == 20
     assert config.feeds[0].legacy_channel_keys == ("middle-east",)
+    assert config.feeds[0].mirror_channel_keys == ("sea",)
     assert config.channels[1].feeds == ()
 
 

@@ -15,6 +15,7 @@ from app.models import (
     FailureBackoffSettings,
     FeedRuntime,
     MaintenanceSettings,
+    PollingSettings,
     Settings,
 )
 from app.routing.models import RoutingDecision
@@ -184,6 +185,11 @@ def test_top_level_feed_uses_legacy_channel_keys_for_observe_mode(tmp_path):
               "discordChannelId": "111111111111111111"
             },
             {
+              "key": "sea",
+              "name": "Sea",
+              "discordChannelId": "222222222222222222"
+            },
+            {
               "key": "review",
               "name": "Review",
               "discordChannelId": "1511541774642843789"
@@ -201,6 +207,96 @@ def test_top_level_feed_uses_legacy_channel_keys_for_observe_mode(tmp_path):
     assert feed.source_class == "wire_service"
     assert feed.fetch_timeout_seconds == 20
     assert feed.channel_ids == ("111111111111111111",)
+
+
+def test_top_level_feed_uses_mirror_channel_keys_after_routing(tmp_path):
+    path = tmp_path / "config.json"
+    path.write_text(
+        """
+        {
+          "version": 1,
+          "feeds": [
+            {
+              "id": "ukmto-warnings",
+              "sourceId": "ukmto",
+              "sourceClass": "official_allied_defense",
+              "name": "UKMTO Warnings",
+              "url": "https://example.com/ukmto",
+              "legacyChannelKeys": ["middle-east"],
+              "mirrorChannelKeys": ["sea"]
+            }
+          ],
+          "channels": [
+            {
+              "key": "middle-east",
+              "name": "Middle East",
+              "discordChannelId": "111111111111111111"
+            },
+            {
+              "key": "sea",
+              "name": "Sea",
+              "discordChannelId": "222222222222222222"
+            }
+          ]
+        }
+        """,
+        encoding="utf-8",
+    )
+    config = load_config(path)
+    feed = build_feed_runtime_map(config)["ukmto-warnings"]
+    scheduler = SchedulerService(db=object(), publisher=object())
+    scheduler.routing_mode = "enforced"
+    scheduler.channel_key_to_id = {
+        "middle-east": "111111111111111111",
+        "sea": "222222222222222222",
+    }
+    decision = RoutingDecision(
+        content_mode="title_and_stub",
+        matched_entries=(),
+        emitted_tags=("middle_east",),
+        expanded_tags=(),
+        channel_scores=(),
+        selected_channel_keys=("middle-east",),
+        decision_status="routed",
+        top_score=10,
+        explanation=(),
+        final_channel_keys=("middle-east",),
+    )
+
+    assert feed.mirror_channel_ids == ("222222222222222222",)
+    assert scheduler._target_channel_ids((), decision, feed) == (
+        "111111111111111111",
+        "222222222222222222",
+    )
+
+
+def test_feed_mirror_channel_keys_do_not_post_no_match_items():
+    scheduler = SchedulerService(db=object(), publisher=object())
+    scheduler.routing_mode = "enforced"
+    feed = FeedRuntime(
+        feed_key="ukmto-warnings",
+        display_name="UKMTO Warnings",
+        url="https://example.com/ukmto",
+        normalized_url="https://example.com/ukmto",
+        interval_seconds=300,
+        channel_ids=("111111111111111111",),
+        channel_keys=("middle-east",),
+        mirror_channel_ids=("222222222222222222",),
+        mirror_channel_keys=("sea",),
+    )
+    decision = RoutingDecision(
+        content_mode="title_only",
+        matched_entries=(),
+        emitted_tags=(),
+        expanded_tags=(),
+        channel_scores=(),
+        selected_channel_keys=(),
+        decision_status="no_match",
+        top_score=0,
+        explanation=(),
+    )
+
+    assert scheduler._target_channel_ids((), decision, feed) == ()
 
 
 def test_email_source_runtime_map_uses_configured_metadata(tmp_path):
@@ -241,6 +337,43 @@ def test_email_source_runtime_map_uses_configured_metadata(tmp_path):
     assert source.routing_tags == ("news",)
     assert source.no_match_policy == "review"
     assert source.max_messages_per_poll == 100
+
+
+def test_new_pacing_and_routing_settings_load_from_config(tmp_path):
+    path = tmp_path / "config.json"
+    path.write_text(
+        """
+        {
+          "version": 1,
+          "settings": {
+            "polling": {
+              "resultProcessorWorkers": 3,
+              "backlogDrainEnabled": true
+            },
+            "routing": {
+              "enabled": true,
+              "mode": "enforced",
+              "configDir": "config/routing",
+              "maxRoutingSummaryChars": 2400
+            }
+          },
+          "channels": [
+            {
+              "key": "review",
+              "name": "Review",
+              "discordChannelId": "1511541774642843789"
+            }
+          ]
+        }
+        """,
+        encoding="utf-8",
+    )
+
+    config = load_config(path)
+
+    assert config.settings.polling.result_processor_workers == 3
+    assert config.settings.polling.backlog_drain_enabled is True
+    assert config.settings.routing.max_routing_summary_chars == 2400
 
 
 def test_email_no_match_policy_routes_high_signal_to_review_channel():
@@ -330,6 +463,43 @@ def test_email_no_match_policy_drops_low_signal_review_noise():
     )
 
     assert scheduler._target_channel_ids((), decision, source, candidate) == ()
+
+
+def test_route_candidate_prefers_routing_summary_metadata():
+    scheduler = SchedulerService(db=object(), publisher=object())
+    captured: list[str | None] = []
+
+    class FakeRoutingEngine:
+        def route(self, article):
+            captured.append(article.summary)
+            return RoutingDecision(
+                content_mode="title_summary",
+                matched_entries=(),
+                emitted_tags=(),
+                expanded_tags=(),
+                channel_scores=(),
+                selected_channel_keys=(),
+                decision_status="no_match",
+                top_score=0,
+                explanation=(),
+            )
+
+    scheduler.routing_engine = FakeRoutingEngine()
+    candidate = SimpleNamespace(
+        title="Ambiguous title",
+        summary="Short display summary.",
+        source_name="Example",
+        source_id="example",
+        source_class="news",
+        url="https://example.com/story",
+        normalized_title="ambiguous title",
+        routing_tags=(),
+        rich_metadata={"routing_summary": "Richer routing text mentions destroyer modernization."},
+    )
+
+    scheduler._route_candidate(1, candidate, persist=False)
+
+    assert captured == ["Richer routing text mentions destroyer modernization."]
 
 
 @pytest.mark.asyncio
@@ -437,6 +607,91 @@ async def test_fetch_results_are_processed_from_shared_queue(monkeypatch):
     await scheduler.shutdown()
 
     assert processed == ["feed-1"]
+
+
+@pytest.mark.asyncio
+async def test_result_processors_can_process_multiple_queued_results_concurrently(monkeypatch):
+    scheduler = SchedulerService(db=object(), publisher=object())
+    scheduler.config = AppConfig(
+        version=1,
+        bot=object(),
+        discord=object(),
+        settings=Settings(
+            polling=PollingSettings(result_processor_workers=2),
+            maintenance=MaintenanceSettings(enabled=False),
+        ),
+        feeds=(),
+        channels=(),
+        raw={},
+    )
+    scheduler._result_processor_workers = 2
+    started: list[str] = []
+    two_started = asyncio.Event()
+
+    async def process_result(fetch_result):
+        started.append(fetch_result.feed.feed_key)
+        if len(started) >= 2:
+            two_started.set()
+        await asyncio.sleep(0.1)
+        return RefreshSummary(feeds_checked=1)
+
+    monkeypatch.setattr(scheduler, "_process_queued_result", process_result)
+
+    scheduler.start()
+    await scheduler._enqueue_results(
+        (
+            FeedFetchResult(feed=make_feed_runtime("feed-1"), entries=()),
+            FeedFetchResult(feed=make_feed_runtime("feed-2"), entries=()),
+            FeedFetchResult(feed=make_feed_runtime("feed-3"), entries=()),
+        )
+    )
+    await asyncio.wait_for(two_started.wait(), timeout=1)
+    await scheduler.shutdown()
+
+    assert set(started) == {"feed-1", "feed-2", "feed-3"}
+
+
+@pytest.mark.asyncio
+async def test_rss_backlog_drain_continues_with_next_due_batch(monkeypatch):
+    scheduler = SchedulerService(db=object(), publisher=object())
+    scheduler.config = AppConfig(
+        version=1,
+        bot=object(),
+        discord=object(),
+        settings=Settings(
+            polling=PollingSettings(max_concurrent_feed_fetches=1, backlog_drain_enabled=True),
+            maintenance=MaintenanceSettings(enabled=False),
+        ),
+        feeds=(),
+        channels=(),
+        raw={},
+    )
+    scheduler._backlog_drain_enabled = True
+    now = datetime.now(UTC)
+    scheduler.feeds = {
+        f"feed-{index}": make_feed_runtime(f"feed-{index}")
+        for index in range(10)
+    }
+    scheduler._next_due = {feed_key: now - timedelta(minutes=5) for feed_key in scheduler.feeds}
+    calls: list[tuple[str, ...]] = []
+
+    async def fetch_batch(feeds):
+        calls.append(tuple(feed.feed_key for feed in feeds))
+        future = datetime.now(UTC) + timedelta(hours=1)
+        for feed in feeds:
+            scheduler._next_due[feed.feed_key] = future
+        if len(calls) >= 2:
+            scheduler._stopping = True
+        return FetchBatchResult()
+
+    monkeypatch.setattr(scheduler, "_fetch_and_enqueue_feeds", fetch_batch)
+    monkeypatch.setattr(scheduler, "_seconds_until_next_poll", lambda _feeds: 0.0)
+
+    await asyncio.wait_for(scheduler._run_rss_loop(), timeout=1)
+
+    assert len(calls) == 2
+    assert len(calls[0]) == 8
+    assert len(calls[1]) == 2
 
 
 def test_dvids_waf_challenge_retries_without_hour_long_backoff():

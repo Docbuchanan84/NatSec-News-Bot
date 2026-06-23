@@ -150,6 +150,70 @@ async def test_discord_embed_sends_youtube_url_as_content_for_native_preview() -
 
 
 @pytest.mark.asyncio
+async def test_discord_embed_removes_youtube_marketing_tail() -> None:
+    channel = FakeChannel()
+    adapter = DiscordPublisherAdapter(FakeClient(channel))
+    job = PostJob(
+        article_id=1,
+        channel_id="111111111111111111",
+        title="How high will temperatures get this week?",
+        url="https://www.youtube.com/watch?v=abc123",
+        summary=(
+            "Temperatures are forecast to rise as high as 39C this week.\n\n"
+            "Live updates: https://news.sky.com/story/heatwave-latest\n\n"
+            "#skynews #weather #heatwave #uknews\n\n"
+            "SUBSCRIBE to our YouTube channel for more videos: http://www.youtube.com/skynews\n"
+            "Follow us on Twitter: https://twitter.com/skynews\n"
+            "Like us on Facebook: https://www.facebook.com/skynews\n"
+            "For more content go to http://news.sky.com and download our apps: Apple "
+            "https://itunes.apple.com/gb/app/sky-news/id316391924?mt=8 Android\n"
+            "https://play.google.com/store/apps/details?id=com.bskyb.skynews.android&hl=en_GB\n"
+            "To enquire about licensing Sky News content, you can find more information here: "
+            "https://news.sky.com/info/library-sales"
+        ),
+        image_url=None,
+        image_source=None,
+        source_name="Sky News YouTube",
+        normalized_published_at=datetime(2026, 6, 2, tzinfo=UTC),
+    )
+
+    await adapter.send(job)
+
+    assert channel.embed.description == (
+        "Temperatures are forecast to rise as high as 39C this week.\n\n"
+        "Live updates: https://news.sky.com/story/heatwave-latest"
+    )
+
+
+@pytest.mark.asyncio
+async def test_discord_embed_omits_youtube_description_when_only_marketing() -> None:
+    channel = FakeChannel()
+    adapter = DiscordPublisherAdapter(FakeClient(channel))
+    job = PostJob(
+        article_id=1,
+        channel_id="111111111111111111",
+        title="Iran and Oman reaffirm sovereign rights in Strait of Hormuz",
+        url="https://www.youtube.com/watch?v=abc123",
+        summary=(
+            "Subscribe to our channel: http://bit.ly/AJSubscribe\n"
+            "Follow us on X : https://twitter.com/AJEnglish\n"
+            "Find us on Facebook: https://www.facebook.com/aljazeera\n"
+            "Check our website: http://www.aljazeera.com/\n"
+            "Check out our Instagram page: https://www.instagram.com/aljazeeraenglish/\n"
+            "Download AJE Mobile App: https://aje.news/AJEMobile"
+        ),
+        image_url=None,
+        image_source=None,
+        source_name="Al Jazeera English YouTube",
+        normalized_published_at=datetime(2026, 6, 2, tzinfo=UTC),
+    )
+
+    await adapter.send(job)
+
+    assert channel.embed.description is None
+
+
+@pytest.mark.asyncio
 async def test_discord_embed_formats_bluesky_post_without_native_preview() -> None:
     channel = FakeChannel()
     adapter = DiscordPublisherAdapter(FakeClient(channel))
@@ -226,3 +290,40 @@ async def test_discord_embed_humanizes_urlish_title() -> None:
     await adapter.send(job)
 
     assert channel.embed.title == "Army counter drone package europe"
+
+
+@pytest.mark.asyncio
+async def test_discord_embed_formats_email_with_short_markdown_stub_and_sender_footer() -> None:
+    channel = FakeChannel()
+    adapter = DiscordPublisherAdapter(FakeClient(channel))
+    job = PostJob(
+        article_id=1,
+        channel_id="111111111111111111",
+        title="Navy tracks Russian submarine near allied waters",
+        url="https://example.com/navy-submarine",
+        summary=(
+            "Navy tracks Russian submarine near allied waters\n"
+            "Officials said allied maritime patrol aircraft monitored the transit.\n"
+            "Commanders said the activity would inform future undersea surveillance planning.\n"
+            "[Read article](https://example.com/navy-submarine)\n"
+            "Extra newsletter context that may still fit.\n"
+            "Fifth useful line that should not be displayed."
+        ),
+        image_url=None,
+        image_source=None,
+        source_name="Email: News Inbox",
+        normalized_published_at=datetime(2026, 6, 2, tzinfo=UTC),
+        rich_metadata={"source": "email", "from": "Security Brief <briefing@example.com>"},
+    )
+
+    await adapter.send(job)
+
+    assert channel.embed.title == "Navy tracks Russian submarine near allied waters"
+    assert channel.embed.description == (
+        "Officials said allied maritime patrol aircraft monitored the transit.\n"
+        "Commanders said the activity would inform future undersea surveillance planning.\n"
+        "[Read article](https://example.com/navy-submarine)\n"
+        "Extra newsletter context that may still fit."
+    )
+    assert "Fifth useful line" not in channel.embed.description
+    assert channel.embed.footer.text == "Email: News Inbox · Security Brief <briefing@example.com> · published"

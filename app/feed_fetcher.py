@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import html
+import io
 import json
 import logging
 import os
@@ -16,6 +17,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import aiohttp
 import feedparser
+from pypdf import PdfReader
 
 from app.models import FeedEntry, FeedRuntime
 
@@ -36,6 +38,10 @@ DVIDS_MAX_ENTRIES_PER_FEED = 50
 ICAL_LOOKAHEAD_DAYS = 14
 ICAL_RECENT_STARTED_HOURS = 24
 STATE_HOST = "www.state.gov"
+MSCIO_HOST = "mscio.eu"
+MSCIO_DOCUMENT_PDF_LIMIT = 6
+MSCIO_DOCUMENT_MAX_BYTES = 6 * 1024 * 1024
+MSCIO_DOCUMENT_MAX_PAGES = 2
 STATE_MONTH_ABBR = {
     "january": "Jan",
     "february": "Feb",
@@ -65,9 +71,15 @@ class FeedFetchError(Exception):
 
 
 class FeedService:
-    def __init__(self, timeout_seconds: int, max_entries_per_feed: int) -> None:
+    def __init__(
+        self,
+        timeout_seconds: int,
+        max_entries_per_feed: int,
+        max_routing_summary_chars: int = 2000,
+    ) -> None:
         self.timeout_seconds = timeout_seconds
         self.max_entries_per_feed = max_entries_per_feed
+        self.max_routing_summary_chars = max_routing_summary_chars
 
     async def fetch(self, session: aiohttp.ClientSession, feed: FeedRuntime) -> FeedFetchResult:
         timeout_seconds = feed.fetch_timeout_seconds or self.timeout_seconds
@@ -101,6 +113,15 @@ class FeedService:
         state_collection_entries = _state_collection_entries(feed, body, _entry_limit(feed, self.max_entries_per_feed))
         if state_collection_entries is not None:
             return FeedFetchResult(feed=feed, entries=state_collection_entries)
+        mscio_document_entries = await _mscio_document_folder_entries(
+            session,
+            feed,
+            body,
+            _entry_limit(feed, self.max_entries_per_feed),
+            timeout_seconds,
+        )
+        if mscio_document_entries is not None:
+            return FeedFetchResult(feed=feed, entries=mscio_document_entries)
         calendar_entries = _ical_entries(feed, body, _entry_limit(feed, self.max_entries_per_feed))
         if calendar_entries is not None:
             return FeedFetchResult(feed=feed, entries=calendar_entries)
@@ -123,12 +144,21 @@ class FeedService:
         guid = raw_dict.get("id") or raw_dict.get("guid")
         raw_summary = raw_dict.get("summary") or raw_dict.get("description")
         summary = clean_html_text(raw_summary)
+        routing_summary = _routing_summary_from_parsed(
+            raw_dict,
+            display_summary=summary,
+            title=str(raw_dict.get("title") or ""),
+            limit=self.max_routing_summary_chars,
+        )
         title = raw_dict.get("title") or summary or "Untitled article"
         if _is_bluesky_rss(feed.url):
             title = _bluesky_title(summary)
             url = _first_external_url(summary) or url
         image = extract_entry_image(raw_dict, base_url=str(url or feed.url))
         published = raw_dict.get("published") or raw_dict.get("updated") or raw_dict.get("created")
+        metadata = _bluesky_metadata(social_url)
+        if routing_summary:
+            metadata["routing_summary"] = routing_summary
         return FeedEntry(
             feed_key=feed.feed_key,
             feed_name=feed.display_name,
@@ -142,7 +172,7 @@ class FeedService:
             parsed=raw_dict,
             source_id=feed.source_id,
             source_class=feed.source_class,
-            rich_metadata=_bluesky_metadata(social_url),
+            rich_metadata=metadata,
         )
 
     async def _enrich_bluesky_entries(
@@ -353,6 +383,63 @@ class _StateCollectionParser(HTMLParser):
             self._current["title_parts"].append(data)  # type: ignore[union-attr]
         elif self._in_date:
             self._current["date_parts"].append(data)  # type: ignore[union-attr]
+
+
+class _MscioDocumentFolderParser(HTMLParser):
+    def __init__(self, base_url: str) -> None:
+        super().__init__(convert_charrefs=True)
+        self.base_url = base_url
+        self.results: list[dict[str, str]] = []
+        self._in_row = False
+        self._in_cell = False
+        self._cell_index = -1
+        self._cells: list[list[str]] = []
+        self._href = ""
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        tag = tag.casefold()
+        if tag == "tr":
+            self._in_row = True
+            self._in_cell = False
+            self._cell_index = -1
+            self._cells = []
+            self._href = ""
+            return
+        if not self._in_row:
+            return
+        if tag == "td":
+            self._in_cell = True
+            self._cell_index += 1
+            self._cells.append([])
+            return
+        if tag == "a":
+            attr_map = {name.casefold(): value or "" for name, value in attrs}
+            href = attr_map.get("href", "")
+            if href and ("/media/documents/" in href or href.casefold().endswith(".pdf")):
+                self._href = urljoin(self.base_url, href)
+
+    def handle_endtag(self, tag: str) -> None:
+        tag = tag.casefold()
+        if tag == "td":
+            self._in_cell = False
+            return
+        if tag != "tr" or not self._in_row:
+            return
+        cells = [clean_html_text(" ".join(parts)) or "" for parts in self._cells]
+        title = cells[0].strip() if cells else ""
+        created = cells[1].strip() if len(cells) > 1 else ""
+        size = cells[2].strip() if len(cells) > 2 else ""
+        if title and self._href:
+            self.results.append({"title": title, "href": self._href, "created": created, "size": size})
+        self._in_row = False
+        self._in_cell = False
+        self._cell_index = -1
+        self._cells = []
+        self._href = ""
+
+    def handle_data(self, data: str) -> None:
+        if self._in_row and self._in_cell and self._cell_index >= 0:
+            self._cells[self._cell_index].append(data)
 
 
 def extract_entry_image(raw: dict[str, Any], base_url: str) -> tuple[str | None, str | None]:
@@ -670,6 +757,83 @@ def _is_bluesky_post_url(url: str | None) -> bool:
     return host == BLUESKY_PROFILE_HOST and "/post/" in parsed.path
 
 
+def _routing_summary_from_parsed(
+    raw: dict[str, Any],
+    *,
+    display_summary: str | None,
+    title: str,
+    limit: int,
+) -> str | None:
+    candidates: list[str] = []
+    for key in (
+        "content",
+        "content_encoded",
+        "content:encoded",
+        "full_content",
+        "summary",
+        "description",
+        "subtitle",
+    ):
+        candidates.extend(_routing_text_values(raw.get(key)))
+    if display_summary:
+        candidates.append(display_summary)
+
+    lines: list[str] = []
+    seen: set[str] = set()
+    title_clean = _routing_line_key(clean_html_text(title) or title)
+    for value in candidates:
+        cleaned = clean_html_text(value)
+        if not cleaned:
+            continue
+        for raw_line in cleaned.splitlines():
+            line = re.sub(r"[ \t]+", " ", raw_line).strip()
+            if not line or _is_rss_boilerplate(line):
+                continue
+            line_key = _routing_line_key(line)
+            if not line_key or line_key == title_clean or line_key in seen:
+                continue
+            seen.add(line_key)
+            lines.append(line)
+            if sum(len(item) + 1 for item in lines) >= limit:
+                return _truncate_text("\n".join(lines), limit)
+            if len(lines) >= 14:
+                return _truncate_text("\n".join(lines), limit)
+    return _truncate_text("\n".join(lines), limit) if lines else None
+
+
+def _routing_text_values(value: object) -> list[str]:
+    if value is None:
+        return []
+    if isinstance(value, str):
+        return [value]
+    if isinstance(value, dict):
+        values: list[str] = []
+        for key in ("value", "content", "summary", "description"):
+            child = value.get(key)
+            if isinstance(child, str):
+                values.append(child)
+        return values
+    if isinstance(value, (list, tuple)):
+        values: list[str] = []
+        for item in value:
+            values.extend(_routing_text_values(item))
+        return values
+    return [str(value)]
+
+
+def _routing_line_key(value: str) -> str:
+    return re.sub(r"\s+", " ", value).strip().casefold()
+
+
+def _truncate_text(value: str, limit: int) -> str | None:
+    cleaned = value.strip()
+    if not cleaned:
+        return None
+    if len(cleaned) <= limit:
+        return cleaned
+    return cleaned[: limit - 1].rstrip() + "..."
+
+
 def _is_dvids_rss(url: str) -> bool:
     parsed = urlparse(url)
     return parsed.netloc.casefold() == DVIDS_HOST and parsed.path.startswith("/rss/")
@@ -833,9 +997,94 @@ def _state_collection_entries(feed: FeedRuntime, body: bytes, entry_limit: int) 
     return tuple(entries)
 
 
+async def _mscio_document_folder_entries(
+    session: aiohttp.ClientSession,
+    feed: FeedRuntime,
+    body: bytes,
+    entry_limit: int,
+    timeout_seconds: int,
+) -> tuple[FeedEntry, ...] | None:
+    if not _is_mscio_document_folder(feed.url):
+        return None
+    parser = _MscioDocumentFolderParser(feed.url)
+    try:
+        parser.feed(body.decode("utf-8", errors="ignore"))
+        parser.close()
+    except Exception as exc:
+        raise FeedFetchError(f"MSCIO document folder parse failed: {exc}") from exc
+    entries: list[FeedEntry] = []
+    routing_tags = _mscio_document_routing_tags(feed)
+    content_by_url: dict[str, str] = {}
+    for result in parser.results[: min(entry_limit, MSCIO_DOCUMENT_PDF_LIMIT)]:
+        if text := await _fetch_mscio_pdf_text(session, result["href"], timeout_seconds):
+            content_by_url[result["href"]] = text
+    for result in parser.results[:entry_limit]:
+        title = _mscio_document_title(result["title"])
+        summary = _mscio_document_summary(feed.display_name, result, content_by_url.get(result["href"]))
+        entries.append(
+            FeedEntry(
+                feed_key=feed.feed_key,
+                feed_name=feed.display_name,
+                raw_guid=result["href"],
+                raw_title=title,
+                raw_url=result["href"],
+                summary=summary,
+                image_url=None,
+                image_source=None,
+                raw_published_at=_mscio_folder_date_to_rfc(result.get("created", "")),
+                parsed={"source": "mscio_document_folder", **result},
+                source_id=feed.source_id,
+                source_class=feed.source_class,
+                rich_metadata={"routing_summary": summary},
+                routing_tags=routing_tags,
+            )
+        )
+    return tuple(entries)
+
+
+async def _fetch_mscio_pdf_text(session: aiohttp.ClientSession, url: str, timeout_seconds: int) -> str | None:
+    try:
+        async with session.get(
+            url,
+            timeout=aiohttp.ClientTimeout(total=max(timeout_seconds, 20)),
+            headers={"User-Agent": DEFAULT_USER_AGENT, "Accept": "application/pdf,*/*"},
+        ) as response:
+            if response.status != 200:
+                logger.warning("MSCIO PDF fetch failed for %s: HTTP %s", url, response.status)
+                return None
+            body = await response.read()
+    except (aiohttp.ClientError, asyncio.TimeoutError) as exc:
+        logger.warning("MSCIO PDF fetch failed for %s: %s", url, exc)
+        return None
+    if len(body) > MSCIO_DOCUMENT_MAX_BYTES:
+        logger.warning("MSCIO PDF too large for content extraction: %s bytes from %s", len(body), url)
+        return None
+    try:
+        return _extract_pdf_text(body, max_pages=MSCIO_DOCUMENT_MAX_PAGES)
+    except Exception as exc:
+        logger.warning("MSCIO PDF text extraction failed for %s: %s", url, exc)
+        return None
+
+
+def _extract_pdf_text(body: bytes, *, max_pages: int) -> str | None:
+    reader = PdfReader(io.BytesIO(body))
+    parts = []
+    for page in reader.pages[:max_pages]:
+        text = page.extract_text() or ""
+        if text.strip():
+            parts.append(text)
+    return _clean_pdf_text("\n".join(parts)) or None
+
+
 def _is_state_public_schedule_collection(url: str) -> bool:
     parsed = urlparse(url)
     return parsed.netloc.casefold() == STATE_HOST and parsed.path.rstrip("/") == "/public-schedule"
+
+
+def _is_mscio_document_folder(url: str) -> bool:
+    parsed = urlparse(url)
+    path = parsed.path.rstrip("/").casefold()
+    return parsed.netloc.casefold() == MSCIO_HOST and path.startswith("/folder/documents/")
 
 
 def _state_collection_date_to_rfc(value: str) -> str | None:
@@ -846,6 +1095,213 @@ def _state_collection_date_to_rfc(value: str) -> str | None:
     if not month:
         return None
     return f"{int(match.group(2)):02d} {month} {match.group(3)} 00:00 +0000"
+
+
+def _mscio_folder_date_to_rfc(value: str) -> str | None:
+    match = re.fullmatch(
+        r"\s*([A-Za-z]+)\s+(\d{1,2}),\s+(\d{4}),\s+(\d{1,2}):(\d{2})\s+([ap])\.m\.\s*",
+        value or "",
+        re.IGNORECASE,
+    )
+    if not match:
+        return None
+    month = STATE_MONTH_ABBR.get(match.group(1).casefold())
+    if not month:
+        return None
+    hour = int(match.group(4))
+    minute = int(match.group(5))
+    if match.group(6).casefold() == "p" and hour != 12:
+        hour += 12
+    elif match.group(6).casefold() == "a" and hour == 12:
+        hour = 0
+    return f"{int(match.group(2)):02d} {month} {match.group(3)} {hour:02d}:{minute:02d} +0000"
+
+
+def _mscio_document_title(value: str) -> str:
+    title = re.sub(r"^\d{8}[-_\s]+", "", value.strip())
+    title = title.replace("_", " ")
+    title = re.sub(r"\s+", " ", title).strip(" -")
+    return title or "MSCIO maritime security document"
+
+
+def _mscio_document_summary(feed_name: str, result: dict[str, str], pdf_text: str | None = None) -> str:
+    content_summary = _mscio_pdf_content_summary(pdf_text)
+    parts = [f"{feed_name} document."]
+    if created := result.get("created", "").strip():
+        parts.append(f"Created: {_with_period(created)}")
+    if size := result.get("size", "").strip():
+        parts.append(f"Size: {_with_period(size)}")
+    if content_summary:
+        parts.append(content_summary)
+        return " ".join(parts)
+    parts.append(
+        "Maritime and naval security product covering UKMTO/JMIC reporting areas including the Red Sea, "
+        "Gulf of Aden, Bab el-Mandeb, Strait of Hormuz, Gulf of Oman, Arabian Sea, Yemen, Somalia, Oman, "
+        "UAE, Iran, Qatar, the Middle East, Africa, and Indian Ocean maritime routes."
+    )
+    return " ".join(parts)
+
+
+def _clean_pdf_text(value: str) -> str:
+    text = value.replace("\r\n", "\n").replace("\r", "\n").replace("\xa0", " ")
+    text = text.replace("w ithin", "within").replace("acti vity", "activity")
+    text = re.sub(r"[ \t]+", " ", text)
+    text = re.sub(r"\n{3,}", "\n\n", text)
+    return text.strip()
+
+
+def _mscio_pdf_content_summary(value: str | None) -> str | None:
+    text = _clean_pdf_text(value or "")
+    if not text:
+        return None
+    if "UKMTO WARNING" in text.upper():
+        return _ukmto_warning_summary(text)
+    return _generic_mscio_document_summary(text)
+
+
+def _ukmto_warning_summary(text: str) -> str | None:
+    lines = [line.strip() for line in text.splitlines() if line.strip()]
+    warning = _first_match(text, r"\b(\d{3}-\d{2}\s*-\s*[A-Z][A-Z ]{2,})\b")
+    report_date = _first_match(text, r"Report Date:\s*Report Time:\s*Issue Date:\s*Source\s+([0-9]{1,2}\s+[A-Za-z]+\s+\d{4})")
+    report_time = _first_match(text, r"Report Date:\s*Report Time:\s*Issue Date:\s*Source\s+[0-9]{1,2}\s+[A-Za-z]+\s+\d{4}\s+([0-9]{3,4}UTC)")
+    source = _first_match(
+        text,
+        r"Report Date:\s*Report Time:\s*Issue Date:\s*Source\s+[0-9]{1,2}\s+[A-Za-z]+\s+\d{4}\s+[0-9]{3,4}UTC\s+[0-9]{1,2}\s+[A-Za-z]+\s+\d{4}\s+([A-Za-z\s]+?)(?=\s+UKMTO has|\s*$)",
+    )
+    incident = _first_sentence_after(text, "UKMTO has received a report")
+    details = _first_meaningful_sentence_after(text, incident)
+    advice = _first_sentence_containing(lines, "advised")
+    location = _location_from_ukmto_text(text, incident)
+
+    parts = []
+    if warning:
+        parts.append(f"Warning: {warning.strip()}.")
+    if report_date or report_time:
+        parts.append("Report: " + " ".join(value for value in (report_date, report_time) if value).strip() + ".")
+    if source:
+        parts.append(f"Source: {source.strip()}.")
+    if location:
+        parts.append(f"Location: {location}.")
+    if incident:
+        parts.append(f"Incident: {incident}.")
+    if details and details != incident:
+        parts.append(f"Details: {details}.")
+    if advice:
+        parts.append(f"Advice: {advice}.")
+    return " ".join(parts) if parts else _generic_mscio_document_summary(text)
+
+
+def _generic_mscio_document_summary(text: str) -> str | None:
+    useful = []
+    for line in text.splitlines():
+        cleaned = line.strip(" \t|")
+        if not cleaned or "watchkeepers@ukmto.org" in cleaned or cleaned.startswith("+44"):
+            continue
+        if cleaned.casefold() in {"www.ukmto.org", "ukmto warning"}:
+            continue
+        useful.append(cleaned)
+        if len(useful) >= 5:
+            break
+    return " ".join(useful)[:1200].strip() or None
+
+
+def _first_match(text: str, pattern: str) -> str | None:
+    match = re.search(pattern, text, re.IGNORECASE | re.DOTALL)
+    if not match:
+        return None
+    return re.sub(r"\s+", " ", match.group(1)).strip(" .")
+
+
+def _first_sentence_after(text: str, needle: str) -> str | None:
+    index = text.casefold().find(needle.casefold())
+    if index < 0:
+        return None
+    tail = text[index:]
+    return _first_sentence(tail)
+
+
+def _first_meaningful_sentence_after(text: str, previous: str | None) -> str | None:
+    normalized = re.sub(r"\s+", " ", text).strip()
+    sentences = _sentences(text)
+    if previous:
+        previous_key = previous.casefold()
+        previous_index = normalized.casefold().find(previous_key)
+        if previous_index >= 0:
+            tail = normalized[previous_index + len(previous) :]
+            for candidate in _sentences(tail):
+                if _looks_like_incident_detail(candidate):
+                    return candidate
+    for sentence in sentences:
+        if _looks_like_incident_detail(sentence) and "watchkeepers@ukmto.org" not in sentence:
+            return sentence
+    return None
+
+
+def _first_sentence_containing(lines: list[str], needle: str) -> str | None:
+    joined = " ".join(lines)
+    for sentence in _sentences(joined):
+        if needle.casefold() in sentence.casefold():
+            return sentence
+    return None
+
+
+def _first_sentence(text: str) -> str | None:
+    return next(iter(_sentences(text)), None)
+
+
+def _sentences(text: str) -> list[str]:
+    normalized = re.sub(r"\s+", " ", text).strip()
+    parts = re.split(r"(?<=[.!?])\s+(?=[A-Z0-9])", normalized)
+    return [part.strip(" .") for part in parts if part.strip(" .")]
+
+
+def _looks_like_incident_detail(sentence: str) -> bool:
+    folded = sentence.casefold()
+    return any(
+        term in folded
+        for term in (
+            "vessel has",
+            "vessel was",
+            "approached",
+            "fired upon",
+            "skiff",
+            "uncrewed",
+            "attack",
+            "suspicious",
+            "crew are",
+            "crew is",
+        )
+    )
+
+
+def _location_from_ukmto_text(text: str, incident: str | None) -> str | None:
+    source = incident or text
+    match = re.search(r"incident\s+(.+?)(?:\.|$)", source, re.IGNORECASE)
+    if match:
+        value = re.sub(r"\s+", " ", match.group(1)).strip()
+        if value:
+            return value
+    lines = [line.strip() for line in text.splitlines() if line.strip()]
+    for line in reversed(lines[-8:]):
+        if "," in line and len(line) <= 80:
+            return line
+    return None
+
+
+def _with_period(value: str) -> str:
+    cleaned = re.sub(r"\s+", " ", value.replace("\xa0", " ")).strip()
+    if not cleaned:
+        return ""
+    return cleaned if cleaned.endswith((".", "!", "?")) else f"{cleaned}."
+
+
+def _mscio_document_routing_tags(feed: FeedRuntime) -> tuple[str, ...]:
+    base = ["maritime", "naval", "middle_east", "africa", "indo_pacific"]
+    for channel_key in feed.channel_keys:
+        candidate = channel_key.replace("-", "_")
+        if candidate not in base:
+            base.append(candidate)
+    return tuple(base)
 
 
 def _class_contains(classes: str, expected: str) -> bool:

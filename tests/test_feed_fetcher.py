@@ -4,6 +4,7 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 
+import app.feed_fetcher as feed_fetcher
 from app.feed_fetcher import FeedFetchError, FeedService, clean_html_text, extract_bluesky_media
 from app.models import FeedEntry, FeedRuntime
 
@@ -264,6 +265,44 @@ def test_html_summary_is_cleaned_for_discord_embeds() -> None:
     assert "image.jpg" not in entry.summary
 
 
+def test_rss_content_encoded_is_preserved_for_routing_summary() -> None:
+    service = FeedService(timeout_seconds=10, max_entries_per_feed=30)
+    entry = service._entry_from_parsed(
+        FeedRuntime(
+            feed_key="feed_defense",
+            display_name="Defense Feed",
+            url="https://example.com/rss",
+            normalized_url="https://example.com/rss",
+            interval_seconds=300,
+            channel_ids=("111111111111111111",),
+            channel_keys=("defense-industry",),
+        ),
+        {
+            "title": "Contract award update",
+            "link": "https://example.com/contract-award",
+            "summary": "Short display stub.",
+            "content": [
+                {
+                    "value": (
+                        "<p>Contract award update</p>"
+                        "<p>The Navy selected a shipyard for destroyer modernization work.</p>"
+                        "<p>The award covers radar, combat systems, and undersea surveillance integration.</p>"
+                        "<p>The post Contract award update appeared first on Example.</p>"
+                    )
+                }
+            ],
+            "published": "02 Jun 2026 20:16 +0000",
+        },
+    )
+
+    assert entry.summary == "Short display stub."
+    assert entry.rich_metadata["routing_summary"] == (
+        "The Navy selected a shipyard for destroyer modernization work.\n"
+        "The award covers radar, combat systems, and undersea surveillance integration.\n"
+        "Short display stub."
+    )
+
+
 def test_dvids_media_thumbnail_is_extracted() -> None:
     service = FeedService(timeout_seconds=10, max_entries_per_feed=30)
     entry = service._entry_from_parsed(
@@ -404,6 +443,113 @@ async def test_state_public_schedule_collection_page_is_parsed() -> None:
     )
     assert result.entries[0].raw_published_at == "04 Jun 2026 00:00 +0000"
     assert result.entries[0].source_id == "state-department-public-schedule"
+
+
+@pytest.mark.asyncio
+async def test_mscio_document_folder_page_is_parsed() -> None:
+    service = FeedService(timeout_seconds=10, max_entries_per_feed=15)
+    session = FakeRssSession(
+        b"""
+        <html><body>
+          <table class="table table-striped">
+            <tr><th>Name</th><th>Created</th><th>Size</th></tr>
+            <tr>
+              <td><a href="/media/documents/20260617-UKMTO_WARNING-071-26.pdf">20260617-UKMTO_WARNING-071-26</a></td>
+              <td>June 22, 2026, 6:51 a.m.</td>
+              <td>323.3 KB</td>
+            </tr>
+            <tr>
+              <td><a href="/media/documents/20260621-UKMTO_WARNING_SUSPICIOUS_ACTIVITY-072-26.pdf">
+                20260621-UKMTO_WARNING_SUSPICIOUS ACTIVITY-072-26
+              </a></td>
+              <td>June 22, 2026, 6:51 p.m.</td>
+              <td>345.8 KB</td>
+            </tr>
+          </table>
+        </body></html>
+        """
+    )
+
+    result = await service.fetch(
+        session,
+        FeedRuntime(
+            feed_key="ukmto-warnings-mscio",
+            display_name="UKMTO Warnings via MSCIO",
+            url="https://mscio.eu/folder/documents/UKMTO%20Warnings/",
+            normalized_url="https://mscio.eu/folder/documents/UKMTO%20Warnings",
+            interval_seconds=300,
+            channel_ids=("111111111111111111",),
+            channel_keys=("sea", "middle-east"),
+            source_id="ukmto",
+            source_class="official_allied_defense",
+        ),
+    )
+
+    assert len(result.entries) == 2
+    assert result.entries[0].raw_title == "UKMTO WARNING-071-26"
+    assert result.entries[0].raw_url == "https://mscio.eu/media/documents/20260617-UKMTO_WARNING-071-26.pdf"
+    assert result.entries[0].raw_published_at == "22 Jun 2026 06:51 +0000"
+    assert result.entries[1].raw_published_at == "22 Jun 2026 18:51 +0000"
+    assert result.entries[0].routing_tags == ("maritime", "naval", "middle_east", "africa", "indo_pacific", "sea")
+    assert "Strait of Hormuz" in (result.entries[0].rich_metadata["routing_summary"])
+    assert result.entries[0].source_id == "ukmto"
+
+
+@pytest.mark.asyncio
+async def test_mscio_document_folder_pdf_text_enriches_summary(monkeypatch: pytest.MonkeyPatch) -> None:
+    async def fake_pdf_text(*args, **kwargs):
+        return """
+        UKMTO WARNING
+        071-26 - ATTACK
+        Report Date: Report Time: Issue Date: Source
+        17 Jun 2026 1610UTC 17 Jun 2026 Company Security Officer
+
+        UKMTO has received a report of an incident 105NM northeast of Aden, Yemen.
+
+        A vessel has been approached to within 4 meters and fired upon by 2 skiffs with an unknown number
+        of armed persons on board. The vessel has deployed security team and returned fire. The suspect
+        vessels have now disengaged and are in excess 4NM of the vessel. The crew are safe.
+
+        Vessels are advised to transit with caution and report any suspicious activity to UKMTO, while
+        authorities are investigating.
+        """
+
+    monkeypatch.setattr(feed_fetcher, "_fetch_mscio_pdf_text", fake_pdf_text)
+    service = FeedService(timeout_seconds=10, max_entries_per_feed=15)
+    session = FakeRssSession(
+        b"""
+        <html><body>
+          <table>
+            <tr><td><a href="/media/documents/20260617-UKMTO_WARNING-071-26.pdf">20260617-UKMTO_WARNING-071-26</a></td>
+            <td>June 22, 2026, 6:51 a.m.</td><td>323.3 KB</td></tr>
+          </table>
+        </body></html>
+        """
+    )
+
+    result = await service.fetch(
+        session,
+        FeedRuntime(
+            feed_key="ukmto-warnings-mscio",
+            display_name="UKMTO Warnings via MSCIO",
+            url="https://mscio.eu/folder/documents/UKMTO%20Warnings/",
+            normalized_url="https://mscio.eu/folder/documents/UKMTO%20Warnings",
+            interval_seconds=300,
+            channel_ids=("111111111111111111",),
+            channel_keys=("sea", "middle-east"),
+            source_id="ukmto",
+            source_class="official_allied_defense",
+        ),
+    )
+
+    summary = result.entries[0].summary or ""
+    assert "Warning: 071-26 - ATTACK." in summary
+    assert "Report: 17 Jun 2026 1610UTC." in summary
+    assert "Source: Company Security Officer." in summary
+    assert "Location: 105NM northeast of Aden, Yemen." in summary
+    assert "Details: A vessel has been approached to within 4 meters and fired upon by 2 skiffs" in summary
+    assert "Advice: Vessels are advised to transit with caution" in summary
+    assert result.entries[0].rich_metadata["routing_summary"] == summary
 
 
 @pytest.mark.asyncio

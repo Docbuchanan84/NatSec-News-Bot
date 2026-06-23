@@ -261,6 +261,9 @@
         "strait_of_hormuz": 5,
         "bab_el_mandeb": 3,
         "centcom": 3
+      },
+      "concept_penalties": {
+        "air_force_one": 10
       }
     },
     {
@@ -406,7 +409,14 @@
         "naval": 2,
         "air": 1,
         "space": 1,
-        "energy_security": 1
+        "energy_security": 1,
+        "coast_guard": 5,
+        "homeland_security": 3,
+        "national_security": 2,
+        "disaster": 2,
+        "exercise": 2,
+        "isr": 2,
+        "missile_warning": 2
       },
       "tag_penalties": {
         "skip_candidate": 9,
@@ -420,7 +430,16 @@
         "High North": 3,
         "NORTHCOM": 2,
         "NORAD": 2,
-        "Coast Guard": 1
+        "Coast Guard": 1,
+        "U.S. Coast Guard Arctic": 4,
+        "Coast Guard Arctic District": 4,
+        "USCG Arctic": 4,
+        "Eye on the Arctic": 3,
+        "Ted Stevens Center": 3,
+        "High North News": 3,
+        "Barents Observer": 3,
+        "JFC Norfolk": 2,
+        "Maritime Executive": 1
       },
       "notes": "Arctic / High North geography, security, energy, and military posture.",
       "destination_class": "primary",
@@ -433,7 +452,11 @@
         "arctic_places": 4,
         "arctic_military_commands": 5,
         "northcom_norad": 2,
-        "spacecom": 1
+        "spacecom": 1,
+        "arctic_maritime_security": 5,
+        "arctic_air_sar": 5,
+        "arctic_north_atlantic_security": 4,
+        "arctic_diplomacy": 3
       }
     },
     {
@@ -572,6 +595,7 @@
       "concept_boosts": {
         "drone": 1,
         "strategic_bomber": 1,
+        "air_force_one": 12,
         "air_warfare_terms": 2,
         "command_control_terms": 1
       },

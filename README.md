@@ -59,6 +59,10 @@ RSS feeds and email sources run in independent async scheduler lanes. A slow RSS
 
 Tune RSS fetch parallelism with `settings.polling.maxConcurrentFeedFetches`. Tune email fetch parallelism separately with `settings.polling.maxConcurrentEmailFetches` (default `4`) so mailbox checks can stay fast without changing RSS pressure on external servers.
 
+Tune shared post-processing throughput with `settings.polling.resultProcessorWorkers` (default `2`). Keep `settings.polling.backlogDrainEnabled` enabled when the bot should immediately continue through overdue feed batches after a long restart or slow polling cycle.
+
+Routing can use longer article bodies than Discord display embeds. RSS `content`/`content:encoded` fields, email article bodies, and supported document extracts are stored in `rich_metadata.routing_summary` up to `settings.routing.maxRoutingSummaryChars` (default `2000`) so channel scoring can see useful context without making embeds noisy.
+
 ## Native Local Run
 
 ```powershell
@@ -84,7 +88,8 @@ Open `config/config.json` and add a feed object to the top-level `feeds` array:
   "url": "https://example.com/rss",
   "pollIntervalSeconds": 300,
   "routePolicy": "normal",
-  "legacyChannelKeys": []
+  "legacyChannelKeys": [],
+  "mirrorChannelKeys": []
 }
 ```
 
@@ -97,6 +102,10 @@ Then run this in Discord:
 If the config is invalid, the bot reports the errors and keeps the previous working config active.
 
 Routing destinations are configured separately. Add the destination channel under `channels`, then update `config/routing/channels.json` when the channel should receive routed stories by topic, source, or concept. Keep `settings.routing.mode` as `observe_only` while validating a new routing setup, then switch to enforced routing once `/rss route-test`, `/rss route-backtest`, and local validation look correct.
+
+Use `mirrorChannelKeys` for feeds that should always copy routed or reviewable items to a stable archive channel after routing has selected the primary destination. Mirror keys are not used for `no_match` items, so they do not bypass the router.
+
+MSCIO document-folder URLs are supported for UKMTO/JMIC-style maritime security products. The bot parses folder rows and extracts the first pages of each PDF so Discord output and routing summaries include warning number, report time, location, incident detail, and advice when present. This requires `pypdf`, included in `requirements.txt`.
 
 ## Slash Commands
 
@@ -142,6 +151,8 @@ Privileged message content intent is not required.
 - `channel_posts` enforces one successful post per article per Discord channel.
 - Feed and email fetching are asynchronous with bounded per-source concurrency and per-source timeouts.
 - RSS and email polling use independent scheduler lanes and a shared result processor, so one source class does not wait behind another during normal operation.
+- Source mirrors configured with `mirrorChannelKeys` are added only after routing or review selection, not for no-match items.
+- Supported document-folder feeds can enrich summaries from PDF content for better routing and review formatting.
 - The RSS scheduler reuses one HTTP session during normal operation to reduce connection churn.
 - Feed health writes are recorded once per completed fetch instead of once at attempt start plus once at completion.
 - Chronic feed failures back off automatically so dead RSS endpoints do not keep consuming fetch slots every cycle.

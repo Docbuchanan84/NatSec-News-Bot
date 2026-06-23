@@ -30,6 +30,8 @@ Recommended app config uses top-level `feeds` plus destination-only `channels`:
 
 Legacy channel-scoped `feeds` are still accepted. `legacyChannelKeys` preserves old observe-only posting behavior after migrating feeds to the top level; enforced routing uses the router's final destinations instead.
 
+Top-level feeds can also declare `mirrorChannelKeys`. These are source-level archive/copy destinations that are appended after routing or review selection. They are deliberately not used for `no_match` items, so a mirror cannot make an otherwise unrouted item post.
+
 ## Routing Files
 
 - `config/routing/taxonomy.json` defines allowed tags and parent tag expansion.
@@ -108,8 +110,11 @@ Each feed should define:
 
 - `sourceId`: stable machine identifier, such as `reuters`, `associated-press`, `defense-gov`, `breaking-defense`, or `csis`.
 - `sourceClass`: broad class, such as `wire_service`, `official_us_defense`, `official_us_gov`, `official_foreign_defense`, `official_foreign_gov`, `defense_media`, `think_tank`, `major_media`, `individual_reporter`, `osint`, or `unknown`.
+- `mirrorChannelKeys`: optional destination keys that receive a copy after an item is routed or sent for review.
 
 If omitted, the loader derives `sourceId` from the feed id/name and derives only safe known source classes; otherwise it uses `unknown`.
+
+Routing summaries may differ from Discord display summaries. The fetcher stores richer context in `rich_metadata.routing_summary` when a feed exposes full RSS content, email article bodies, or supported document/PDF text. Channel scoring should use this richer field, while embeds can stay short and readable.
 
 ## Dedupe Policy
 

@@ -24,6 +24,8 @@ class PollingSettings:
     max_entries_per_feed: int = 30
     max_concurrent_feed_fetches: int = 10
     max_concurrent_email_fetches: int = 4
+    result_processor_workers: int = 2
+    backlog_drain_enabled: bool = True
     post_old_articles_on_first_run: bool = False
 
 
@@ -73,6 +75,7 @@ class RoutingSettings:
     enabled: bool = False
     mode: str = "observe_only"
     config_dir: str = "config/routing"
+    max_routing_summary_chars: int = 2000
 
 
 @dataclass(frozen=True)
@@ -122,6 +125,7 @@ class FeedConfig:
     fetch_timeout_seconds: int | None = None
     route_policy: str = "normal"
     legacy_channel_keys: tuple[str, ...] = ()
+    mirror_channel_keys: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -187,6 +191,8 @@ class FeedRuntime:
     route_policy: str = "normal"
     source_type: str = "rss"
     routing_tags: tuple[str, ...] = ()
+    mirror_channel_ids: tuple[str, ...] = ()
+    mirror_channel_keys: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)

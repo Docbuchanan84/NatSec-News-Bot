@@ -14,6 +14,8 @@
       "maxEntriesPerFeed": 30,
       "maxConcurrentFeedFetches": 10,
       "maxConcurrentEmailFetches": 4,
+      "resultProcessorWorkers": 2,
+      "backlogDrainEnabled": true,
       "postOldArticlesOnFirstRun": false
     },
     "failureBackoff": {
@@ -62,7 +64,8 @@
     "routing": {
       "enabled": true,
       "mode": "observe_only",
-      "configDir": "config/routing"
+      "configDir": "config/routing",
+      "maxRoutingSummaryChars": 2000
     }
   },
   "feeds": [
@@ -74,7 +77,8 @@
       "url": "https://example.com/reuters-world.rss",
       "pollIntervalSeconds": 300,
       "routePolicy": "normal",
-      "legacyChannelKeys": ["middle-east"]
+      "legacyChannelKeys": ["middle-east"],
+      "mirrorChannelKeys": []
     },
     {
       "id": "defense-gov-news",
