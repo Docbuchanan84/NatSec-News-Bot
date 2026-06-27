@@ -56,6 +56,32 @@ def test_bluesky_entry_falls_back_to_bluesky_post_link() -> None:
     assert entry.rich_metadata["social_url"] == "https://bsky.app/profile/reuters.com/post/abc"
 
 
+def test_rss_entry_carries_feed_routing_tags() -> None:
+    service = FeedService(timeout_seconds=10, max_entries_per_feed=30)
+    feed = FeedRuntime(
+        feed_key="feed_regular",
+        display_name="Regular Feed",
+        url="https://example.com/rss",
+        normalized_url="https://example.com/rss",
+        interval_seconds=300,
+        channel_ids=("111111111111111111",),
+        channel_keys=("review",),
+        routing_tags=("indo_pacific", "cyber"),
+    )
+
+    entry = service._entry_from_parsed(
+        feed,
+        {
+            "id": "story-1",
+            "link": "https://example.com/story",
+            "title": "Cyber exercise expands in the Pacific",
+            "published": "02 Jun 2026 00:50 +0000",
+        },
+    )
+
+    assert entry.routing_tags == ("indo_pacific", "cyber")
+
+
 def test_bluesky_external_card_media_is_extracted() -> None:
     media = extract_bluesky_media(
         {

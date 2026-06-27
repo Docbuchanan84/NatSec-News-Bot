@@ -87,7 +87,9 @@ Open `config/config.json` and add a feed object to the top-level `feeds` array:
   "name": "New Feed Name",
   "url": "https://example.com/rss",
   "pollIntervalSeconds": 300,
+  "initialBackfillHours": 24,
   "routePolicy": "normal",
+  "routingTags": [],
   "legacyChannelKeys": [],
   "mirrorChannelKeys": []
 }
@@ -102,6 +104,8 @@ Then run this in Discord:
 If the config is invalid, the bot reports the errors and keeps the previous working config active.
 
 Routing destinations are configured separately. Add the destination channel under `channels`, then update `config/routing/channels.json` when the channel should receive routed stories by topic, source, or concept. Keep `settings.routing.mode` as `observe_only` while validating a new routing setup, then switch to enforced routing once `/rss route-test`, `/rss route-backtest`, and local validation look correct.
+
+For new feeds, keep `initialBackfillHours` at `24` unless you intentionally want a tighter first-run window. Feed-level `routingTags` are optional routing hints for tightly scoped sources, such as a maritime-only or cyber-only feed; avoid broad tags on general news feeds.
 
 Use `mirrorChannelKeys` for feeds that should always copy routed or reviewable items to a stable archive channel after routing has selected the primary destination. Mirror keys are not used for `no_match` items, so they do not bypass the router.
 
@@ -177,7 +181,7 @@ Privileged message content intent is not required.
 - `Invalid JSON`: check commas, quotes, and brackets in `config/config.json`.
 - `DISCORD_BOT_TOKEN is missing`: copy `.env.example` to `.env` and add the real token.
 - Slash commands do not appear: confirm `DISCORD_GUILD_ID` is the server ID and restart the bot.
-- First run only posts recent backfill: when `postOldArticlesOnFirstRun` is `false`, valid feed timestamps under `maxPostAgeHours` can post, while stale or undated entries are skipped or suppressed.
+- First run only posts recent backfill: when `postOldArticlesOnFirstRun` is `false`, valid feed timestamps under the feed's `initialBackfillHours` window can post, while stale or undated entries are skipped or suppressed. Feeds default to 24 hours.
 - A feed fails: check `/rss status` and logs for timeout, HTTP status, or parse errors.
 
 ## Development

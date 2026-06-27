@@ -123,7 +123,9 @@ class FeedConfig:
     source_class: str = "unknown"
     poll_interval_seconds: int | None = None
     fetch_timeout_seconds: int | None = None
+    initial_backfill_hours: int = 24
     route_policy: str = "normal"
+    routing_tags: tuple[str, ...] = ()
     legacy_channel_keys: tuple[str, ...] = ()
     mirror_channel_keys: tuple[str, ...] = ()
 
@@ -189,6 +191,7 @@ class FeedRuntime:
     source_id: str = "unknown"
     source_class: str = "unknown"
     route_policy: str = "normal"
+    initial_backfill_hours: int = 24
     source_type: str = "rss"
     routing_tags: tuple[str, ...] = ()
     mirror_channel_ids: tuple[str, ...] = ()

@@ -110,11 +110,15 @@ Each feed should define:
 
 - `sourceId`: stable machine identifier, such as `reuters`, `associated-press`, `defense-gov`, `breaking-defense`, or `csis`.
 - `sourceClass`: broad class, such as `wire_service`, `official_us_defense`, `official_us_gov`, `official_foreign_defense`, `official_foreign_gov`, `defense_media`, `think_tank`, `major_media`, `individual_reporter`, `osint`, or `unknown`.
+- `initialBackfillHours`: first-success posting window for RSS feeds when `postOldArticlesOnFirstRun` is false. New feeds should usually use `24`.
+- `routingTags`: optional source-level tags added to every item from a tightly scoped feed. Use this only when the whole source has a stable topic, such as maritime, cyber, air, Indo-Pacific, or industrial-base coverage.
 - `mirrorChannelKeys`: optional destination keys that receive a copy after an item is routed or sent for review.
 
 If omitted, the loader derives `sourceId` from the feed id/name and derives only safe known source classes; otherwise it uses `unknown`.
 
 Routing summaries may differ from Discord display summaries. The fetcher stores richer context in `rich_metadata.routing_summary` when a feed exposes full RSS content, email article bodies, or supported document/PDF text. Channel scoring should use this richer field, while embeds can stay short and readable.
+
+Source onboarding should validate the endpoint before editing config: fetch with the production client shape, confirm a successful status, confirm parseable entries with recent timestamps, and check that the URL/source/name is not already represented. Reject 403s, certificate failures, empty feeds, stale-only feeds, or near-duplicates.
 
 ## Dedupe Policy
 

@@ -289,6 +289,124 @@ def production_engine() -> RoutingEngine:
     return RoutingEngine(load_routing_config(Path("config/routing"), config))
 
 
+def test_dept_of_war_legacy_feeds_satisfy_source_gate() -> None:
+    config = load_config(Path("config/config.json"))
+    routing_config = load_routing_config(Path("config/routing"), config)
+    rule = next(rule for rule in routing_config.channel_rules if rule.channel_key == "dept-of-war")
+    required_source_classes = {value.casefold() for value in rule.required_source_classes}
+    excluded_source_ids = {value.casefold() for value in rule.excluded_source_ids}
+
+    violations = []
+    for feed in config.feeds:
+        if "dept-of-war" not in feed.legacy_channel_keys:
+            continue
+        source_class = feed.source_class.casefold()
+        source_id = feed.source_id.casefold()
+        if required_source_classes and source_class not in required_source_classes:
+            violations.append((feed.id, feed.source_id, feed.source_class, "required_source_classes"))
+        if source_id in excluded_source_ids:
+            violations.append((feed.id, feed.source_id, feed.source_class, "excluded_source_ids"))
+
+    assert violations == []
+
+
+def test_new_source_feed_backfill_and_routing_metadata() -> None:
+    config = load_config(Path("config/config.json"))
+    added_ids = {
+        "fcdo-news-comms",
+        "uk-defence-digital",
+        "articles-of-war",
+        "just-security",
+        "small-wars-journal",
+        "cimsec",
+        "the-diplomat",
+        "jamestown",
+        "realclear-defense",
+        "un-news",
+        "c4isrnet",
+        "the-aviationist",
+        "defence-industry-europe",
+        "euro-sd",
+        "the-record",
+    }
+    feeds = {feed.id: feed for feed in config.feeds if feed.id in added_ids}
+
+    assert set(feeds) == added_ids
+    assert all(feed.initial_backfill_hours == 24 for feed in feeds.values())
+    assert all(feed.source_id != "unknown" for feed in feeds.values())
+    assert {"cyber", "technology"} <= set(feeds["the-record"].routing_tags)
+    assert {"naval", "maritime"} <= set(feeds["cimsec"].routing_tags)
+
+
+def test_new_source_concepts_route_to_expected_destinations() -> None:
+    engine = production_engine()
+    cases = [
+        (
+            RoutingArticle(
+                title="The Record: State-backed hackers target critical infrastructure",
+                source_id="the-record",
+                source_class="major_media",
+                routing_tags=("cyber", "technology", "national_security"),
+            ),
+            {"science-technology"},
+        ),
+        (
+            RoutingArticle(
+                title="CIMSEC: Sea control and maritime security in the Pacific",
+                source_id="cimsec",
+                source_class="think_tank",
+                routing_tags=("naval", "maritime", "military"),
+            ),
+            {"sea", "think-tanks"},
+        ),
+        (
+            RoutingArticle(
+                title="The Diplomat: Pacific deterrence debate intensifies",
+                source_id="the-diplomat",
+                source_class="major_media",
+                routing_tags=("indo_pacific",),
+            ),
+            {"indo-pacific"},
+        ),
+        (
+            RoutingArticle(
+                title="Small Wars Journal: Partner force stabilization mission faces militia network pressure",
+                source_id="small-wars-journal",
+                source_class="think_tank",
+                routing_tags=("military", "counterterrorism"),
+            ),
+            {"land", "think-tanks"},
+        ),
+        (
+            RoutingArticle(
+                title="Defence Industry Europe: European Defence Fund backs ammunition production",
+                source_id="defence-industry-europe",
+                source_class="defense_media",
+                routing_tags=("defense_industry", "procurement", "europe"),
+            ),
+            {"industrial-base", "defense-media"},
+        ),
+    ]
+
+    for article, expected in cases:
+        decision = engine.route(article)
+        assert expected <= set(decision.selected_channel_keys)
+
+
+def test_law_of_armed_conflict_defaults_to_review() -> None:
+    decision = production_engine().route(
+        RoutingArticle(
+            title="Articles of War: Law of armed conflict questions after strike on command post",
+            source_id="articles-of-war",
+            source_class="think_tank",
+        )
+    )
+
+    assert decision.decision_status == "review"
+    assert decision.reason == "review_required"
+    assert "review" in decision.selected_channel_keys
+
+
 def test_taxonomy_parent_expansion(tmp_path: Path) -> None:
     config = load_routing_config(routing_dir(tmp_path), app_config(tmp_path))
     assert expand_tags({"carrier_strike_group"}, config.taxonomy) >= {"aircraft_carrier", "naval", "military", "world"}

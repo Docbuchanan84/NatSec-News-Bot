@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from datetime import UTC, datetime, timedelta
 from email.utils import format_datetime
 from pathlib import Path
@@ -19,32 +20,27 @@ class FakeAdapter:
         return f"message-{job.article_id}"
 
 
-def write_config(tmp_path: Path) -> Path:
+def write_config(tmp_path: Path, *, initial_backfill_hours: int | None = None) -> Path:
     path = tmp_path / "config.json"
-    path.write_text(
-        """
-        {
-          "version": 1,
-          "settings": {
-            "polling": {
-              "postOldArticlesOnFirstRun": false
-            },
-            "publishing": {
-              "secondsBetweenPostsPerChannel": 0
-            }
-          },
-          "channels": [
+    feed = {"name": "Feed", "url": "https://example.com/rss"}
+    if initial_backfill_hours is not None:
+        feed["initialBackfillHours"] = initial_backfill_hours
+    data = {
+        "version": 1,
+        "settings": {
+            "polling": {"postOldArticlesOnFirstRun": False},
+            "publishing": {"secondsBetweenPostsPerChannel": 0},
+        },
+        "channels": [
             {
-              "key": "a",
-              "name": "A",
-              "discordChannelId": "111111111111111111",
-              "feeds": [{"name": "Feed", "url": "https://example.com/rss"}]
+                "key": "a",
+                "name": "A",
+                "discordChannelId": "111111111111111111",
+                "feeds": [feed],
             }
-          ]
-        }
-        """,
-        encoding="utf-8",
-    )
+        ],
+    }
+    path.write_text(json.dumps(data), encoding="utf-8")
     return path
 
 
@@ -129,8 +125,13 @@ def write_routing_config(tmp_path: Path) -> Path:
 
 
 @pytest.mark.asyncio
-async def process_first_run_entry(tmp_path: Path, raw_published_at: str | None):
-    config = load_config(write_config(tmp_path))
+async def process_first_run_entry(
+    tmp_path: Path,
+    raw_published_at: str | None,
+    *,
+    initial_backfill_hours: int | None = None,
+):
+    config = load_config(write_config(tmp_path, initial_backfill_hours=initial_backfill_hours))
     db = Database(tmp_path / "rss.sqlite")
     db.initialize()
     publisher = PublisherService(db, FakeAdapter())
@@ -184,6 +185,17 @@ async def test_first_run_posts_recent_valid_timestamps(tmp_path: Path) -> None:
 async def test_first_run_skips_stale_valid_timestamps(tmp_path: Path) -> None:
     raw_published_at = format_datetime(datetime.now(UTC) - timedelta(days=3))
     summary, db = await process_first_run_entry(tmp_path, raw_published_at)
+
+    assert summary.new_articles == 0
+    assert summary.posts_queued == 0
+    assert db.counts()["channel_posts"] == 0
+    assert db._conn.execute("SELECT count(*) FROM feed_entry_seen").fetchone()[0] == 1
+
+
+@pytest.mark.asyncio
+async def test_first_run_respects_feed_initial_backfill_hours(tmp_path: Path) -> None:
+    raw_published_at = format_datetime(datetime.now(UTC) - timedelta(hours=2))
+    summary, db = await process_first_run_entry(tmp_path, raw_published_at, initial_backfill_hours=1)
 
     assert summary.new_articles == 0
     assert summary.posts_queued == 0

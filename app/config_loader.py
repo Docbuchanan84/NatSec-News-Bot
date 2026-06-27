@@ -827,6 +827,13 @@ def _parse_feeds(
                 min_value=1,
                 max_value=120,
             )
+        initial_backfill_hours = _int(
+            feed_obj.get("initialBackfillHours", 24),
+            f"{feed_path}.initialBackfillHours",
+            errors,
+            min_value=0,
+            max_value=168,
+        )
         route_policy = _choice(
             feed_obj.get("routePolicy", "normal"),
             f"{feed_path}.routePolicy",
@@ -852,7 +859,9 @@ def _parse_feeds(
                 source_class=source_class,
                 poll_interval_seconds=interval_seconds,
                 fetch_timeout_seconds=timeout_seconds,
+                initial_backfill_hours=initial_backfill_hours,
                 route_policy=route_policy,
+                routing_tags=_key_tuple(feed_obj.get("routingTags", []), f"{feed_path}.routingTags", errors),
                 legacy_channel_keys=tuple(configured_legacy_keys),
                 mirror_channel_keys=tuple(configured_mirror_keys),
             )

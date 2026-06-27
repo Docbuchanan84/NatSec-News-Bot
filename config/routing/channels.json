@@ -3,7 +3,12 @@
   "max_destinations": 2,
   "review_tags": [
     "review_required",
-    "ambiguous"
+    "ambiguous",
+    "earthquake",
+    "weather_alert",
+    "wildfire",
+    "obituary",
+    "photo_gallery"
   ],
   "skip_tags": [
     "skip_candidate"
@@ -46,7 +51,8 @@
         "humanitarian": 1,
         "economy": 1,
         "finance": 1,
-        "diplomacy": 1
+        "diplomacy": 1,
+        "libya": 4
       },
       "tag_penalties": {
         "skip_candidate": 8,
@@ -105,7 +111,8 @@
         "drone": 2,
         "diplomacy": 1,
         "economy": 1,
-        "finance": 1
+        "finance": 1,
+        "libya": -2
       },
       "source_biases": {
         "Europe": 2,
@@ -135,7 +142,8 @@
       ],
       "concept_boosts": {
         "ukraine_war": 8,
-        "nato": 1
+        "nato": 1,
+        "eurasia_influence_security": 3
       }
     },
     {
@@ -192,7 +200,8 @@
         "india_security_crisis": 3,
         "taiwan_strait": 2,
         "south_china_sea": 2,
-        "philippine_sea": 2
+        "philippine_sea": 2,
+        "indo_pacific_security_analysis": 3
       }
     },
     {
@@ -219,7 +228,8 @@
         "sanctions": 1,
         "economy": 1,
         "finance": 1,
-        "diplomacy": 1
+        "diplomacy": 1,
+        "libya": 3
       },
       "source_biases": {
         "CENTCOM": 3,
@@ -522,7 +532,8 @@
         "chinese_aircraft_carrier": 2,
         "chinese_carrier": 2,
         "naval_warfare_terms": 2,
-        "transcom": 1
+        "transcom": 1,
+        "maritime_security_analysis": 3
       },
       "concept_penalties": {
         "ukraine_war": 12,
@@ -628,7 +639,8 @@
         "marine_littoral": 5,
         "sustainment": 2,
         "command_control": 2,
-        "counterterrorism": 2
+        "counterterrorism": 2,
+        "non_state_actor": 2
       },
       "tag_penalties": {
         "skip_candidate": 9,
@@ -668,7 +680,8 @@
         "air_defense": 1,
         "missile_defense": 1,
         "land_warfare_terms": 2,
-        "command_control_terms": 1
+        "command_control_terms": 1,
+        "irregular_warfare_stabilization": 3
       },
       "concept_penalties": {
         "ukraine_war": 12,
@@ -727,7 +740,8 @@
         "civilian_innovation": 5,
         "biotechnology": 4,
         "cryptocurrency": 4,
-        "cyber": 2
+        "cyber": 5,
+        "command_control": 3
       },
       "tag_penalties": {
         "skip_candidate": 9,
@@ -781,7 +795,9 @@
         "consumer_technology",
         "civilian_innovation",
         "biotechnology",
-        "cryptocurrency"
+        "cryptocurrency",
+        "cyber",
+        "command_control"
       ],
       "concept_boosts": {
         "artificial_intelligence": 2,
@@ -789,7 +805,9 @@
         "major_tech_companies": 0,
         "chip_companies": 2,
         "civilian_innovation": 1,
-        "biotechnology": 1
+        "biotechnology": 1,
+        "cyber_defense_operations": 3,
+        "c4isr_battle_networks": 2
       },
       "concept_penalties": {
         "ukraine_war": 12,
@@ -812,7 +830,8 @@
       "tag_boosts": {
         "special_operations": 10,
         "military_organization": 1,
-        "counterterrorism": 3
+        "counterterrorism": 3,
+        "non_state_actor": 3
       },
       "tag_penalties": {
         "skip_candidate": 9,
@@ -841,7 +860,8 @@
       ],
       "concept_boosts": {
         "socom": 4,
-        "counterterrorism": 1
+        "counterterrorism": 1,
+        "irregular_warfare_stabilization": 2
       },
       "concept_penalties": {
         "ukraine_war": 12,
@@ -1002,7 +1022,9 @@
         "defense_industry": 2,
         "defense_contracts": 2,
         "defense_production_stockpiles": 2,
-        "military_technology": 1
+        "military_technology": 1,
+        "european_defense_industry": 3,
+        "c4isr_battle_networks": 1
       }
     },
     {
@@ -1342,7 +1364,12 @@
       "minimum_score": 0,
       "priority": 1000,
       "notes": "Review-only destination for review_required and ambiguous articles.",
-      "profile": "review"
+      "profile": "review",
+      "tag_boosts": {
+        "review_required": 1,
+        "obituary": 1,
+        "photo_gallery": 1
+      }
     }
   ],
   "max_primary_destinations": 2

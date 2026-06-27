@@ -105,6 +105,8 @@ def test_loads_top_level_feeds_and_destination_only_channels(tmp_path: Path) -> 
                 "url": "https://example.com/reuters.rss",
                 "pollIntervalSeconds": 300,
                 "fetchTimeoutSeconds": 20,
+                "initialBackfillHours": 12,
+                "routingTags": ["europe"],
                 "legacyChannelKeys": ["middle-east"],
                 "mirrorChannelKeys": ["sea"],
             }
@@ -128,6 +130,8 @@ def test_loads_top_level_feeds_and_destination_only_channels(tmp_path: Path) -> 
     assert config.feeds[0].source_id == "reuters"
     assert config.feeds[0].source_class == "wire_service"
     assert config.feeds[0].fetch_timeout_seconds == 20
+    assert config.feeds[0].initial_backfill_hours == 12
+    assert config.feeds[0].routing_tags == ("europe",)
     assert config.feeds[0].legacy_channel_keys == ("middle-east",)
     assert config.feeds[0].mirror_channel_keys == ("sea",)
     assert config.channels[1].feeds == ()

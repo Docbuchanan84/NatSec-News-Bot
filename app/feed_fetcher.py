@@ -173,6 +173,7 @@ class FeedService:
             source_id=feed.source_id,
             source_class=feed.source_class,
             rich_metadata=metadata,
+            routing_tags=feed.routing_tags,
         )
 
     async def _enrich_bluesky_entries(

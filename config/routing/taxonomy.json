@@ -948,6 +948,13 @@
         "strategic_weapon"
       ],
       "description": "Nuclear policy and strategy coverage."
+    },
+    "libya": {
+      "parent_tags": [
+        "africa",
+        "middle_east"
+      ],
+      "description": "Libya coverage and Tripoli-specific political/security reporting."
     }
   }
 }

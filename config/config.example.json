@@ -76,7 +76,9 @@
       "name": "Reuters World",
       "url": "https://example.com/reuters-world.rss",
       "pollIntervalSeconds": 300,
+      "initialBackfillHours": 24,
       "routePolicy": "normal",
+      "routingTags": [],
       "legacyChannelKeys": ["middle-east"],
       "mirrorChannelKeys": []
     },
@@ -87,7 +89,9 @@
       "name": "Defense.gov News",
       "url": "https://example.com/defense-gov.rss",
       "pollIntervalSeconds": 600,
+      "initialBackfillHours": 24,
       "routePolicy": "normal",
+      "routingTags": ["military", "government"],
       "legacyChannelKeys": ["dept-of-war"]
     }
   ],

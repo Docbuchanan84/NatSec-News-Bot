@@ -49,11 +49,7 @@
         "Europe",
         "European",
         "European Union",
-        "EU",
-        "Baltic states",
-        "Baltics",
-        "Alpine country",
-        "Alpine countries"
+        "Baltics"
       ],
       "tags": [
         "europe"
@@ -115,15 +111,10 @@
         "Arctic Circle",
         "Arctic region",
         "Arctic Ocean",
-        "Arctic Council",
-        "Arctic strategy",
         "Arctic security",
-        "Arctic patrol",
         "Arctic exercise",
         "Arctic warfare",
         "northern flank",
-        "GIUK Gap",
-        "Greenland-Iceland-UK Gap",
         "circumpolar north",
         "circumpolar Arctic",
         "North American Arctic",
@@ -133,8 +124,6 @@
         "Arctic presence",
         "Arctic operations",
         "Arctic readiness",
-        "Arctic Sentry",
-        "Arctic Edge",
         "ice operations",
         "polar operations"
       ],
@@ -542,7 +531,6 @@
       "id": "united_kingdom",
       "aliases": [
         "United Kingdom",
-        "UK",
         "Britain",
         "British",
         "London",
@@ -1030,11 +1018,9 @@
     {
       "id": "us_government",
       "aliases": [
-        "Trump",
         "Biden",
         "White House",
         "Pentagon",
-        "DHS",
         "DOJ",
         "U.S. Congress",
         "US Congress",
@@ -1045,8 +1031,7 @@
         "U.S. House",
         "US House",
         "House of Representatives",
-        "House Oversight",
-        "Gavin Newsom"
+        "House Oversight"
       ],
       "tags": [
         "united_states",
@@ -2252,7 +2237,6 @@
         "army",
         "ground forces",
         "troops",
-        "armored brigade",
         "tank brigade"
       ],
       "tags": [
@@ -2374,9 +2358,7 @@
         "defense industry",
         "defence industry",
         "defense contractor",
-        "defense contract",
         "defence contract",
-        "Pentagon contract",
         "Pentagon contracts",
         "DoD contract",
         "Army contract",
@@ -2448,7 +2430,6 @@
       "id": "artificial_intelligence",
       "aliases": [
         "artificial intelligence",
-        "AI",
         "generative AI",
         "large language model",
         "large language models",
@@ -2588,7 +2569,6 @@
         "Qualcomm",
         "QCOM",
         "Micron",
-        "MU",
         "Arm Holdings",
         "ASML",
         "Samsung Electronics",
@@ -3003,7 +2983,6 @@
         "Lula",
         "Javier Milei",
         "Nicolas Maduro",
-        "Maduro",
         "Gustavo Petro",
         "Gabriel Boric"
       ],
@@ -3281,7 +3260,7 @@
         "Denmark Strait",
         "Norwegian High North",
         "Finnmark",
-        "Tromsø",
+        "Troms\u00f8",
         "Kiruna",
         "Rovaniemi",
         "Lapland",
@@ -3305,8 +3284,6 @@
       "aliases": [
         "Alaskan Command",
         "ALCOM",
-        "NORAD",
-        "North American Aerospace Defense Command",
         "Pituffik Space Base",
         "Thule Air Base",
         "Clear Space Force Station",
@@ -3340,10 +3317,7 @@
         "Noble Defender",
         "Operation Noble Defender",
         "Tundra Merlin",
-        "Operation Tundra Merlin",
-        "Arctic Sentry",
-        "Joint Force Command Norfolk",
-        "JFC Norfolk"
+        "Operation Tundra Merlin"
       ],
       "tags": [
         "arctic",
@@ -3413,15 +3387,6 @@
         "Belgrade",
         "Slovakia",
         "Bratislava",
-        "Switzerland",
-        "Swiss",
-        "Swiss referendum",
-        "Swiss voters",
-        "Swiss vote",
-        "Swiss population",
-        "Bern",
-        "Geneva",
-        "Zurich",
         "Malta",
         "Valletta",
         "Luxembourg",
@@ -3433,7 +3398,6 @@
         "Yerevan",
         "Azerbaijan",
         "Baku",
-        "Baltic states",
         "Balkans",
         "Caucasus"
       ],
@@ -3495,7 +3459,7 @@
         "Samoa",
         "Apia",
         "Tonga",
-        "Nukuʻalofa",
+        "Nuku\u02bbalofa",
         "Micronesia",
         "Palau",
         "Ngerulmud",
@@ -3535,9 +3499,6 @@
         "Afghanistan",
         "Afghan",
         "Kabul",
-        "Libya",
-        "Libyan",
-        "Tripoli",
         "Palestinian",
         "Palestinians",
         "Gaza",
@@ -3578,7 +3539,7 @@
         "Central African Republic",
         "Bangui",
         "Chadian",
-        "N’Djamena",
+        "N\u2019Djamena",
         "Comoros",
         "Moroni",
         "Djibouti",
@@ -3631,9 +3592,7 @@
         "Togo",
         "Lome",
         "Zimbabwe",
-        "Harare",
-        "Libyan",
-        "Tripoli"
+        "Harare"
       ],
       "tags": [
         "africa"
@@ -3671,19 +3630,7 @@
         "Guadeloupe",
         "Martinique",
         "French Guiana",
-        "El Salvador",
-        "San Salvador",
-        "Tegucigalpa",
-        "San Jose",
-        "Managua",
-        "Asuncion",
-        "Montevideo",
-        "Santo Domingo",
-        "Lima",
-        "Quito",
-        "La Paz",
-        "Sucre",
-        "Caracas"
+        "Sucre"
       ],
       "tags": [
         "latin_america"
@@ -3700,14 +3647,11 @@
         "Calgary",
         "Edmonton",
         "Quebec",
-        "Ottawa",
         "Halifax",
         "Winnipeg",
-        "Mexico City",
         "Guadalajara",
         "Monterrey",
         "Tijuana",
-        "Los Angeles",
         "San Francisco",
         "Seattle",
         "Houston",
@@ -3744,7 +3688,6 @@
         "strategic competition",
         "gray zone",
         "grey zone",
-        "hybrid warfare",
         "foreign interference",
         "foreign influence",
         "coercion campaign",
@@ -3776,8 +3719,7 @@
         "threat assessment",
         "intelligence assessment",
         "counterintelligence",
-        "ISR",
-        "C4ISR"
+        "ISR"
       ],
       "tags": [
         "intelligence",
@@ -3793,7 +3735,6 @@
         "homeland security",
         "DHS",
         "border security",
-        "maritime security",
         "port security",
         "critical infrastructure",
         "FEMA",
@@ -4108,7 +4049,6 @@
         "cruiser",
         "expeditionary strike group",
         "ESG",
-        "amphibious ready group",
         "ARG",
         "undersea warfare",
         "anti-submarine warfare",
@@ -4140,7 +4080,6 @@
         "air refueling",
         "tanker aircraft",
         "airbase",
-        "air base",
         "flight line",
         "KC-46",
         "KC-135",
@@ -4212,15 +4151,9 @@
       "id": "command_control_terms",
       "aliases": [
         "command and control",
-        "C2",
-        "C3",
-        "C4ISR",
-        "battle network",
         "kill chain",
         "sensor-to-shooter",
         "joint all-domain command and control",
-        "JADC2",
-        "CJADC2",
         "mission command",
         "battle management"
       ],
@@ -4435,7 +4368,6 @@
       "aliases": [
         "Arctic Council",
         "Arctic states",
-        "A8",
         "circumpolar cooperation",
         "Polar Institute",
         "Arctic diplomacy",
@@ -4446,7 +4378,7 @@
         "Inuit Circumpolar Council",
         "ICC Alaska",
         "Saami Council",
-        "Sámi Council",
+        "S\u00e1mi Council",
         "Arctic Economic Council",
         "Arctic policy",
         "Arctic strategy",
@@ -4460,6 +4392,219 @@
       "priority": 46,
       "score": 3,
       "description": "Arctic diplomatic institutions, policy, and circumpolar governance terminology."
+    },
+    {
+      "id": "libya",
+      "aliases": [
+        "Libya",
+        "Libyan",
+        "Tripoli"
+      ],
+      "tags": [
+        "libya",
+        "africa",
+        "middle_east"
+      ],
+      "priority": 58,
+      "score": 4,
+      "description": "Libya and Tripoli-specific coverage, kept out of broad Africa/Middle East city buckets."
+    },
+    {
+      "id": "law_of_armed_conflict",
+      "aliases": [
+        "law of armed conflict",
+        "LOAC",
+        "international humanitarian law",
+        "IHL",
+        "Geneva Conventions",
+        "war crimes investigation",
+        "rules of engagement",
+        "civilian harm mitigation",
+        "law of war manual",
+        "military necessity and proportionality"
+      ],
+      "tags": [
+        "national_security",
+        "military",
+        "humanitarian",
+        "review_required"
+      ],
+      "priority": 66,
+      "score": 4,
+      "description": "Law-of-war and armed-conflict legal analysis for Articles of War and Just Security-style coverage."
+    },
+    {
+      "id": "irregular_warfare_stabilization",
+      "aliases": [
+        "irregular warfare",
+        "counterinsurgency",
+        "counter-insurgency",
+        "stabilization mission",
+        "stability operations",
+        "foreign internal defense",
+        "security force assistance",
+        "partner force",
+        "militia network",
+        "insurgent group",
+        "gray zone campaign",
+        "grey zone campaign"
+      ],
+      "tags": [
+        "counterterrorism",
+        "non_state_actor",
+        "ground",
+        "military"
+      ],
+      "priority": 62,
+      "score": 4,
+      "description": "Irregular warfare, stabilization, counterinsurgency, and partner-force coverage."
+    },
+    {
+      "id": "indo_pacific_security_analysis",
+      "aliases": [
+        "Indo-Pacific security",
+        "Asia-Pacific security",
+        "Taiwan contingency",
+        "Taiwan Strait crisis",
+        "South China Sea dispute",
+        "East China Sea dispute",
+        "Senkaku Islands",
+        "Second Thomas Shoal",
+        "Philippine Sea security",
+        "Pacific deterrence"
+      ],
+      "tags": [
+        "indo_pacific",
+        "national_security",
+        "diplomacy"
+      ],
+      "priority": 64,
+      "score": 4,
+      "description": "Indo-Pacific security and diplomacy analysis for regional outlets."
+    },
+    {
+      "id": "maritime_security_analysis",
+      "aliases": [
+        "maritime security",
+        "naval strategy",
+        "sea control",
+        "sea denial",
+        "littoral operations",
+        "maritime domain awareness",
+        "gray hull",
+        "grey hull",
+        "freedom of navigation operation",
+        "FONOP",
+        "exclusive economic zone patrol",
+        "EEZ patrol"
+      ],
+      "tags": [
+        "naval",
+        "maritime",
+        "military"
+      ],
+      "priority": 64,
+      "score": 4,
+      "description": "Maritime security and naval strategy analysis for CIMSEC-style sources."
+    },
+    {
+      "id": "eurasia_influence_security",
+      "aliases": [
+        "Eurasia security",
+        "Russian influence operation",
+        "Kremlin influence operation",
+        "hybrid warfare",
+        "information warfare campaign",
+        "post-Soviet security",
+        "Black Sea security",
+        "Caucasus security",
+        "Moldova security",
+        "Baltic security"
+      ],
+      "tags": [
+        "europe",
+        "russia",
+        "national_security",
+        "intelligence"
+      ],
+      "priority": 62,
+      "score": 4,
+      "description": "Eurasia, Russia, and influence-operation analysis for Jamestown and RFE/RL-adjacent coverage."
+    },
+    {
+      "id": "cyber_defense_operations",
+      "aliases": [
+        "cyber defense",
+        "cyber defence",
+        "cyber operation",
+        "cyber operations",
+        "ransomware attack",
+        "state-backed hackers",
+        "state-sponsored hackers",
+        "critical infrastructure cyberattack",
+        "CISA advisory",
+        "zero trust architecture",
+        "cyber resilience"
+      ],
+      "tags": [
+        "cyber",
+        "technology",
+        "national_security"
+      ],
+      "priority": 62,
+      "score": 4,
+      "description": "Cybersecurity and cyber-defense reporting for The Record and defense cyber sources."
+    },
+    {
+      "id": "c4isr_battle_networks",
+      "aliases": [
+        "C4ISR",
+        "C5ISR",
+        "battle network",
+        "battle networks",
+        "command-and-control network",
+        "JADC2",
+        "CJADC2",
+        "ABMS",
+        "Project Convergence",
+        "Combined Joint All-Domain Command and Control",
+        "joint fires network",
+        "sensor-to-shooter network"
+      ],
+      "tags": [
+        "command_control",
+        "isr",
+        "cyber",
+        "military"
+      ],
+      "priority": 66,
+      "score": 4,
+      "description": "Command-control, ISR, and battle-network coverage for C4ISRNet-style sources."
+    },
+    {
+      "id": "european_defense_industry",
+      "aliases": [
+        "European Defence Fund",
+        "European Defense Fund",
+        "European Defence Industrial Strategy",
+        "European Defense Industrial Strategy",
+        "EDIS",
+        "EDIP",
+        "European defence industry",
+        "European defense industry",
+        "European ammunition production",
+        "European air defence initiative",
+        "European Sky Shield"
+      ],
+      "tags": [
+        "defense_industry",
+        "procurement",
+        "production",
+        "europe"
+      ],
+      "priority": 64,
+      "score": 4,
+      "description": "European defense industrial-base and acquisition coverage."
     }
   ]
 }

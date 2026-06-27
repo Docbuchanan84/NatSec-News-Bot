@@ -948,6 +948,8 @@ def build_feed_runtime_map(config: AppConfig) -> dict[str, FeedRuntime]:
                 source_id=feed.source_id,
                 source_class=feed.source_class,
                 route_policy=feed.route_policy,
+                initial_backfill_hours=feed.initial_backfill_hours,
+                routing_tags=feed.routing_tags,
                 channel_ids=tuple(channel_ids),
                 channel_keys=tuple(channel_keys),
                 mirror_channel_ids=tuple(mirror_channel_ids),
@@ -976,6 +978,8 @@ def build_feed_runtime_map(config: AppConfig) -> dict[str, FeedRuntime]:
                     source_id=feed.source_id,
                     source_class=feed.source_class,
                     route_policy=feed.route_policy,
+                    initial_backfill_hours=feed.initial_backfill_hours,
+                    routing_tags=feed.routing_tags,
                     channel_ids=(channel.discord_channel_id,),
                     channel_keys=(channel.key,),
                     mirror_channel_ids=tuple(mirror_channel_ids),
@@ -998,6 +1002,8 @@ def build_feed_runtime_map(config: AppConfig) -> dict[str, FeedRuntime]:
                 "source_id": feed.source_id,
                 "source_class": feed.source_class,
                 "route_policy": feed.route_policy,
+                "initial_backfill_hours": feed.initial_backfill_hours,
+                "routing_tags": [],
                 "channel_ids": [],
                 "channel_keys": [],
                 "mirror_channel_ids": [],
@@ -1008,6 +1014,12 @@ def build_feed_runtime_map(config: AppConfig) -> dict[str, FeedRuntime]:
         existing_timeout = group["fetch_timeout_seconds"]
         if feed.fetch_timeout_seconds is not None:
             group["fetch_timeout_seconds"] = max(int(existing_timeout or 0), feed.fetch_timeout_seconds)
+        group["initial_backfill_hours"] = min(int(group["initial_backfill_hours"]), feed.initial_backfill_hours)
+        cast_routing_tags = group["routing_tags"]
+        assert isinstance(cast_routing_tags, list)
+        for tag in feed.routing_tags:
+            if tag not in cast_routing_tags:
+                cast_routing_tags.append(tag)
         cast_channel_ids = group["channel_ids"]
         cast_channel_keys = group["channel_keys"]
         assert isinstance(cast_channel_ids, list)
@@ -1037,6 +1049,8 @@ def build_feed_runtime_map(config: AppConfig) -> dict[str, FeedRuntime]:
             source_id=str(group["source_id"]),
             source_class=str(group["source_class"]),
             route_policy=str(group["route_policy"]),
+            initial_backfill_hours=int(group["initial_backfill_hours"]),
+            routing_tags=tuple(group["routing_tags"]),
             channel_ids=tuple(group["channel_ids"]),
             channel_keys=tuple(group["channel_keys"]),
             mirror_channel_ids=tuple(group["mirror_channel_ids"]),
