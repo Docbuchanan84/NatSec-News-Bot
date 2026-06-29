@@ -270,6 +270,47 @@ def test_top_level_feed_uses_mirror_channel_keys_after_routing(tmp_path):
     )
 
 
+def test_top_level_feed_preserves_conflict_routing_tags_without_direct_defense_media_target(tmp_path):
+    path = tmp_path / "config.json"
+    path.write_text(
+        """
+        {
+          "version": 1,
+          "feeds": [
+            {
+              "id": "bluesky-noelreports",
+              "sourceId": "bluesky-noelreports",
+              "sourceClass": "defense_media",
+              "name": "Bluesky: NOELREPORTS",
+              "url": "https://example.com/noelreports/rss",
+              "routingTags": ["ukraine", "europe", "active_conflict"],
+              "legacyChannelKeys": ["europe"]
+            }
+          ],
+          "channels": [
+            {
+              "key": "europe",
+              "name": "Europe",
+              "discordChannelId": "111111111111111111"
+            },
+            {
+              "key": "defense-media",
+              "name": "Defense Media",
+              "discordChannelId": "222222222222222222"
+            }
+          ]
+        }
+        """,
+        encoding="utf-8",
+    )
+    config = load_config(path)
+    feed = build_feed_runtime_map(config)["bluesky-noelreports"]
+
+    assert "europe" in feed.channel_keys
+    assert "defense-media" not in feed.channel_keys
+    assert feed.routing_tags == ("ukraine", "europe", "active_conflict")
+
+
 def test_feed_mirror_channel_keys_do_not_post_no_match_items():
     scheduler = SchedulerService(db=object(), publisher=object())
     scheduler.routing_mode = "enforced"

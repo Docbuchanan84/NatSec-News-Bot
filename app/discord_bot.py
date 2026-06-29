@@ -51,6 +51,12 @@ MARKETING_CONTINUATION_URL_RE = re.compile(
     re.IGNORECASE,
 )
 REVIEW_CHANNEL_ID = "1511541774642843789"
+IMPORTANCE_COLOR_STOPS = (
+    (0, 0x808080),
+    (3, 0x2ECC71),
+    (7, 0xF1C40F),
+    (10, 0xE74C3C),
+)
 TRACKING_TITLE_HOST_FRAGMENTS = (
     "hubspotlinks.com",
     "pardot.",
@@ -114,17 +120,14 @@ def _build_post_embed(job: PostJob, client: discord.Client) -> discord.Embed:
             description = _scrub_youtube_description(description)
         description = _dedupe_description(title, description)
         embed_url = job.url
-    if job.timestamp_status in {"valid", "timezone_corrected"}:
-        display_timestamp = job.normalized_published_at.astimezone(UTC)
-        footer = _post_footer(job, "published")
-    else:
-        display_timestamp = datetime.now(UTC)
-        footer = _post_footer(job, "detected")
+    display_timestamp = job.normalized_published_at.astimezone(UTC)
+    footer = _post_footer(job, display_timestamp)
     embed = discord.Embed(
         title=title[:256],
         url=embed_url,
         description=description[:4096] if description else None,
         timestamp=display_timestamp,
+        color=_importance_color(job.importance_score),
     )
     if job.image_url and not social_post:
         embed.set_image(url=job.image_url)
@@ -591,7 +594,11 @@ def _format_email_post_description(job: PostJob) -> str | None:
     return description[:4096] if description else None
 
 
-def _post_footer(job: PostJob, status: str) -> str:
+def _post_footer(job: PostJob, display_timestamp: datetime) -> str:
+    article_state = "New article" if job.is_new_article else "Update"
+    time_label = "Posted" if job.is_new_article else "Updated"
+    local_time = f"<t:{int(display_timestamp.timestamp())}:f>"
+    status = f"{article_state} · {time_label} {local_time} · Importance {_clamp_importance(job.importance_score)}/10"
     if not _is_email_post(job):
         return f"{job.source_name} · {status}"
     metadata = job.rich_metadata or {}
@@ -599,6 +606,30 @@ def _post_footer(job: PostJob, status: str) -> str:
     if not sender:
         return f"{job.source_name} · {status}"
     return f"{job.source_name} · {sender[:80]} · {status}"
+
+
+def _importance_color(score: int) -> int:
+    bounded = _clamp_importance(score)
+    for index, (stop_score, stop_color) in enumerate(IMPORTANCE_COLOR_STOPS):
+        if bounded == stop_score:
+            return stop_color
+        if bounded < stop_score:
+            previous_score, previous_color = IMPORTANCE_COLOR_STOPS[index - 1]
+            span = stop_score - previous_score
+            ratio = (bounded - previous_score) / span if span else 0
+            return _interpolate_rgb(previous_color, stop_color, ratio)
+    return IMPORTANCE_COLOR_STOPS[-1][1]
+
+
+def _interpolate_rgb(start_color: int, end_color: int, ratio: float) -> int:
+    start = ((start_color >> 16) & 0xFF, (start_color >> 8) & 0xFF, start_color & 0xFF)
+    end = ((end_color >> 16) & 0xFF, (end_color >> 8) & 0xFF, end_color & 0xFF)
+    channels = tuple(round(start_part + (end_part - start_part) * ratio) for start_part, end_part in zip(start, end))
+    return (channels[0] << 16) | (channels[1] << 8) | channels[2]
+
+
+def _clamp_importance(score: int) -> int:
+    return max(0, min(10, int(score)))
 
 
 def _clean_embed_title(title: str, url: str | None, source_name: str | None) -> str:

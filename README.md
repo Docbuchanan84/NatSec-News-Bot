@@ -5,7 +5,7 @@ A portable Python 3.13 Discord bot that watches RSS/Atom feeds and posts new art
 - `.env` for secrets and local paths
 - `config/config.json` for channels, feeds, polling, dedupe, timestamp, and publishing behavior
 
-Sharing this project with another operator? Send them `FRIEND_SETUP.md` after cloning the repo. It includes a full local setup walkthrough and a one-shot Codex prompt.
+Sharing this project with another operator? Send them `FRIEND_SETUP.md` after cloning the repo. It includes a full local setup walkthrough and a one-shot Codex prompt. If they should run your current live source/channel setup, also send the local-only `.env` and `config/config.json` files manually; those files are intentionally ignored by Git and are not on GitHub.
 
 The config is feed-first: top-level `feeds` are inputs, and `channels` are Discord destinations selected by routing. Legacy channel-scoped feeds are still accepted for compatibility.
 
@@ -13,31 +13,34 @@ Structured routing is configured in `config/routing/` and documented in `docs/ro
 
 ## Quick Start With Docker Desktop
 
-1. Copy the example files:
+1. Start Docker Desktop and wait for the engine to finish starting.
+
+2. Create local runtime files. If someone gave you private runtime files, place them at `.env` and `config/config.json`. Otherwise copy the public examples:
 
    ```powershell
    Copy-Item .env.example .env
    Copy-Item config/config.example.json config/config.json
    ```
 
-2. Edit `.env`:
+3. Edit `.env`:
 
    ```text
    DISCORD_BOT_TOKEN=your_bot_token
    DISCORD_GUILD_ID=your_server_id
    ```
 
-3. Edit `config/config.json` and replace the example channel IDs with real Discord channel IDs.
+4. Edit `config/config.json` and replace the example channel IDs with real Discord channel IDs. The public example config uses placeholder feeds; use the private `config/config.json` handoff file or add real RSS/Atom feed URLs before expecting production posts.
 
-4. Validate the config:
+5. Validate the config:
 
    ```powershell
    docker volume create rssbot-data
-   docker compose run --rm rssbot python -m app.main --validate-config
+   docker compose run --rm rssbot python -m app.main --validate-config --validate-env
    docker compose run --rm rssbot python -m app.main --validate-routing
+   docker compose run --rm rssbot python -m app.main --routing-diagnostics
    ```
 
-5. Start the bot:
+6. Start the bot:
 
    ```powershell
    docker compose up -d --build
@@ -63,6 +66,8 @@ Tune shared post-processing throughput with `settings.polling.resultProcessorWor
 
 Routing can use longer article bodies than Discord display embeds. RSS `content`/`content:encoded` fields, email article bodies, and supported document extracts are stored in `rich_metadata.routing_summary` up to `settings.routing.maxRoutingSummaryChars` (default `2000`) so channel scoring can see useful context without making embeds noisy.
 
+Routed posts also carry a local importance score from `0/10` to `10/10`. The score is persisted with the routing decision and displayed in the Discord embed footer with color-coding so high-impact active-conflict, attack, strategic-weapons, disaster, cyber, or official-source items stand out without changing the routing destination.
+
 ## Native Local Run
 
 ```powershell
@@ -72,6 +77,7 @@ pip install -r requirements.txt
 Copy-Item .env.example .env
 Copy-Item config/config.example.json config/config.json
 python -m app.main --validate-config
+python -m app.main --validate-routing
 python -m app.main
 ```
 
@@ -121,6 +127,7 @@ MSCIO document-folder URLs are supported for UKMTO/JMIC-style maritime security 
 - `/rss route-article` previews routing for an article already stored in SQLite.
 - `/rss route-backtest` runs routing against recent SQLite articles.
 - `/rss routing-status` shows routing mode, versions, rule counts, and validation status.
+- `/rss explain` shows the latest persisted routing decision for an article, including routing details used for review/debug workflows.
 
 ## Long-Running Maintenance
 
@@ -153,6 +160,7 @@ Privileged message content intent is not required.
 - First run defaults to suppressing old visible feed entries. They are marked seen so the bot does not dump a backlog into Discord.
 - Articles are deduplicated globally using normalized URLs, feed GUIDs, and normalized title/source fingerprints.
 - `channel_posts` enforces one successful post per article per Discord channel.
+- Routing decisions store an importance score and reason list; Discord embeds show new/update state, posted/updated time, and importance in the footer.
 - Feed and email fetching are asynchronous with bounded per-source concurrency and per-source timeouts.
 - RSS and email polling use independent scheduler lanes and a shared result processor, so one source class does not wait behind another during normal operation.
 - Source mirrors configured with `mirrorChannelKeys` are added only after routing or review selection, not for no-match items.
@@ -180,6 +188,7 @@ Privileged message content intent is not required.
 
 - `Invalid JSON`: check commas, quotes, and brackets in `config/config.json`.
 - `DISCORD_BOT_TOKEN is missing`: copy `.env.example` to `.env` and add the real token.
+- Docker cannot connect to `dockerDesktopLinuxEngine`: start Docker Desktop and wait until `docker info` succeeds, then rerun the Compose command.
 - Slash commands do not appear: confirm `DISCORD_GUILD_ID` is the server ID and restart the bot.
 - First run only posts recent backfill: when `postOldArticlesOnFirstRun` is `false`, valid feed timestamps under the feed's `initialBackfillHours` window can post, while stale or undated entries are skipped or suppressed. Feeds default to 24 hours.
 - A feed fails: check `/rss status` and logs for timeout, HTTP status, or parse errors.

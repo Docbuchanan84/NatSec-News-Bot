@@ -2,6 +2,13 @@
 
 This project is a Python Discord bot that reads RSS/Atom feeds and posts new articles into configured Discord channels. Runtime secrets and local state are intentionally not committed. Each machine needs its own `.env`, `config/config.json`, SQLite database, and logs.
 
+If Stacy is giving you the live setup manually, the two important local-only files are:
+
+- `.env`
+- `config/config.json`
+
+Put those files in those exact paths after cloning. Do not commit them. The public GitHub repo includes `.env.example` and `config/config.example.json` only as safe starter templates.
+
 ## What You Need
 
 - Git
@@ -29,6 +36,10 @@ cd NatSec-News-Bot
 
 ## Configure Local Files
 
+If you received `.env` and `config/config.json` from Stacy, copy them into the repo and skip the template-copy command below.
+
+If you are creating your own server/bot setup, start from the templates:
+
 ```powershell
 Copy-Item .env.example .env
 Copy-Item config/config.example.json config/config.json
@@ -47,6 +58,7 @@ LOG_LEVEL=INFO
 Edit `config/config.json`:
 
 - Replace every example `discordChannelId` with a real Discord channel ID.
+- Replace the example RSS URLs with real RSS/Atom URLs, or use the private `config/config.json` handoff file if you are meant to run Stacy's current feed list.
 - Add, remove, or rename channels under `channels`.
 - Add RSS/Atom feeds under the top-level `feeds` list. Each feed should have a stable `id`, `sourceId`, `sourceClass`, `name`, `url`, `routePolicy`, and `initialBackfillHours`.
 - RSS and email ingest run independently. Use `settings.polling.maxConcurrentFeedFetches` for RSS parallelism and `settings.polling.maxConcurrentEmailFetches` for email parallelism.
@@ -57,9 +69,11 @@ Edit `config/config.json`:
 
 ## Run With Docker Desktop
 
+Open Docker Desktop first and wait for it to finish starting. If Docker commands say they cannot connect to `dockerDesktopLinuxEngine`, Docker Desktop is not ready yet.
+
 ```powershell
 docker volume create rssbot-data
-docker compose run --rm rssbot python -m app.main --validate-config
+docker compose run --rm rssbot python -m app.main --validate-config --validate-env
 docker compose run --rm rssbot python -m app.main --validate-routing
 docker compose run --rm rssbot python -m app.main --routing-diagnostics
 docker compose up -d --build
@@ -110,6 +124,8 @@ After the bot is running:
 
 If slash commands do not appear, confirm `DISCORD_GUILD_ID` is the correct server ID, confirm the bot was invited with slash command permissions, and restart the bot.
 
+Normal posts include a footer that says whether the item is a new article or an update, shows the Discord-formatted posted/updated time, and includes an importance score from `0/10` to `10/10`. Higher-importance posts also use warmer embed colors.
+
 ## Validate Before Handing Off
 
 Run these checks from the repo root after editing config or routing:
@@ -134,7 +150,7 @@ I want to run it locally as a Codex-managed project. Please:
 2. Read README.md and FRIEND_SETUP.md.
 3. Check whether Docker Desktop and Python are available.
 4. Create .env from .env.example and config/config.json from config/config.example.json if they do not exist.
-5. Ask me for my Discord bot token, Discord server ID, and Discord channel IDs before writing secrets or live IDs.
+5. If I provide local .env and config/config.json files, put them in place exactly and do not print the token back to me. Otherwise ask me for my Discord bot token, Discord server ID, Discord channel IDs, and feed URLs before writing secrets or live IDs.
 6. Validate the config.
 7. Validate routing with `--validate-routing` and `--routing-diagnostics`.
 8. Run the tests with pytest.
@@ -149,5 +165,6 @@ Do not commit my .env, config/config.json, data directory, logs, virtual environ
 - `DISCORD_BOT_TOKEN is missing`: copy `.env.example` to `.env` and put in the real token.
 - `Config file not found`: copy `config/config.example.json` to `config/config.json`.
 - `discordChannelId must be a valid Discord channel ID`: replace placeholder IDs with real 17 to 20 digit Discord IDs.
+- Docker cannot connect to `dockerDesktopLinuxEngine`: start Docker Desktop, wait until `docker info` works, then rerun the command.
 - Nothing posts on first run: this is expected when `postOldArticlesOnFirstRun` is `false`; run `/rss refresh` after startup.
 - A feed fails: run `/rss status` and check logs in the `logs` directory.

@@ -197,9 +197,41 @@ def test_records_routing_decision_tags_and_matches(tmp_path: Path) -> None:
         decision_status="routed",
         top_score=5,
         explanation=("test",),
+        importance_score=6,
+        importance_reasons=("tag +2: cyber",),
     )
     db.record_routing_decision(article.article_id, decision, ("111111111111111111",))
+    row = db.latest_routing_decision_for_article(article.article_id)
+
     assert db.recent_routing_error_count() == 0
+    assert row["importance_score"] == 6
+    assert row["importance_reasons"] == '["tag +2: cyber"]'
+
+
+def test_post_job_includes_routing_importance(tmp_path: Path) -> None:
+    db = Database(tmp_path / "rss.sqlite")
+    db.initialize()
+    article = db.resolve_article(make_candidate("Story", "https://example.com/a", "1"), 24)
+    decision = RoutingDecision(
+        content_mode="title_only",
+        matched_entries=(),
+        emitted_tags=("china",),
+        expanded_tags=("indo_pacific",),
+        channel_scores=(),
+        selected_channel_keys=("indo-pacific",),
+        decision_status="routed",
+        top_score=5,
+        explanation=("test",),
+        importance_score=7,
+        importance_reasons=("tag +3: active_conflict",),
+    )
+    db.record_routing_decision(article.article_id, decision, ("111111111111111111",))
+
+    job = db.get_post_job(article.article_id, "111111111111111111", is_new_article=False)
+
+    assert job.is_new_article is False
+    assert job.importance_score == 7
+    assert job.importance_reasons == ("tag +3: active_conflict",)
 
 
 def test_post_job_includes_article_image(tmp_path: Path) -> None:
@@ -263,6 +295,42 @@ def test_initialize_migrates_existing_articles_with_image_columns(tmp_path: Path
     assert "image_url" in columns
     assert "image_source" in columns
     assert "rich_metadata" in columns
+
+
+def test_initialize_migrates_existing_routing_decisions_with_importance_columns(tmp_path: Path) -> None:
+    db_path = tmp_path / "rss.sqlite"
+    conn = sqlite3.connect(db_path)
+    conn.execute(
+        """
+        CREATE TABLE article_routing_decisions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            article_id INTEGER NOT NULL,
+            created_at TEXT NOT NULL,
+            content_mode TEXT NOT NULL,
+            selected_channel_keys TEXT NOT NULL,
+            selected_channel_ids TEXT NOT NULL,
+            decision_status TEXT NOT NULL,
+            top_score INTEGER NOT NULL,
+            score_details TEXT NOT NULL,
+            matched_entries TEXT NOT NULL,
+            emitted_tags TEXT NOT NULL,
+            expanded_tags TEXT NOT NULL,
+            explanation TEXT NOT NULL
+        )
+        """
+    )
+    conn.commit()
+    conn.close()
+
+    migrated = Database(db_path)
+    migrated.initialize()
+    columns = {
+        row["name"]
+        for row in migrated._conn.execute("PRAGMA table_info(article_routing_decisions)").fetchall()
+    }
+
+    assert "importance_score" in columns
+    assert "importance_reasons" in columns
 
 
 def test_feed_status_success_and_failure_upsert_once_per_completion(tmp_path: Path) -> None:

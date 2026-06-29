@@ -17,6 +17,7 @@ from app.models import AppConfig, EmailSourceRuntime, FeedRuntime, MaintenanceSe
 from app.normalizer import build_candidate, normalize_feed_url, stable_hash
 from app.publisher import PublisherService
 from app.routing import RoutingConfigError, RoutingEngine, load_routing_config
+from app.routing.importance import apply_importance
 from app.routing.models import RoutingArticle, RoutingDecision
 
 logger = logging.getLogger(__name__)
@@ -755,7 +756,11 @@ class SchedulerService:
                 ):
                     duplicates += 1
                     continue
-                job = self.db.get_post_job(dedupe.article_id, channel_id)
+                job = self.db.get_post_job(
+                    dedupe.article_id,
+                    channel_id,
+                    is_new_article=dedupe.is_new_article,
+                )
                 if await self.publisher.enqueue(job):
                     posts_queued += 1
                     audit_logger.debug(
@@ -867,6 +872,20 @@ class SchedulerService:
                     normalized_title=candidate.normalized_title,
                     routing_tags=candidate.routing_tags,
                 )
+            )
+            decision = apply_importance(
+                decision,
+                RoutingArticle(
+                    article_id=article_id,
+                    title=candidate.title,
+                    summary=routing_summary,
+                    source_name=candidate.source_name,
+                    source_id=candidate.source_id,
+                    source_class=candidate.source_class,
+                    url=candidate.url,
+                    normalized_title=candidate.normalized_title,
+                    routing_tags=candidate.routing_tags,
+                ),
             )
             selected_ids = [self.channel_key_to_id[key] for key in decision.final_channel_keys if key in self.channel_key_to_id]
             if persist:

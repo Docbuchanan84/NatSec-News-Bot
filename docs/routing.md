@@ -101,8 +101,17 @@ This is channel-level suppression, not article-level skip. The article can still
 5. If review tags are present, record `review` and post only to `review`.
 6. If there are no matches, record `no_match` and post nowhere.
 7. Otherwise score primary destinations, add source mirrors, apply duplicate and cluster limits, record `routed` when final destinations exist.
+8. Score article importance from the final routing decision and article source metadata, then persist the score and reasons with the decision.
 
 Review posts always include routing explanation/debug information, even when normal debug embeds are off. Quick review buttons are intentionally deferred; future work should add persistent approve/suppress/skip/manual actions around the stored routing decision.
+
+## Importance Scoring
+
+Routing decisions include a local `0` to `10` importance score. It is separate from destination scoring: destination scoring decides where an article belongs, while importance scoring helps Discord readers spot higher-impact items after the destination is selected.
+
+The score is based on high-impact concepts, emitted or expanded tags, source class, headline terms, and review status. Active-conflict, attack, missile, drone, disaster, cyber, strategic-weapons, nuclear, and key regional-crisis signals carry more weight than routine government or diplomacy tags. Low-signal no-match decisions are capped so routine items do not appear urgent.
+
+The score and reason list are stored in `article_routing_decisions`. Posted embeds show new/update state, the Discord-formatted posted or updated time, and `Importance N/10` in the footer, with warmer colors for higher scores.
 
 ## Source Identity
 

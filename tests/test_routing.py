@@ -761,6 +761,22 @@ def test_defense_media_current_war_routes_region_without_defense_media_mirror() 
     assert "defense-media" not in decision.mirror_channel_keys
 
 
+def test_noelreports_routes_ukraine_coverage_to_europe_not_defense_media() -> None:
+    decision = production_engine().route(
+        RoutingArticle(
+            title="Latest operational update",
+            summary="Russian drone attack hits Ukraine energy sites overnight.",
+            source_name="Bluesky: NOELREPORTS",
+            source_id="bluesky-noelreports",
+            source_class="defense_media",
+            routing_tags=("ukraine", "europe", "active_conflict"),
+        )
+    )
+
+    assert "europe" in decision.primary_channel_keys
+    assert "defense-media" not in decision.mirror_channel_keys
+
+
 def test_defense_media_non_conflict_still_mirrors_defense_media() -> None:
     decision = production_engine().route(
         RoutingArticle(

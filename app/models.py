@@ -302,3 +302,6 @@ class PostJob:
     source_id: str = "unknown"
     source_class: str = "unknown"
     rich_metadata: dict[str, Any] = field(default_factory=dict)
+    is_new_article: bool = True
+    importance_score: int = 0
+    importance_reasons: tuple[str, ...] = ()

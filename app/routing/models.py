@@ -140,6 +140,8 @@ class RoutingDecision:
     review_channel_keys: tuple[str, ...] = ()
     final_channel_keys: tuple[str, ...] = ()
     reason: str | None = None
+    importance_score: int = 0
+    importance_reasons: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         if not self.final_channel_keys:
@@ -195,5 +197,7 @@ class RoutingDecision:
             "decision_status": self.decision_status,
             "reason": self.reason,
             "top_score": self.top_score,
+            "importance_score": self.importance_score,
+            "importance_reasons": list(self.importance_reasons),
             "explanation": list(self.explanation),
         }

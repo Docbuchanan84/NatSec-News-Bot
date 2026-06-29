@@ -4,7 +4,7 @@ from datetime import UTC, datetime
 
 import pytest
 
-from app.discord_bot import DiscordPublisherAdapter
+from app.discord_bot import DiscordPublisherAdapter, _importance_color
 from app.models import PostJob
 
 
@@ -59,6 +59,62 @@ async def test_discord_embed_sets_image_when_post_job_has_image() -> None:
 
     assert message_id == "12345"
     assert channel.embed.image.url == "https://d1ldvf68ux039x.cloudfront.net/thumbs/photos/2605/1/250w_q95.jpg"
+
+
+@pytest.mark.asyncio
+async def test_discord_embed_footer_uses_local_timestamp_and_new_article_state() -> None:
+    channel = FakeChannel()
+    adapter = DiscordPublisherAdapter(FakeClient(channel))
+    published_at = datetime(2026, 6, 2, 12, 30, tzinfo=UTC)
+    job = PostJob(
+        article_id=1,
+        channel_id="111111111111111111",
+        title="Regional talks resume",
+        url="https://example.com/story",
+        summary="Officials said talks resumed.",
+        image_url=None,
+        image_source=None,
+        source_name="Example",
+        normalized_published_at=published_at,
+        importance_score=7,
+    )
+
+    await adapter.send(job)
+
+    assert channel.embed.footer.text == f"Example · New article · Posted <t:{int(published_at.timestamp())}:f> · Importance 7/10"
+    assert channel.embed.color.value == 0xF1C40F
+
+
+@pytest.mark.asyncio
+async def test_discord_embed_footer_marks_update_posts() -> None:
+    channel = FakeChannel()
+    adapter = DiscordPublisherAdapter(FakeClient(channel))
+    updated_at = datetime(2026, 6, 2, 13, 45, tzinfo=UTC)
+    job = PostJob(
+        article_id=1,
+        channel_id="111111111111111111",
+        title="Regional talks resume",
+        url="https://example.com/story",
+        summary="Officials said talks resumed.",
+        image_url=None,
+        image_source=None,
+        source_name="Example",
+        normalized_published_at=updated_at,
+        is_new_article=False,
+        importance_score=3,
+    )
+
+    await adapter.send(job)
+
+    assert channel.embed.footer.text == f"Example · Update · Updated <t:{int(updated_at.timestamp())}:f> · Importance 3/10"
+    assert channel.embed.color.value == 0x2ECC71
+
+
+def test_importance_color_stop_points() -> None:
+    assert _importance_color(0) == 0x808080
+    assert _importance_color(3) == 0x2ECC71
+    assert _importance_color(7) == 0xF1C40F
+    assert _importance_color(10) == 0xE74C3C
 
 
 @pytest.mark.asyncio
@@ -326,4 +382,8 @@ async def test_discord_embed_formats_email_with_short_markdown_stub_and_sender_f
         "Extra newsletter context that may still fit."
     )
     assert "Fifth useful line" not in channel.embed.description
-    assert channel.embed.footer.text == "Email: News Inbox · Security Brief <briefing@example.com> · published"
+    expected_timestamp = int(datetime(2026, 6, 2, tzinfo=UTC).timestamp())
+    assert channel.embed.footer.text == (
+        "Email: News Inbox · Security Brief <briefing@example.com> · "
+        f"New article · Posted <t:{expected_timestamp}:f> · Importance 0/10"
+    )

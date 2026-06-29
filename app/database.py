@@ -37,6 +37,22 @@ def _json_dict(value: object) -> dict[str, Any]:
     return parsed if isinstance(parsed, dict) else {}
 
 
+def _json_list(value: object) -> list[str]:
+    if not value:
+        return []
+    if isinstance(value, list):
+        return [str(item) for item in value]
+    if not isinstance(value, str):
+        return []
+    try:
+        parsed = json.loads(value)
+    except json.JSONDecodeError:
+        return []
+    if not isinstance(parsed, list):
+        return []
+    return [str(item) for item in parsed]
+
+
 SCHEMA = """
 PRAGMA journal_mode = DELETE;
 PRAGMA synchronous = NORMAL;
@@ -214,6 +230,8 @@ CREATE TABLE IF NOT EXISTS article_routing_decisions (
     review_channel_keys TEXT,
     final_channel_keys TEXT,
     reason TEXT,
+    importance_score INTEGER NOT NULL DEFAULT 0,
+    importance_reasons TEXT NOT NULL DEFAULT '[]',
     FOREIGN KEY(article_id) REFERENCES articles(id)
 );
 
@@ -385,6 +403,14 @@ class Database:
         ):
             if column not in routing_columns:
                 self._conn.execute(f"ALTER TABLE article_routing_decisions ADD COLUMN {column} TEXT")
+        if "importance_score" not in routing_columns:
+            self._conn.execute(
+                "ALTER TABLE article_routing_decisions ADD COLUMN importance_score INTEGER NOT NULL DEFAULT 0"
+            )
+        if "importance_reasons" not in routing_columns:
+            self._conn.execute(
+                "ALTER TABLE article_routing_decisions ADD COLUMN importance_reasons TEXT NOT NULL DEFAULT '[]'"
+            )
         self._conn.execute(
             """
             INSERT OR IGNORE INTO channel_seen_titles (
@@ -1239,9 +1265,9 @@ class Database:
                     article_id, created_at, content_mode, selected_channel_keys, selected_channel_ids,
                     decision_status, top_score, score_details, matched_entries, emitted_tags,
                     expanded_tags, explanation, primary_channel_keys, mirror_channel_keys,
-                    review_channel_keys, final_channel_keys, reason
+                    review_channel_keys, final_channel_keys, reason, importance_score, importance_reasons
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     article_id,
@@ -1261,6 +1287,8 @@ class Database:
                     json.dumps(data["review_channel_keys"], sort_keys=True),
                     json.dumps(data["final_channel_keys"], sort_keys=True),
                     data.get("reason"),
+                    int(data.get("importance_score") or 0),
+                    json.dumps(data.get("importance_reasons") or [], sort_keys=True),
                 ),
             )
             for tag in decision.emitted_tags:
@@ -1361,12 +1389,26 @@ class Database:
             ).fetchone()
             return int(row[0])
 
-    def get_post_job(self, article_id: int, channel_id: str) -> PostJob:
+    def get_post_job(self, article_id: int, channel_id: str, *, is_new_article: bool = True) -> PostJob:
         with self._lock:
             row = self._conn.execute(
                 """
                 SELECT id, title, url, summary, rich_metadata, image_url, image_source, source_name, source_id, source_class,
-                       normalized_published_at, timestamp_status
+                       normalized_published_at, timestamp_status,
+                       (
+                           SELECT importance_score
+                           FROM article_routing_decisions ard
+                           WHERE ard.article_id = articles.id
+                           ORDER BY ard.id DESC
+                           LIMIT 1
+                       ) AS importance_score,
+                       (
+                           SELECT importance_reasons
+                           FROM article_routing_decisions ard
+                           WHERE ard.article_id = articles.id
+                           ORDER BY ard.id DESC
+                           LIMIT 1
+                       ) AS importance_reasons
                 FROM articles WHERE id = ?
                 """,
                 (article_id,),
@@ -1387,6 +1429,9 @@ class Database:
                 rich_metadata=_json_dict(row["rich_metadata"]),
                 normalized_published_at=datetime.fromisoformat(row["normalized_published_at"]),
                 timestamp_status=row["timestamp_status"] or "valid",
+                is_new_article=is_new_article,
+                importance_score=int(row["importance_score"] or 0),
+                importance_reasons=tuple(_json_list(row["importance_reasons"])),
             )
 
     def latest_routing_decision_for_article(self, article_id: int) -> sqlite3.Row | None:
@@ -1395,7 +1440,8 @@ class Database:
                 """
                 SELECT selected_channel_keys, decision_status, top_score, score_details,
                        matched_entries, emitted_tags, expanded_tags, explanation, created_at,
-                       primary_channel_keys, mirror_channel_keys, review_channel_keys, final_channel_keys, reason
+                       primary_channel_keys, mirror_channel_keys, review_channel_keys, final_channel_keys, reason,
+                       importance_score, importance_reasons
                 FROM article_routing_decisions
                 WHERE article_id = ?
                 ORDER BY id DESC
