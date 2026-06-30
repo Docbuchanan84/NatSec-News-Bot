@@ -17,7 +17,7 @@ from app.models import AppConfig, EmailSourceRuntime, FeedRuntime, MaintenanceSe
 from app.normalizer import build_candidate, normalize_feed_url, stable_hash
 from app.publisher import PublisherService
 from app.routing import RoutingConfigError, RoutingEngine, load_routing_config
-from app.routing.importance import apply_importance
+from app.routing.importance import apply_importance, build_importance_config
 from app.routing.models import RoutingArticle, RoutingDecision
 
 logger = logging.getLogger(__name__)
@@ -860,32 +860,30 @@ class SchedulerService:
             metadata_summary = candidate.rich_metadata.get("routing_summary") if candidate.rich_metadata else None
             if isinstance(metadata_summary, str) and metadata_summary.strip():
                 routing_summary = metadata_summary.strip()
-            decision = self.routing_engine.route(
-                RoutingArticle(
-                    article_id=article_id,
-                    title=candidate.title,
-                    summary=routing_summary,
-                    source_name=candidate.source_name,
-                    source_id=candidate.source_id,
-                    source_class=candidate.source_class,
-                    url=candidate.url,
-                    normalized_title=candidate.normalized_title,
-                    routing_tags=candidate.routing_tags,
-                )
+            routing_article = RoutingArticle(
+                article_id=article_id,
+                title=candidate.title,
+                summary=routing_summary,
+                source_name=candidate.source_name,
+                source_id=candidate.source_id,
+                source_class=candidate.source_class,
+                url=candidate.url,
+                normalized_title=candidate.normalized_title,
+                routing_tags=candidate.routing_tags,
+                published_at=getattr(candidate, "normalized_published_at", None),
+                ingested_at=getattr(candidate, "ingested_at", None),
+                timestamp_status=getattr(candidate, "timestamp_status", "valid"),
+            )
+            decision = self.routing_engine.route(routing_article)
+            watch_terms = (
+                self.db.list_importance_watch_terms(include_disabled=True)
+                if hasattr(self.db, "list_importance_watch_terms")
+                else ()
             )
             decision = apply_importance(
                 decision,
-                RoutingArticle(
-                    article_id=article_id,
-                    title=candidate.title,
-                    summary=routing_summary,
-                    source_name=candidate.source_name,
-                    source_id=candidate.source_id,
-                    source_class=candidate.source_class,
-                    url=candidate.url,
-                    normalized_title=candidate.normalized_title,
-                    routing_tags=candidate.routing_tags,
-                ),
+                routing_article,
+                build_importance_config(watch_terms),
             )
             selected_ids = [self.channel_key_to_id[key] for key in decision.final_channel_keys if key in self.channel_key_to_id]
             if persist:

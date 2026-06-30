@@ -6,6 +6,7 @@ import logging
 import os
 import signal
 import sys
+from datetime import datetime
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -16,6 +17,7 @@ from app.discord_bot import RSSDiscordClient
 from app.logging_config import configure_logging
 from app.routing import RoutingConfigError, RoutingEngine, load_routing_config
 from app.routing.bootstrap import bootstrap_routing_config, recent_seed_report
+from app.routing.importance import apply_importance, build_importance_config
 from app.routing.models import RoutingArticle
 from app.routing.reporting import format_backtest_summary, format_decision
 from app.scheduler import build_email_source_runtime_map, build_feed_runtime_map
@@ -163,17 +165,22 @@ def main() -> int:
             print(recent_seed_report(db, days=args.bootstrap_routing_days))
             return 0
         if args.route_test_title:
+            db.initialize()
             routing_config = load_routing_config(config.settings.routing.config_dir, config)
             engine = RoutingEngine(routing_config)
-            decision = engine.route(
-                RoutingArticle(
-                    title=args.route_test_title,
-                    summary=args.route_test_summary,
-                    source_name=args.route_test_source,
-                    source_id=args.route_test_source_id,
-                    source_class=args.route_test_source_class,
-                    url=args.route_test_url,
-                )
+            importance_config = build_importance_config(db.list_importance_watch_terms(include_disabled=True))
+            article = RoutingArticle(
+                title=args.route_test_title,
+                summary=args.route_test_summary,
+                source_name=args.route_test_source,
+                source_id=args.route_test_source_id,
+                source_class=args.route_test_source_class,
+                url=args.route_test_url,
+            )
+            decision = apply_importance(
+                engine.route(article),
+                article,
+                importance_config,
             )
             print(format_decision(decision, limit=10000))
             return 0
@@ -181,21 +188,24 @@ def main() -> int:
             db.initialize()
             routing_config = load_routing_config(config.settings.routing.config_dir, config)
             engine = RoutingEngine(routing_config)
+            importance_config = build_importance_config(db.list_importance_watch_terms(include_disabled=True))
             limit = max(1, min(args.route_backtest, 500))
             results = []
             for row in db.recent_articles_for_routing(limit=limit):
-                decision = engine.route(
-                    RoutingArticle(
-                        article_id=int(row["id"]),
-                        title=row["title"],
-                        summary=row["summary"],
-                        source_name=row["source_name"],
-                        source_id=row["source_id"],
-                        source_class=row["source_class"],
-                        url=row["url"],
-                        normalized_title=row["normalized_title"],
-                    )
+                article = RoutingArticle(
+                    article_id=int(row["id"]),
+                    title=row["title"],
+                    summary=row["summary"],
+                    source_name=row["source_name"],
+                    source_id=row["source_id"],
+                    source_class=row["source_class"],
+                    url=row["url"],
+                    normalized_title=row["normalized_title"],
+                    published_at=_parse_datetime(row["normalized_published_at"]),
+                    ingested_at=_parse_datetime(row["ingested_at"]),
+                    timestamp_status=row["timestamp_status"] or "valid",
                 )
+                decision = apply_importance(engine.route(article), article, importance_config)
                 results.append((int(row["id"]), row["title"], decision))
             print(format_backtest_summary(results, limit=10000))
             return 0
@@ -323,6 +333,15 @@ def format_feed_health_report(db: Database, min_failures: int = 10, limit: int =
             )
         )
     return "\n".join(lines)
+
+
+def _parse_datetime(value: object) -> datetime | None:
+    if not isinstance(value, str) or not value:
+        return None
+    try:
+        return datetime.fromisoformat(value)
+    except ValueError:
+        return None
 
 
 if __name__ == "__main__":

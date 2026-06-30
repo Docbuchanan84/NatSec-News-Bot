@@ -4,7 +4,8 @@ from datetime import UTC, datetime
 
 import pytest
 
-from app.discord_bot import DiscordPublisherAdapter, _importance_color
+from app.discord_bot import DiscordPublisherAdapter, _format_importance_terms, _importance_color
+from app.routing.importance import ImportanceTerm
 from app.models import PostJob
 
 
@@ -115,6 +116,19 @@ def test_importance_color_stop_points() -> None:
     assert _importance_color(3) == 0x2ECC71
     assert _importance_color(7) == 0xF1C40F
     assert _importance_color(10) == 0xE74C3C
+
+
+def test_format_importance_terms_lists_active_terms() -> None:
+    text = _format_importance_terms(
+        (
+            ImportanceTerm("sunk", 4, "major_event"),
+            ImportanceTerm("urgent", 1, "urgency"),
+        )
+    )
+
+    assert "Active importance watch terms:" in text
+    assert "- sunk: +4 (major_event)" in text
+    assert "- urgent: +1 (urgency)" in text
 
 
 @pytest.mark.asyncio

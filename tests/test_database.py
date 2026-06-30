@@ -333,6 +333,42 @@ def test_initialize_migrates_existing_routing_decisions_with_importance_columns(
     assert "importance_reasons" in columns
 
 
+def test_initialize_creates_importance_watch_terms_table(tmp_path: Path) -> None:
+    db = Database(tmp_path / "rss.sqlite")
+    db.initialize()
+    columns = {
+        row["name"]
+        for row in db._conn.execute("PRAGMA table_info(importance_watch_terms)").fetchall()
+    }
+
+    assert {"normalized_term", "term", "weight", "category", "enabled", "notes"}.issubset(columns)
+
+
+def test_importance_watch_terms_can_be_added_listed_and_disabled(tmp_path: Path) -> None:
+    db = Database(tmp_path / "rss.sqlite")
+    db.initialize()
+
+    row = db.upsert_importance_watch_term(
+        "Sinks",
+        weight=4,
+        category="major event",
+        notes="naval loss",
+    )
+
+    assert row["normalized_term"] == "sinks"
+    assert row["weight"] == 4
+    assert row["category"] == "major_event"
+    assert row["enabled"] is True
+    assert db.list_importance_watch_terms() == [row]
+
+    db.set_importance_watch_term_enabled("sinks", enabled=False, default_weight=4, default_category="major_event")
+
+    assert db.list_importance_watch_terms() == []
+    disabled = db.list_importance_watch_terms(include_disabled=True)
+    assert len(disabled) == 1
+    assert disabled[0]["enabled"] is False
+
+
 def test_feed_status_success_and_failure_upsert_once_per_completion(tmp_path: Path) -> None:
     db = Database(tmp_path / "rss.sqlite")
     db.initialize()

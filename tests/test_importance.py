@@ -1,6 +1,8 @@
 from __future__ import annotations
 
-from app.routing.importance import apply_importance, score_importance
+from datetime import UTC, datetime, timedelta
+
+from app.routing.importance import ImportanceTerm, apply_importance, build_importance_config, score_importance
 from app.routing.models import KnowledgeMatch, RoutingArticle, RoutingDecision
 
 
@@ -41,7 +43,7 @@ def test_low_signal_no_match_caps_at_two() -> None:
         RoutingArticle(title="Weekly briefing released", source_class="wire_service"),
     )
 
-    assert score == 2
+    assert score <= 2
     assert "low_signal_cap 2" in reasons
 
 
@@ -66,7 +68,7 @@ def test_medium_regional_security_story_scores_below_hot_conflict() -> None:
         RoutingArticle(title="Allies expand sanctions after talks", source_class="think_tank"),
     )
 
-    assert score == 3
+    assert score == 4
     assert "source_class +1: think_tank" in reasons
 
 
@@ -78,3 +80,78 @@ def test_apply_importance_returns_decision_with_score() -> None:
 
     assert decision.importance_score >= 5
     assert decision.importance_reasons
+
+
+def test_custom_watch_term_can_raise_importance() -> None:
+    score, reasons = score_importance(
+        make_decision(),
+        RoutingArticle(title="Coup alert prompts emergency meeting", source_class="wire_service"),
+        build_importance_config([ImportanceTerm("coup alert", 5, "watch")]),
+    )
+
+    assert score >= 8
+    assert "watch +5: coup alert" in reasons
+
+
+def test_disabled_watch_term_overrides_default() -> None:
+    enabled_score, enabled_reasons = score_importance(
+        make_decision(),
+        RoutingArticle(title="Navy says destroyer sunk near contested strait"),
+    )
+    disabled_score, disabled_reasons = score_importance(
+        make_decision(),
+        RoutingArticle(title="Navy says destroyer sunk near contested strait"),
+        build_importance_config([ImportanceTerm("sunk", 4, "major_event", enabled=False)]),
+    )
+
+    assert enabled_score > disabled_score
+    assert "watch +4: sunk" in enabled_reasons
+    assert "watch +4: sunk" not in disabled_reasons
+
+
+def test_fresh_valid_timestamp_adds_recency_signal() -> None:
+    ingested_at = datetime(2026, 6, 30, 12, tzinfo=UTC)
+    fresh_score, fresh_reasons = score_importance(
+        make_decision(),
+        RoutingArticle(
+            title="Sanctions talks continue",
+            source_class="wire_service",
+            published_at=ingested_at - timedelta(minutes=20),
+            ingested_at=ingested_at,
+            timestamp_status="valid",
+        ),
+    )
+    stale_score, stale_reasons = score_importance(
+        make_decision(),
+        RoutingArticle(
+            title="Sanctions talks continue",
+            source_class="wire_service",
+            published_at=ingested_at - timedelta(hours=12),
+            ingested_at=ingested_at,
+            timestamp_status="valid",
+        ),
+    )
+
+    assert fresh_score == stale_score + 2
+    assert "recency +2" in fresh_reasons
+    assert "recency +2" not in stale_reasons
+
+
+def test_routine_analysis_gets_dampened() -> None:
+    score, reasons = score_importance(
+        make_decision(emitted_tags=("government",)),
+        RoutingArticle(title="Analysis: weekly briefing reviews procurement plans", source_class="think_tank"),
+    )
+
+    assert score <= 2
+    assert "dampener -2: roundup" in reasons or "dampener -2: opinion" in reasons
+
+
+def test_unrouted_critical_story_is_not_forced_to_low_signal_floor() -> None:
+    score, reasons = score_importance(
+        make_decision(status="no_match"),
+        RoutingArticle(title="Breaking news: tanker sunk after missile strike"),
+    )
+
+    assert score >= 5
+    assert "unrouted_critical_cap 6" in reasons

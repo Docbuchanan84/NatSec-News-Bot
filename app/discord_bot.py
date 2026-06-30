@@ -19,6 +19,13 @@ from app.logging_config import configure_logging
 from app.models import PostJob
 from app.publisher import PublisherAdapter, PublisherService
 from app.routing import RoutingConfigError, RoutingEngine, load_routing_config
+from app.routing.importance import (
+    ImportanceTerm,
+    apply_importance,
+    build_importance_config,
+    default_importance_terms,
+    normalize_watch_term,
+)
 from app.routing.models import RoutingArticle
 from app.routing.reporting import format_backtest_summary, format_decision, truncate
 from app.scheduler import SchedulerService
@@ -323,16 +330,15 @@ class RSSDiscordClient(discord.Client):
             except RoutingConfigError as exc:
                 await self._send_routing_config_error(interaction, exc)
                 return
-            decision = engine.route(
-                RoutingArticle(
-                    title=title,
-                    summary=summary,
-                    source_name=source,
-                    source_id=source_id,
-                    source_class=source_class,
-                    url=url,
-                )
+            article = RoutingArticle(
+                title=title,
+                summary=summary,
+                source_name=source,
+                source_id=source_id,
+                source_class=source_class,
+                url=url,
             )
+            decision = self._apply_importance_for_command(engine.route(article), article)
             await interaction.response.send_message(format_decision(decision), ephemeral=True)
 
         @group.command(name="route-article", description="Preview routing for an article already in SQLite")
@@ -347,18 +353,8 @@ class RSSDiscordClient(discord.Client):
             if row is None:
                 await interaction.response.send_message(f"Article not found: {article_id}", ephemeral=True)
                 return
-            decision = engine.route(
-                RoutingArticle(
-                    article_id=int(row["id"]),
-                    title=row["title"],
-                    summary=row["summary"],
-                    source_name=row["source_name"],
-                    source_id=row["source_id"],
-                    source_class=row["source_class"],
-                    url=row["url"],
-                    normalized_title=row["normalized_title"],
-                )
-            )
+            article = _routing_article_from_row(row)
+            decision = self._apply_importance_for_command(engine.route(article), article)
             await interaction.response.send_message(format_decision(decision), ephemeral=True)
 
         @group.command(name="route-backtest", description="Backtest routing against recent SQLite articles")
@@ -373,20 +369,120 @@ class RSSDiscordClient(discord.Client):
             bounded_limit = max(1, min(limit, 100))
             results = []
             for row in self.db.recent_articles_for_routing(limit=bounded_limit):
-                decision = engine.route(
-                    RoutingArticle(
-                        article_id=int(row["id"]),
-                        title=row["title"],
-                        summary=row["summary"],
-                        source_name=row["source_name"],
-                        source_id=row["source_id"],
-                        source_class=row["source_class"],
-                        url=row["url"],
-                        normalized_title=row["normalized_title"],
-                    )
-                )
+                article = _routing_article_from_row(row)
+                decision = self._apply_importance_for_command(engine.route(article), article)
                 results.append((int(row["id"]), row["title"], decision))
             await interaction.followup.send(format_backtest_summary(results), ephemeral=True)
+
+        @group.command(name="importance-list", description="Show active importance watch terms")
+        async def importance_list(interaction: discord.Interaction) -> None:
+            terms = build_importance_config(
+                self.db.list_importance_watch_terms(include_disabled=True)
+            ).watch_terms
+            await interaction.response.send_message(_format_importance_terms(terms), ephemeral=True)
+
+        @group.command(name="importance-add", description="Add or update an importance watch term")
+        @app_commands.describe(
+            term="Word or phrase to boost",
+            weight="Importance boost, 1 to 10",
+            category="Short category label",
+            notes="Optional note for why this term matters",
+        )
+        async def importance_add(
+            interaction: discord.Interaction,
+            term: str,
+            weight: int,
+            category: str = "watch",
+            notes: str | None = None,
+        ) -> None:
+            try:
+                row = self.db.upsert_importance_watch_term(
+                    term,
+                    weight=weight,
+                    category=category,
+                    notes=notes,
+                    enabled=True,
+                )
+            except ValueError as exc:
+                await interaction.response.send_message(str(exc), ephemeral=True)
+                return
+            await interaction.response.send_message(
+                f"Importance term active: {row['term']} +{row['weight']} ({row['category']}).",
+                ephemeral=True,
+            )
+
+        @group.command(name="importance-remove", description="Disable an importance watch term")
+        @app_commands.describe(term="Word or phrase to disable")
+        async def importance_remove(interaction: discord.Interaction, term: str) -> None:
+            try:
+                default = _default_importance_term(term)
+                self.db.set_importance_watch_term_enabled(
+                    term,
+                    enabled=False,
+                    default_weight=default.weight if default else 1,
+                    default_category=default.category if default else "watch",
+                )
+            except ValueError as exc:
+                await interaction.response.send_message(str(exc), ephemeral=True)
+                return
+            await interaction.response.send_message(
+                f"Importance term disabled: {normalize_watch_term(term)}.",
+                ephemeral=True,
+            )
+
+        @group.command(name="importance-enable", description="Enable or disable an importance watch term")
+        @app_commands.describe(term="Word or phrase to toggle", enabled="Whether this term should affect scoring")
+        async def importance_enable(interaction: discord.Interaction, term: str, enabled: bool) -> None:
+            try:
+                default = _default_importance_term(term)
+                self.db.set_importance_watch_term_enabled(
+                    term,
+                    enabled=enabled,
+                    default_weight=default.weight if default else 1,
+                    default_category=default.category if default else "watch",
+                )
+            except ValueError as exc:
+                await interaction.response.send_message(str(exc), ephemeral=True)
+                return
+            state = "enabled" if enabled else "disabled"
+            await interaction.response.send_message(
+                f"Importance term {state}: {normalize_watch_term(term)}.",
+                ephemeral=True,
+            )
+
+        @group.command(name="importance-test", description="Preview importance scoring for a supplied article")
+        @app_commands.describe(
+            title="Article title to test",
+            summary="Optional article summary or stub",
+            source="Optional source/feed name",
+            source_id="Optional stable source ID",
+            source_class="Optional source class",
+            url="Optional article URL",
+        )
+        async def importance_test(
+            interaction: discord.Interaction,
+            title: str,
+            summary: str | None = None,
+            source: str | None = None,
+            source_id: str | None = None,
+            source_class: str | None = None,
+            url: str | None = None,
+        ) -> None:
+            try:
+                engine = self._routing_engine_for_command()
+            except RoutingConfigError as exc:
+                await self._send_routing_config_error(interaction, exc)
+                return
+            article = RoutingArticle(
+                title=title,
+                summary=summary,
+                source_name=source,
+                source_id=source_id,
+                source_class=source_class,
+                url=url,
+            )
+            decision = self._apply_importance_for_command(engine.route(article), article)
+            await interaction.response.send_message(format_decision(decision), ephemeral=True)
 
         @group.command(name="routing-status", description="Show routing config and validation status")
         async def routing_status(interaction: discord.Interaction) -> None:
@@ -450,6 +546,13 @@ class RSSDiscordClient(discord.Client):
             raise RoutingConfigError(["No active config."])
         return RoutingEngine(load_routing_config(config.settings.routing.config_dir, config))
 
+    def _apply_importance_for_command(self, decision, article: RoutingArticle):
+        return apply_importance(
+            decision,
+            article,
+            build_importance_config(self.db.list_importance_watch_terms(include_disabled=True)),
+        )
+
     async def _send_routing_config_error(
         self,
         interaction: discord.Interaction,
@@ -463,6 +566,51 @@ class RSSDiscordClient(discord.Client):
         await interaction.response.send_message(message, ephemeral=True)
 
 
+def _routing_article_from_row(row) -> RoutingArticle:
+    return RoutingArticle(
+        article_id=int(row["id"]),
+        title=row["title"],
+        summary=row["summary"],
+        source_name=row["source_name"],
+        source_id=row["source_id"],
+        source_class=row["source_class"],
+        url=row["url"],
+        normalized_title=row["normalized_title"],
+        published_at=_parse_datetime(row["normalized_published_at"]),
+        ingested_at=_parse_datetime(row["ingested_at"]),
+        timestamp_status=row["timestamp_status"] or "valid",
+    )
+
+
+def _parse_datetime(value: object) -> datetime | None:
+    if not isinstance(value, str) or not value:
+        return None
+    try:
+        return datetime.fromisoformat(value)
+    except ValueError:
+        return None
+
+
+def _format_importance_terms(terms: tuple[ImportanceTerm, ...], limit: int = 1900) -> str:
+    if not terms:
+        return "No active importance watch terms."
+    sorted_terms = sorted(terms, key=lambda item: (item.category, -item.weight, item.term))
+    lines = ["Active importance watch terms:"]
+    for term in sorted_terms[:60]:
+        lines.append(f"- {term.term}: +{term.weight} ({term.category})")
+    if len(sorted_terms) > 60:
+        lines.append(f"... +{len(sorted_terms) - 60} more")
+    return truncate("\n".join(lines), limit)
+
+
+def _default_importance_term(term: str) -> ImportanceTerm | None:
+    normalized = normalize_watch_term(term)
+    for default in default_importance_terms():
+        if normalize_watch_term(default.term) == normalized:
+            return default
+    return None
+
+
 def _format_routing_debug_field(db: Database, article_id: int) -> str | None:
     row = db.latest_routing_decision_for_article(article_id)
     if row is None:
@@ -473,6 +621,7 @@ def _format_routing_debug_field(db: Database, article_id: int) -> str | None:
         matches = json.loads(row["matched_entries"] or "[]")
         tags = json.loads(row["emitted_tags"] or "[]")
         expanded_tags = json.loads(row["expanded_tags"] or "[]")
+        importance_reasons = json.loads(row["importance_reasons"] or "[]")
     except (TypeError, json.JSONDecodeError):
         return None
 
@@ -488,7 +637,10 @@ def _format_routing_debug_field(db: Database, article_id: int) -> str | None:
         f"Decision: {str(row['decision_status']).upper()} -> {', '.join(selected) or 'none'}",
         f"Reason: {row['reason'] or 'none'}",
         f"Top score: {row['top_score']}",
+        f"Importance: {int(row['importance_score'] or 0)}/10",
     ]
+    if importance_reasons:
+        lines.append("Importance reasons: " + "; ".join(str(reason) for reason in importance_reasons[:4]))
     if matches:
         match_text = ", ".join(
             f"{match.get('knowledge_entry_id')}='{match.get('matched_alias')}'" for match in matches[:4]
@@ -528,11 +680,14 @@ def _format_persisted_routing_explanation(row) -> str:
         emitted = json.loads(row["emitted_tags"] or "[]")
         expanded = json.loads(row["expanded_tags"] or "[]")
         explanation = json.loads(row["explanation"] or "[]")
+        importance_reasons = json.loads(row["importance_reasons"] or "[]")
     except (TypeError, json.JSONDecodeError):
         return "Routing decision exists, but stored JSON could not be parsed."
     lines = [
         f"Decision: {row['decision_status']}",
         f"Reason: {row['reason'] or 'none'}",
+        f"Importance: {int(row['importance_score'] or 0)}/10",
+        "Importance reasons: " + ("; ".join(str(reason) for reason in importance_reasons[:8]) or "none"),
         f"Final: {', '.join(final) or 'none'}",
         f"Primary: {', '.join(primary) or 'none'}",
         f"Mirrors: {', '.join(mirrors) or 'none'}",

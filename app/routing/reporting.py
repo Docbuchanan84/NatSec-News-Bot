@@ -10,6 +10,7 @@ def format_decision(decision: RoutingDecision, limit: int = 1900) -> str:
     lines = [
         f"Decision: {decision.decision_status}",
         f"Reason: {decision.reason or 'none'}",
+        f"Importance: {decision.importance_score}/10 ({'; '.join(decision.importance_reasons[:4]) or 'not scored'})",
         f"Content mode: {decision.content_mode}",
         "Matched concepts: " + _format_concepts(decision),
         "Matched aliases: " + _format_aliases(decision),
@@ -35,6 +36,7 @@ def format_decision(decision: RoutingDecision, limit: int = 1900) -> str:
 def format_backtest_summary(results: Iterable[tuple[int, str, RoutingDecision]], limit: int = 1900) -> str:
     materialized = list(results)
     status_counts = Counter(decision.decision_status for _, _, decision in materialized)
+    importance_counts = Counter(decision.importance_score for _, _, decision in materialized)
     channel_counts = Counter(
         channel_key
         for _, _, decision in materialized
@@ -48,6 +50,8 @@ def format_backtest_summary(results: Iterable[tuple[int, str, RoutingDecision]],
         else "Statuses: none",
         "Top suggested channels: "
         + (", ".join(f"{key}={count}" for key, count in channel_counts.most_common(8)) or "none"),
+        "Importance: "
+        + (", ".join(f"{score}={count}" for score, count in sorted(importance_counts.items())) or "none"),
         "",
         "Samples:",
     ]

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from datetime import datetime
 from typing import Any
 
 
@@ -79,6 +80,9 @@ class RoutingArticle:
     article_id: int | None = None
     normalized_title: str | None = None
     routing_tags: tuple[str, ...] = ()
+    published_at: datetime | None = None
+    ingested_at: datetime | None = None
+    timestamp_status: str = "valid"
 
 
 @dataclass(frozen=True)

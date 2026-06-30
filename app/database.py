@@ -53,6 +53,10 @@ def _json_list(value: object) -> list[str]:
     return [str(item) for item in parsed]
 
 
+def _normalize_importance_term(term: str) -> str:
+    return " ".join(str(term or "").strip().casefold().split())
+
+
 SCHEMA = """
 PRAGMA journal_mode = DELETE;
 PRAGMA synchronous = NORMAL;
@@ -257,6 +261,17 @@ CREATE TABLE IF NOT EXISTS article_matches (
     FOREIGN KEY(article_id) REFERENCES articles(id)
 );
 
+CREATE TABLE IF NOT EXISTS importance_watch_terms (
+    normalized_term TEXT PRIMARY KEY,
+    term TEXT NOT NULL,
+    weight INTEGER NOT NULL,
+    category TEXT NOT NULL DEFAULT 'watch',
+    enabled INTEGER NOT NULL DEFAULT 1,
+    notes TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+
 CREATE INDEX IF NOT EXISTS idx_articles_normalized_url ON articles(normalized_url);
 CREATE INDEX IF NOT EXISTS idx_articles_title_source_time ON articles(normalized_title, source_name, normalized_published_at);
 CREATE INDEX IF NOT EXISTS idx_feed_status_next_poll ON feed_status(next_poll_at);
@@ -271,6 +286,7 @@ CREATE INDEX IF NOT EXISTS idx_article_routing_decisions_article ON article_rout
 CREATE INDEX IF NOT EXISTS idx_article_routing_decisions_status ON article_routing_decisions(decision_status, created_at);
 CREATE INDEX IF NOT EXISTS idx_article_tags_tag ON article_tags(tag, article_id);
 CREATE INDEX IF NOT EXISTS idx_article_matches_entry ON article_matches(knowledge_entry_id, article_id);
+CREATE INDEX IF NOT EXISTS idx_importance_watch_terms_enabled ON importance_watch_terms(enabled, category);
 CREATE INDEX IF NOT EXISTS idx_social_link_embeds_lookup
 ON social_link_embeds(channel_id, platform, post_id, created_at);
 """
@@ -411,6 +427,26 @@ class Database:
             self._conn.execute(
                 "ALTER TABLE article_routing_decisions ADD COLUMN importance_reasons TEXT NOT NULL DEFAULT '[]'"
             )
+        self._conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS importance_watch_terms (
+                normalized_term TEXT PRIMARY KEY,
+                term TEXT NOT NULL,
+                weight INTEGER NOT NULL,
+                category TEXT NOT NULL DEFAULT 'watch',
+                enabled INTEGER NOT NULL DEFAULT 1,
+                notes TEXT,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            )
+            """
+        )
+        self._conn.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_importance_watch_terms_enabled
+            ON importance_watch_terms(enabled, category)
+            """
+        )
         self._conn.execute(
             """
             INSERT OR IGNORE INTO channel_seen_titles (
@@ -1250,6 +1286,141 @@ class Database:
             self._conn.commit()
             self._conn.execute("VACUUM")
 
+    def list_importance_watch_terms(self, *, include_disabled: bool = False) -> list[dict[str, object]]:
+        where = "" if include_disabled else "WHERE enabled = 1"
+        with self._lock:
+            rows = self._conn.execute(
+                f"""
+                SELECT normalized_term, term, weight, category, enabled, notes, created_at, updated_at
+                FROM importance_watch_terms
+                {where}
+                ORDER BY category, normalized_term
+                """
+            ).fetchall()
+        return [
+            {
+                "normalized_term": row["normalized_term"],
+                "term": row["term"],
+                "weight": int(row["weight"]),
+                "category": row["category"],
+                "enabled": bool(row["enabled"]),
+                "notes": row["notes"],
+                "created_at": row["created_at"],
+                "updated_at": row["updated_at"],
+            }
+            for row in rows
+        ]
+
+    def upsert_importance_watch_term(
+        self,
+        term: str,
+        *,
+        weight: int,
+        category: str = "watch",
+        notes: str | None = None,
+        enabled: bool = True,
+    ) -> dict[str, object]:
+        normalized = _normalize_importance_term(term)
+        if not normalized:
+            raise ValueError("Importance watch term cannot be blank.")
+        bounded_weight = max(1, min(10, int(weight)))
+        clean_category = _normalize_importance_term(category).replace(" ", "_") or "watch"
+        clean_notes = notes.strip() if isinstance(notes, str) and notes.strip() else None
+        now = datetime.now(UTC).isoformat()
+        with self._lock:
+            self._conn.execute(
+                """
+                INSERT INTO importance_watch_terms (
+                    normalized_term, term, weight, category, enabled, notes, created_at, updated_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(normalized_term) DO UPDATE SET
+                    term = excluded.term,
+                    weight = excluded.weight,
+                    category = excluded.category,
+                    enabled = excluded.enabled,
+                    notes = excluded.notes,
+                    updated_at = excluded.updated_at
+                """,
+                (
+                    normalized,
+                    term.strip(),
+                    bounded_weight,
+                    clean_category,
+                    1 if enabled else 0,
+                    clean_notes,
+                    now,
+                    now,
+                ),
+            )
+            self._conn.commit()
+            row = self._conn.execute(
+                """
+                SELECT normalized_term, term, weight, category, enabled, notes, created_at, updated_at
+                FROM importance_watch_terms
+                WHERE normalized_term = ?
+                """,
+                (normalized,),
+            ).fetchone()
+        assert row is not None
+        return {
+            "normalized_term": row["normalized_term"],
+            "term": row["term"],
+            "weight": int(row["weight"]),
+            "category": row["category"],
+            "enabled": bool(row["enabled"]),
+            "notes": row["notes"],
+            "created_at": row["created_at"],
+            "updated_at": row["updated_at"],
+        }
+
+    def set_importance_watch_term_enabled(
+        self,
+        term: str,
+        *,
+        enabled: bool,
+        default_weight: int = 1,
+        default_category: str = "watch",
+    ) -> bool:
+        normalized = _normalize_importance_term(term)
+        if not normalized:
+            raise ValueError("Importance watch term cannot be blank.")
+        now = datetime.now(UTC).isoformat()
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT 1 FROM importance_watch_terms WHERE normalized_term = ?",
+                (normalized,),
+            ).fetchone()
+            if row is None:
+                self._conn.execute(
+                    """
+                    INSERT INTO importance_watch_terms (
+                        normalized_term, term, weight, category, enabled, notes, created_at, updated_at
+                    )
+                    VALUES (?, ?, ?, ?, ?, NULL, ?, ?)
+                    """,
+                    (
+                        normalized,
+                        term.strip(),
+                        max(1, min(10, int(default_weight))),
+                        _normalize_importance_term(default_category).replace(" ", "_") or "watch",
+                        1 if enabled else 0,
+                        now,
+                        now,
+                    ),
+                )
+            else:
+                self._conn.execute(
+                    """
+                    UPDATE importance_watch_terms
+                    SET enabled = ?, updated_at = ?
+                    WHERE normalized_term = ?
+                    """,
+                    (1 if enabled else 0, now, normalized),
+                )
+            self._conn.commit()
+        return True
+
     def record_routing_decision(
         self,
         article_id: int,
@@ -1346,7 +1517,8 @@ class Database:
         with self._lock:
             return self._conn.execute(
                 """
-                SELECT id, title, normalized_title, url, source_name, source_id, source_class, summary
+                SELECT id, title, normalized_title, url, source_name, source_id, source_class, summary,
+                       normalized_published_at, ingested_at, timestamp_status
                 FROM articles
                 WHERE id = ?
                 """,
@@ -1366,7 +1538,7 @@ class Database:
                 self._conn.execute(
                     f"""
                     SELECT id, title, normalized_title, url, source_name
-                           , source_id, source_class, summary
+                           , source_id, source_class, summary, normalized_published_at, ingested_at, timestamp_status
                     FROM articles
                     {where}
                     ORDER BY coalesce(normalized_published_at, first_seen_at) DESC, id DESC
