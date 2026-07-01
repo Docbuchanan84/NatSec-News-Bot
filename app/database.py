@@ -78,6 +78,8 @@ CREATE TABLE IF NOT EXISTS articles (
     rich_metadata TEXT,
     image_url TEXT,
     image_source TEXT,
+    video_url TEXT,
+    video_source TEXT,
     source_name TEXT,
     raw_published_at TEXT,
     normalized_published_at TEXT,
@@ -338,6 +340,10 @@ class Database:
             self._conn.execute("ALTER TABLE articles ADD COLUMN image_url TEXT")
         if "image_source" not in article_columns:
             self._conn.execute("ALTER TABLE articles ADD COLUMN image_source TEXT")
+        if "video_url" not in article_columns:
+            self._conn.execute("ALTER TABLE articles ADD COLUMN video_url TEXT")
+        if "video_source" not in article_columns:
+            self._conn.execute("ALTER TABLE articles ADD COLUMN video_source TEXT")
         self._conn.execute(
             """
             CREATE TABLE IF NOT EXISTS email_source_cursors (
@@ -536,6 +542,8 @@ class Database:
                 is_new = article_id is None
                 if article_id is None:
                     article_id = self._insert_article(cursor, candidate)
+                else:
+                    self._update_article_media(cursor, article_id, candidate)
                 self._insert_fingerprints(cursor, article_id, candidate)
                 self._insert_feed_entry(cursor, article_id, candidate)
                 self._conn.commit()
@@ -602,10 +610,10 @@ class Database:
             INSERT INTO articles (
                 canonical_key, title, normalized_title, title_signature, source_family, source_id, source_class,
                 story_cluster_key, url, normalized_url, summary, rich_metadata,
-                image_url, image_source, source_name,
+                image_url, image_source, video_url, video_source, source_name,
                 raw_published_at, normalized_published_at, ingested_at, timestamp_status, first_seen_at
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 canonical_key,
@@ -622,6 +630,8 @@ class Database:
                 _json_dumps(candidate.rich_metadata),
                 candidate.image_url,
                 candidate.image_source,
+                candidate.video_url,
+                candidate.video_source,
                 candidate.source_name,
                 candidate.raw_published_at,
                 isoformat(candidate.normalized_published_at),
@@ -631,6 +641,42 @@ class Database:
             ),
         )
         return int(cursor.lastrowid)
+
+    def _update_article_media(self, cursor: sqlite3.Cursor, article_id: int, candidate: ArticleCandidate) -> None:
+        row = cursor.execute(
+            """
+            SELECT rich_metadata, image_url, image_source, video_url, video_source
+            FROM articles
+            WHERE id = ?
+            """,
+            (article_id,),
+        ).fetchone()
+        if row is None:
+            return
+
+        existing_metadata = _json_dict(row["rich_metadata"])
+        merged_metadata = dict(existing_metadata)
+        changed_metadata = False
+        for key, value in (candidate.rich_metadata or {}).items():
+            if value and not merged_metadata.get(key):
+                merged_metadata[key] = value
+                changed_metadata = True
+
+        updates: list[str] = []
+        params: list[object] = []
+        if candidate.image_url and not row["image_url"]:
+            updates.extend(["image_url = ?", "image_source = ?"])
+            params.extend([candidate.image_url, candidate.image_source])
+        if candidate.video_url and not row["video_url"]:
+            updates.extend(["video_url = ?", "video_source = ?"])
+            params.extend([candidate.video_url, candidate.video_source])
+        if changed_metadata:
+            updates.append("rich_metadata = ?")
+            params.append(_json_dumps(merged_metadata))
+        if not updates:
+            return
+        params.append(article_id)
+        cursor.execute(f"UPDATE articles SET {', '.join(updates)} WHERE id = ?", tuple(params))
 
     def _insert_fingerprints(self, cursor: sqlite3.Cursor, article_id: int, candidate: ArticleCandidate) -> None:
         now = datetime.now(UTC).isoformat()
@@ -1565,7 +1611,8 @@ class Database:
         with self._lock:
             row = self._conn.execute(
                 """
-                SELECT id, title, url, summary, rich_metadata, image_url, image_source, source_name, source_id, source_class,
+                SELECT id, title, url, summary, rich_metadata, image_url, image_source, video_url, video_source,
+                       source_name, source_id, source_class,
                        normalized_published_at, timestamp_status,
                        (
                            SELECT importance_score
@@ -1595,6 +1642,8 @@ class Database:
                 summary=row["summary"],
                 image_url=row["image_url"],
                 image_source=row["image_source"],
+                video_url=row["video_url"],
+                video_source=row["video_source"],
                 source_name=row["source_name"] or "RSS",
                 source_id=row["source_id"] or "unknown",
                 source_class=row["source_class"] or "unknown",
@@ -1659,6 +1708,8 @@ class Database:
             summary="This is a controlled test message from /rss testpost. RSS feeds and dedupe are still protected.",
             image_url=None,
             image_source=None,
+            video_url=None,
+            video_source=None,
             source_name="RSS Dispatch Bot",
             normalized_published_at=now,
         )

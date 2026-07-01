@@ -95,6 +95,63 @@ async def prepared_x_media_files(
             prepared.clear()
 
 
+@contextlib.asynccontextmanager
+async def prepared_remote_media_files(
+    media_items: list[dict[str, str]] | tuple[dict[str, str], ...],
+    *,
+    timeout_seconds: int = 20,
+    max_files: int | None = None,
+    max_file_bytes: int | None = None,
+    max_working_bytes: int | None = None,
+) -> AsyncIterator[list[PreparedMedia]]:
+    max_files = max_files if max_files is not None else _env_int("MEDIA_UPLOAD_MAX_FILES", DEFAULT_MAX_FILES)
+    max_file_bytes = max_file_bytes if max_file_bytes is not None else _env_int(
+        "MEDIA_UPLOAD_MAX_FILE_BYTES", DEFAULT_MAX_FILE_BYTES
+    )
+    max_working_bytes = max_working_bytes if max_working_bytes is not None else _env_int(
+        "MEDIA_UPLOAD_MAX_WORKING_BYTES", DEFAULT_MAX_WORKING_BYTES
+    )
+    with tempfile.TemporaryDirectory(prefix="rssbot-media-") as temp_name:
+        temp_dir = Path(temp_name)
+        timeout = aiohttp.ClientTimeout(total=timeout_seconds)
+        headers = {"User-Agent": DEFAULT_USER_AGENT, "Accept": "*/*"}
+        prepared: list[PreparedMedia] = []
+        prepared_hashes: set[str] = set()
+        working_bytes = 0
+        async with aiohttp.ClientSession(timeout=timeout, headers=headers) as session:
+            for index, item in enumerate(_dedupe_media(list(media_items))[:max_files], start=1):
+                if working_bytes >= max_working_bytes:
+                    logger.warning("Skipping media upload because temp working-set limit is reached")
+                    break
+                try:
+                    media = await _prepare_one_media(
+                        session,
+                        item,
+                        temp_dir=temp_dir,
+                        index=index,
+                        max_file_bytes=min(max_file_bytes, max_working_bytes - working_bytes),
+                    )
+                except Exception as exc:
+                    logger.warning("Media preparation failed for %s: %s", item.get("url"), exc)
+                    continue
+                if media is None:
+                    continue
+                digest = _file_digest(media.path)
+                if digest in prepared_hashes:
+                    logger.info("Skipping duplicate media prepared from %s", media.source_url)
+                    continue
+                prepared_hashes.add(digest)
+                try:
+                    working_bytes += media.path.stat().st_size
+                except FileNotFoundError:
+                    continue
+                prepared.append(media)
+        try:
+            yield prepared
+        finally:
+            prepared.clear()
+
+
 async def collect_x_media(
     metadata: dict[str, Any],
     *,

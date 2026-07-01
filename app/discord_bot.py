@@ -30,7 +30,7 @@ from app.routing.models import RoutingArticle
 from app.routing.reporting import format_backtest_summary, format_decision, truncate
 from app.scheduler import SchedulerService
 from app.social_link_embed import SocialLinkEmbedService
-from app.x_media import prepared_x_media_files
+from app.x_media import PreparedMedia, prepared_remote_media_files, prepared_x_media_files
 
 logger = logging.getLogger(__name__)
 audit_logger = logging.getLogger("app.audit")
@@ -87,8 +87,7 @@ class DiscordPublisherAdapter(PublisherAdapter):
         if _social_post_details(job):
             message = await self._send_social_message(channel, job, embed)
         else:
-            content = job.url if _is_video_reference(job.url) else None
-            message = await channel.send(content=content, embed=embed)
+            message = await self._send_message_with_media(channel, job, embed)
         return str(message.id)
 
     async def send_social_reply(self, job: PostJob, source_message) -> str:
@@ -102,12 +101,40 @@ class DiscordPublisherAdapter(PublisherAdapter):
         if _should_upload_social_media(job):
             async with prepared_x_media_files(job.rich_metadata or {}) as prepared:
                 if prepared:
-                    files = [discord.File(media.path, filename=media.filename) for media in prepared]
-                    return await send(files=files, embed=text_embed, **send_kwargs)
-        if job.image_url:
-            text_embed.set_image(url=job.image_url)
-            return await send(embed=text_embed, **send_kwargs)
-        return await send(embed=text_embed, **send_kwargs)
+                    try:
+                        return await _send_prepared_media(send, prepared, text_embed, send_kwargs)
+                    except discord.HTTPException as exc:
+                        logger.warning(
+                            "Discord X media upload failed for article_id=%s; falling back to direct media upload: %s",
+                            job.article_id,
+                            exc,
+                        )
+        return await self._send_message_with_media(target, job, text_embed, as_reply=as_reply)
+
+    async def _send_message_with_media(
+        self,
+        target,
+        job: PostJob,
+        text_embed: discord.Embed,
+        *,
+        as_reply: bool = False,
+    ):
+        send = target.reply if as_reply and hasattr(target, "reply") else target.send
+        send_kwargs = {"mention_author": False} if as_reply and hasattr(target, "reply") else {}
+        media_items = _direct_media_items(job)
+        if media_items:
+            async with prepared_remote_media_files(media_items, max_files=_media_upload_limit(job)) as prepared:
+                if prepared:
+                    try:
+                        return await _send_prepared_media(send, prepared, text_embed, send_kwargs)
+                    except discord.HTTPException as exc:
+                        logger.warning(
+                            "Discord direct media upload failed for article_id=%s; sending embed without media URL: %s",
+                            job.article_id,
+                            exc,
+                        )
+        content = job.url if _is_link_preview_video_reference(job.url) else None
+        return await send(content=content, embed=text_embed, **send_kwargs)
 
 
 def _build_post_embed(job: PostJob, client: discord.Client) -> discord.Embed:
@@ -136,8 +163,6 @@ def _build_post_embed(job: PostJob, client: discord.Client) -> discord.Embed:
         timestamp=display_timestamp,
         color=_importance_color(job.importance_score),
     )
-    if job.image_url and not social_post:
-        embed.set_image(url=job.image_url)
     embed.set_footer(text=footer)
     if getattr(client, "debug_mode_enabled", False) or job.channel_id == REVIEW_CHANNEL_ID:
         debug_text = _format_routing_debug_field(client.db, job.article_id)
@@ -750,10 +775,8 @@ def _format_email_post_description(job: PostJob) -> str | None:
 
 
 def _post_footer(job: PostJob, display_timestamp: datetime) -> str:
-    article_state = "New article" if job.is_new_article else "Update"
-    time_label = "Posted" if job.is_new_article else "Updated"
-    local_time = f"<t:{int(display_timestamp.timestamp())}:f>"
-    status = f"{article_state} · {time_label} {local_time} · Importance {_clamp_importance(job.importance_score)}/10"
+    article_state = "New" if job.is_new_article else "Update"
+    status = f"{article_state} · Imp {_clamp_importance(job.importance_score)}"
     if not _is_email_post(job):
         return f"{job.source_name} · {status}"
     metadata = job.rich_metadata or {}
@@ -897,7 +920,95 @@ def _is_video_reference(url: str | None) -> bool:
     host = parsed.netloc.casefold()
     if host.startswith("www."):
         host = host[4:]
+    path = parsed.path.casefold()
+    return (
+        host in {"youtube.com", "youtu.be"}
+        or host.endswith(".youtube.com")
+        or path.endswith((".mp4", ".m4v", ".mov", ".webm"))
+    )
+
+
+def _is_http_url(url: str | None) -> bool:
+    if not url:
+        return False
+    parsed = urlparse(url)
+    return parsed.scheme.casefold() in {"http", "https"} and bool(parsed.netloc)
+
+
+def _is_direct_video_url(url: str | None) -> bool:
+    if not url:
+        return False
+    path = urlparse(url).path.casefold()
+    return _is_http_url(url) and path.endswith((".mp4", ".m4v", ".mov", ".webm"))
+
+
+def _is_link_preview_video_reference(url: str | None) -> bool:
+    if not url:
+        return False
+    parsed = urlparse(url)
+    host = parsed.netloc.casefold()
+    if host.startswith("www."):
+        host = host[4:]
     return host in {"youtube.com", "youtu.be"} or host.endswith(".youtube.com")
+
+
+def _playable_video_content(job: PostJob) -> str | None:
+    if job.video_url and _is_video_reference(job.video_url):
+        return job.video_url
+    if _is_video_reference(job.url):
+        return job.url
+    return None
+
+
+def _direct_media_items(job: PostJob) -> list[dict[str, str]]:
+    items: list[dict[str, str]] = []
+    seen: set[str] = set()
+
+    def append(media_type: str, url: str | None, source: str | None = None) -> None:
+        if not url or url in seen:
+            return
+        if media_type == "video" and not _is_direct_video_url(url):
+            return
+        if media_type == "image" and not _is_http_url(url):
+            return
+        seen.add(url)
+        item = {"type": media_type, "url": url}
+        if source:
+            item["source"] = source
+        items.append(item)
+
+    metadata_items = job.rich_metadata.get("media_items") if isinstance(job.rich_metadata, dict) else None
+    if isinstance(metadata_items, list):
+        for item in metadata_items:
+            if not isinstance(item, dict):
+                continue
+            media_type = str(item.get("type") or "").casefold()
+            url = str(item.get("url") or "").strip()
+            source = str(item.get("source") or "").strip() or None
+            if media_type in {"video", "animated_gif"}:
+                append("video", url, source)
+            elif media_type in {"image", "photo"}:
+                append("image", url, source)
+
+    append("video", job.video_url, job.video_source)
+    if not job.video_url:
+        append("image", job.image_url, job.image_source)
+    elif not any(item.get("type") == "video" for item in items):
+        append("image", job.image_url, job.image_source)
+    return items
+
+
+def _media_upload_limit(job: PostJob) -> int:
+    return 10 if _should_upload_social_media(job) else 4
+
+
+async def _send_prepared_media(send, prepared: list[PreparedMedia], embed: discord.Embed, send_kwargs: dict[str, object]):
+    files = [discord.File(media.path, filename=media.filename) for media in prepared]
+    try:
+        return await send(files=files, embed=embed, **send_kwargs)
+    finally:
+        for file in files:
+            file.close()
 
 
 def _social_post_details(job: PostJob) -> dict[str, str | None] | None:

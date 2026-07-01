@@ -5,7 +5,7 @@ from datetime import UTC, datetime, timedelta
 import pytest
 
 import app.feed_fetcher as feed_fetcher
-from app.feed_fetcher import FeedFetchError, FeedService, clean_html_text, extract_bluesky_media
+from app.feed_fetcher import FeedFetchError, FeedService, clean_html_text, extract_bluesky_media, extract_bluesky_media_details
 from app.models import FeedEntry, FeedRuntime
 
 
@@ -128,6 +128,39 @@ def test_bluesky_native_image_prefers_fullsize() -> None:
     assert media == (None, "https://cdn.bsky.app/img/feed_fullsize/plain/did/full", "bluesky_image")
 
 
+def test_bluesky_native_images_preserve_all_media_items() -> None:
+    media = extract_bluesky_media_details(
+        {
+            "thread": {
+                "post": {
+                    "embed": {
+                        "$type": "app.bsky.embed.images#view",
+                        "images": [
+                            {"fullsize": "https://cdn.bsky.app/img/feed_fullsize/plain/did/one"},
+                            {"fullsize": "https://cdn.bsky.app/img/feed_fullsize/plain/did/two"},
+                        ],
+                    }
+                }
+            }
+        }
+    )
+
+    assert media is not None
+    assert media["image_url"] == "https://cdn.bsky.app/img/feed_fullsize/plain/did/one"
+    assert media["media_items"] == [
+        {
+            "type": "image",
+            "url": "https://cdn.bsky.app/img/feed_fullsize/plain/did/one",
+            "source": "bluesky_image",
+        },
+        {
+            "type": "image",
+            "url": "https://cdn.bsky.app/img/feed_fullsize/plain/did/two",
+            "source": "bluesky_image",
+        },
+    ]
+
+
 def test_bluesky_record_with_media_uses_media_first() -> None:
     media = extract_bluesky_media(
         {
@@ -163,6 +196,29 @@ def test_bluesky_record_with_media_uses_media_first() -> None:
         "https://cdn.bsky.app/img/feed_thumbnail/plain/did/video",
         "bluesky_video_thumb",
     )
+
+
+def test_bluesky_external_direct_video_is_extracted() -> None:
+    media = extract_bluesky_media_details(
+        {
+            "thread": {
+                "post": {
+                    "embed": {
+                        "$type": "app.bsky.embed.external#view",
+                        "external": {
+                            "uri": "https://cdn.example.com/video/story.mp4",
+                            "thumb": "https://cdn.example.com/video/story.jpg",
+                        },
+                    }
+                }
+            }
+        }
+    )
+
+    assert media is not None
+    assert media["video_url"] == "https://cdn.example.com/video/story.mp4"
+    assert media["video_source"] == "bluesky_external_video"
+    assert media["image_url"] == "https://cdn.example.com/video/story.jpg"
 
 
 class FakeBlueskyMediaResponse:
@@ -385,6 +441,93 @@ def test_generic_image_enclosure_is_extracted() -> None:
 
     assert entry.image_url == "https://cdn.example.com/story.webp"
     assert entry.image_source == "enclosure"
+
+
+def test_generic_video_enclosure_is_extracted_and_recorded_in_media_items() -> None:
+    service = FeedService(timeout_seconds=10, max_entries_per_feed=30)
+    entry = service._entry_from_parsed(
+        FeedRuntime(
+            feed_key="feed_generic",
+            display_name="Generic Feed",
+            url="https://example.com/rss",
+            normalized_url="https://example.com/rss",
+            interval_seconds=300,
+            channel_ids=("111111111111111111",),
+            channel_keys=("news",),
+        ),
+        {
+            "title": "Video Story",
+            "link": "https://example.com/story",
+            "summary": "Summary",
+            "media_thumbnail": [{"url": "https://cdn.example.com/story.jpg"}],
+            "enclosures": [{"href": "https://cdn.example.com/story.mp4", "type": "video/mp4"}],
+        },
+    )
+
+    assert entry.video_url == "https://cdn.example.com/story.mp4"
+    assert entry.video_source == "enclosure"
+    assert entry.image_url == "https://cdn.example.com/story.jpg"
+    assert entry.rich_metadata["media_items"] == [
+        {"type": "video", "url": "https://cdn.example.com/story.mp4", "source": "enclosure"},
+        {"type": "image", "url": "https://cdn.example.com/story.jpg", "source": "media_thumbnail"},
+    ]
+
+
+def test_multiple_rss_images_are_recorded_in_media_items() -> None:
+    service = FeedService(timeout_seconds=10, max_entries_per_feed=30)
+    entry = service._entry_from_parsed(
+        FeedRuntime(
+            feed_key="feed_generic",
+            display_name="Generic Feed",
+            url="https://example.com/rss",
+            normalized_url="https://example.com/rss",
+            interval_seconds=300,
+            channel_ids=("111111111111111111",),
+            channel_keys=("news",),
+        ),
+        {
+            "title": "Image Story",
+            "link": "https://example.com/story",
+            "summary": '<p>Summary</p><img src="/images/one.jpg" /><img src="/images/two.jpg" />',
+            "media_thumbnail": [
+                {"url": "https://cdn.example.com/thumb-one.jpg"},
+                {"url": "https://cdn.example.com/thumb-two.jpg"},
+            ],
+        },
+    )
+
+    assert [item["url"] for item in entry.rich_metadata["media_items"]] == [
+        "https://cdn.example.com/thumb-one.jpg",
+        "https://cdn.example.com/thumb-two.jpg",
+        "https://example.com/images/one.jpg",
+        "https://example.com/images/two.jpg",
+    ]
+
+
+def test_html_video_is_extracted_and_hls_manifest_is_ignored() -> None:
+    service = FeedService(timeout_seconds=10, max_entries_per_feed=30)
+    entry = service._entry_from_parsed(
+        FeedRuntime(
+            feed_key="feed_generic",
+            display_name="Generic Feed",
+            url="https://example.com/rss",
+            normalized_url="https://example.com/rss",
+            interval_seconds=300,
+            channel_ids=("111111111111111111",),
+            channel_keys=("news",),
+        ),
+        {
+            "title": "Video Story",
+            "link": "https://example.com/story",
+            "summary": (
+                '<video><source src="/video/story.m3u8" type="application/vnd.apple.mpegurl" />'
+                '<source src="/video/story.webm" type="video/webm" /></video>'
+            ),
+        },
+    )
+
+    assert entry.video_url == "https://example.com/video/story.webm"
+    assert entry.video_source == "html_video"
 
 
 def test_summary_img_fallback_ignores_invalid_urls() -> None:

@@ -124,7 +124,9 @@ After the bot is running:
 
 If slash commands do not appear, confirm `DISCORD_GUILD_ID` is the correct server ID, confirm the bot was invited with slash command permissions, and restart the bot.
 
-Normal posts include a footer that says whether the item is a new article or an update, shows the Discord-formatted posted/updated time, and includes an importance score from `0/10` to `10/10`. Higher-importance posts also use warmer embed colors.
+Normal posts include a footer that says whether the item is new or an update and shows a compact importance score as `Imp N`. The post timestamp is attached to the embed itself, so Discord displays it in each user's local time. Higher-importance posts also use warmer embed colors.
+
+When feeds or enriched social/email sources expose suitable images or direct playable video files, the bot uploads them as Discord attachments above the embed. This keeps media visible and playable without showing bare media URLs in the message text.
 
 ## Validate Before Handing Off
 

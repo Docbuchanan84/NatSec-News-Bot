@@ -120,6 +120,50 @@ def test_extracts_bluesky_reference() -> None:
     assert reference.post_id == "abc123"
 
 
+def test_x_entry_extracts_direct_video_and_thumbnail() -> None:
+    entry = social_link_embed.feed_entry_from_fxtwitter_status(
+        {
+            "id": "2066697461284978998",
+            "url": "https://x.com/notwoofers/status/2066697461284978998",
+            "text": "Video post",
+            "author": {"screen_name": "notwoofers", "name": "No Twoofers"},
+            "media": {
+                "videos": [
+                    {
+                        "url": "https://video.twimg.com/ext_tw_video/high.mp4",
+                        "thumbnail_url": "https://pbs.twimg.com/ext_tw_video/thumb.jpg",
+                        "type": "video",
+                        "formats": [
+                            {
+                                "url": "https://video.twimg.com/ext_tw_video/low.mp4",
+                                "container": "mp4",
+                                "bitrate": 832000,
+                            },
+                            {
+                                "url": "https://video.twimg.com/ext_tw_video/high.mp4",
+                                "container": "mp4",
+                                "bitrate": 10368000,
+                            },
+                        ],
+                    }
+                ]
+            },
+            "created_at": "2026-06-15T00:00:00+00:00",
+        },
+        social_link_embed.SocialPostReference(
+            platform="x",
+            account="notwoofers",
+            post_id="2066697461284978998",
+            url="https://x.com/notwoofers/status/2066697461284978998",
+        ),
+    )
+
+    assert entry.video_url == "https://video.twimg.com/ext_tw_video/low.mp4"
+    assert entry.video_source == "x_media"
+    assert entry.image_url == "https://pbs.twimg.com/ext_tw_video/thumb.jpg"
+    assert entry.rich_metadata["media_items"][0]["type"] == "video"
+
+
 @pytest.mark.asyncio
 async def test_handler_suppresses_native_x_embed_url_and_sends_reply(monkeypatch) -> None:
     async def fake_x_entry(session, reference):

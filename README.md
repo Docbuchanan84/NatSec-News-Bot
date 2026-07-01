@@ -66,7 +66,15 @@ Tune shared post-processing throughput with `settings.polling.resultProcessorWor
 
 Routing can use longer article bodies than Discord display embeds. RSS `content`/`content:encoded` fields, email article bodies, and supported document extracts are stored in `rich_metadata.routing_summary` up to `settings.routing.maxRoutingSummaryChars` (default `2000`) so channel scoring can see useful context without making embeds noisy.
 
-Routed posts also carry a local importance score from `0/10` to `10/10`. The score is persisted with the routing decision and displayed in the Discord embed footer with color-coding so high-impact active-conflict, attack, strategic-weapons, disaster, cyber, or official-source items stand out without changing the routing destination.
+Routed posts also carry a local importance score from `0` to `10`. The score is persisted with the routing decision and displayed in the Discord embed footer as `Imp N`, with color-coding so high-impact active-conflict, attack, strategic-weapons, disaster, cyber, or official-source items stand out without changing the routing destination. Discord's native embed timestamp is used so each reader sees the post time in their own local time.
+
+## Discord Post Formatting
+
+Posts from RSS, email, Bluesky, X/social link enrichment, and other source-specific fetchers share the same Discord presentation path. When a source exposes direct image or playable video media, the bot temporarily downloads the media and uploads it to Discord as message attachments above the text embed. This avoids bare media URLs in the message body and keeps multi-image posts visually consistent across source types.
+
+The media pipeline only uploads URLs that look suitable for Discord attachment playback or display. Direct image URLs are accepted broadly, while video uploads are limited to direct playable files such as `.mp4`, `.m4v`, `.mov`, and `.webm`. Non-direct video pages, such as YouTube watch URLs, are left as Discord-native link previews instead of being downloaded.
+
+Embed footers use the compact format `Source · New/Update · Imp N`. Timestamps are stored on the embed itself rather than in the footer, because Discord footer text does not render timestamp markdown.
 
 ## Native Local Run
 
@@ -160,7 +168,8 @@ Privileged message content intent is not required.
 - First run defaults to suppressing old visible feed entries. They are marked seen so the bot does not dump a backlog into Discord.
 - Articles are deduplicated globally using normalized URLs, feed GUIDs, and normalized title/source fingerprints.
 - `channel_posts` enforces one successful post per article per Discord channel.
-- Routing decisions store an importance score and reason list; Discord embeds show new/update state, posted/updated time, and importance in the footer.
+- Routing decisions store an importance score and reason list; Discord embeds show new/update state and compact `Imp N` importance in the footer, while the native embed timestamp shows viewer-local time.
+- Supported source media is uploaded as Discord attachments above the embed instead of being rendered as bare image or video URLs.
 - Feed and email fetching are asynchronous with bounded per-source concurrency and per-source timeouts.
 - RSS and email polling use independent scheduler lanes and a shared result processor, so one source class does not wait behind another during normal operation.
 - Source mirrors configured with `mirrorChannelKeys` are added only after routing or review selection, not for no-match items.

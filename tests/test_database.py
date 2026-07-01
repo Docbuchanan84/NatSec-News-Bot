@@ -200,6 +200,36 @@ def test_records_routing_decision_tags_and_matches(tmp_path: Path) -> None:
         importance_score=6,
         importance_reasons=("tag +2: cyber",),
     )
+
+
+def make_video_candidate():
+    return build_candidate(
+        FeedEntry(
+            feed_key="feed_1",
+            feed_name="Video Feed",
+            raw_guid="video:1",
+            raw_title="Video Story",
+            raw_url="https://example.com/story",
+            summary="A useful caption.",
+            image_url="https://cdn.example.com/story.jpg",
+            image_source="media_thumbnail",
+            video_url="https://cdn.example.com/story.mp4",
+            video_source="enclosure",
+            raw_published_at=None,
+            parsed={},
+            rich_metadata={
+                "media_items": [
+                    {
+                        "type": "video",
+                        "url": "https://cdn.example.com/story.mp4",
+                        "thumbnail_url": "https://cdn.example.com/story.jpg",
+                    }
+                ]
+            },
+        ),
+        TimestampSettings(),
+        now=datetime(2026, 5, 28, tzinfo=UTC),
+    )
     db.record_routing_decision(article.article_id, decision, ("111111111111111111",))
     row = db.latest_routing_decision_for_article(article.article_id)
 
@@ -244,6 +274,18 @@ def test_post_job_includes_article_image(tmp_path: Path) -> None:
     assert job.image_source == "media_thumbnail"
 
 
+def test_post_job_includes_article_video(tmp_path: Path) -> None:
+    db = Database(tmp_path / "rss.sqlite")
+    db.initialize()
+    article = db.resolve_article(make_video_candidate(), 24)
+    job = db.get_post_job(article.article_id, "111111111111111111")
+
+    assert job.video_url == "https://cdn.example.com/story.mp4"
+    assert job.video_source == "enclosure"
+    assert job.image_url == "https://cdn.example.com/story.jpg"
+    assert job.rich_metadata["media_items"][0]["type"] == "video"
+
+
 def test_post_job_includes_rich_metadata(tmp_path: Path) -> None:
     db = Database(tmp_path / "rss.sqlite")
     db.initialize()
@@ -261,7 +303,7 @@ def test_post_job_includes_rich_metadata(tmp_path: Path) -> None:
     assert job.rich_metadata == {"social_url": "https://bsky.app/profile/example.com/post/abc"}
 
 
-def test_initialize_migrates_existing_articles_with_image_columns(tmp_path: Path) -> None:
+def test_initialize_migrates_existing_articles_with_media_columns(tmp_path: Path) -> None:
     db_path = tmp_path / "rss.sqlite"
     conn = sqlite3.connect(db_path)
     conn.execute(
@@ -294,6 +336,8 @@ def test_initialize_migrates_existing_articles_with_image_columns(tmp_path: Path
 
     assert "image_url" in columns
     assert "image_source" in columns
+    assert "video_url" in columns
+    assert "video_source" in columns
     assert "rich_metadata" in columns
 
 

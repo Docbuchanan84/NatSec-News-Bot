@@ -10,7 +10,7 @@ import aiohttp
 import discord
 
 from app.database import Database
-from app.feed_fetcher import DEFAULT_USER_AGENT, clean_html_text, extract_bluesky_media
+from app.feed_fetcher import DEFAULT_USER_AGENT, clean_html_text, extract_bluesky_media_details
 from app.models import AppConfig, FeedEntry, PostJob, SocialLinkEmbedSettings
 from app.normalizer import build_candidate
 from app.x_media import fetch_fxtwitter_status
@@ -243,6 +243,7 @@ def feed_entry_from_fxtwitter_status(status: dict[str, Any], reference: SocialPo
     username = str(author.get("username") or reference.account).strip().lstrip("@") or reference.account
     name = clean_html_text(author.get("name")) or username
     first_media = _first_media_image_url(metadata)
+    first_video = _first_media_video_url(metadata)
     created_at = str(status.get("created_at") or "").strip() or None
     post_id = str(metadata.get("post_id") or reference.post_id)
     url = str(metadata.get("social_url") or reference.url)
@@ -255,6 +256,8 @@ def feed_entry_from_fxtwitter_status(status: dict[str, Any], reference: SocialPo
         summary=_summary(username, name, text, metadata),
         image_url=first_media,
         image_source="x_media" if first_media else None,
+        video_url=first_video,
+        video_source="x_media" if first_video else None,
         raw_published_at=created_at,
         parsed={"source": "x_message", "post_id": post_id},
         source_id=_source_id_for_username(username),
@@ -276,6 +279,9 @@ def rich_metadata_from_fxtwitter_status(status: dict[str, Any], reference: Socia
         "author": author,
         "media": _media_items(status.get("media")),
     }
+    x_media_items = _media_items_from_x_media(metadata["media"])
+    if x_media_items:
+        metadata["media_items"] = x_media_items
     quote_status = status.get("quote")
     if isinstance(quote_status, dict) and quote_status.get("type") != "tombstone":
         metadata["quote"] = {
@@ -302,7 +308,12 @@ async def _bluesky_entry_from_reference(
     display_name = clean_html_text(author.get("displayName")) or f"@{handle}"
     text = clean_html_text(record.get("text")) or "Bluesky post"
     created_at = str(record.get("createdAt") or "").strip() or None
-    article_url, image_url, image_source = (extract_bluesky_media(payload) or (None, None, None))
+    media = extract_bluesky_media_details(payload) or {}
+    article_url = media.get("article_url")
+    image_url = media.get("image_url")
+    image_source = media.get("image_source")
+    video_url = media.get("video_url")
+    video_source = media.get("video_source")
     post_url = canonical_bluesky_url(handle or reference.account, reference.post_id)
     metadata = {
         "source": "bluesky_message",
@@ -316,6 +327,15 @@ async def _bluesky_entry_from_reference(
             "did": str(author.get("did") or ""),
         },
     }
+    raw_media_items = media.get("media_items")
+    media_items = raw_media_items if isinstance(raw_media_items, list) else _media_items_from_primary(
+        image_url,
+        image_source,
+        video_url,
+        video_source,
+    )
+    if media_items:
+        metadata["media_items"] = media_items
     return FeedEntry(
         feed_key=f"bluesky-message:{handle}:{reference.post_id}",
         feed_name=f"Bluesky: {display_name}",
@@ -325,6 +345,8 @@ async def _bluesky_entry_from_reference(
         summary=text,
         image_url=image_url,
         image_source=image_source,
+        video_url=video_url,
+        video_source=video_source,
         raw_published_at=created_at,
         parsed={"source": "bluesky_message", "post_id": reference.post_id},
         source_id=_source_id_for_username(f"bluesky-{handle or reference.account}"),
@@ -384,7 +406,7 @@ def _media_items(value: Any) -> list[dict[str, str]]:
         if url:
             output.append({"type": "photo", "url": url, "preview_image_url": url})
     for video in _list_of_dicts(media.get("videos")):
-        url = str(video.get("url") or video.get("transcode_url") or "").strip()
+        url = _best_video_url(video)
         preview = str(video.get("thumbnail_url") or "").strip()
         if url:
             output.append(
@@ -416,6 +438,80 @@ def _first_media_image_url(metadata: dict[str, Any]) -> str | None:
         if item.get("preview_image_url"):
             return str(item["preview_image_url"])
     return None
+
+
+def _first_media_video_url(metadata: dict[str, Any]) -> str | None:
+    media = metadata.get("media")
+    if not isinstance(media, list):
+        return None
+    for item in media:
+        if not isinstance(item, dict):
+            continue
+        if item.get("type") in {"video", "animated_gif"} and item.get("url"):
+            return str(item["url"])
+    return None
+
+
+def _best_video_url(video: dict[str, Any]) -> str:
+    formats = video.get("formats")
+    if isinstance(formats, list):
+        candidates: list[tuple[int, str]] = []
+        for item in formats:
+            if not isinstance(item, dict):
+                continue
+            url = str(item.get("url") or "").strip()
+            container = str(item.get("container") or "").casefold()
+            if not url or container not in {"mp4", "mov", "webm"}:
+                continue
+            bitrate = int(item.get("bitrate") or 0)
+            candidates.append((bitrate, url))
+        if candidates:
+            # Discord previews direct MP4 URLs; prefer a moderate bitrate over the largest source file.
+            candidates.sort(key=lambda item: (item[0] > 2_500_000, item[0] or 10_000_000))
+            return candidates[0][1]
+    return str(video.get("url") or video.get("transcode_url") or "").strip()
+
+
+def _media_items_from_primary(
+    image_url: str | None,
+    image_source: str | None,
+    video_url: str | None,
+    video_source: str | None,
+) -> list[dict[str, str]]:
+    items: list[dict[str, str]] = []
+    if video_url:
+        item = {"type": "video", "url": video_url}
+        if video_source:
+            item["source"] = video_source
+        if image_url:
+            item["thumbnail_url"] = image_url
+        items.append(item)
+    if image_url:
+        item = {"type": "image", "url": image_url}
+        if image_source:
+            item["source"] = image_source
+        items.append(item)
+    return items
+
+
+def _media_items_from_x_media(media: object) -> list[dict[str, str]]:
+    if not isinstance(media, list):
+        return []
+    items: list[dict[str, str]] = []
+    for item in media:
+        if not isinstance(item, dict):
+            continue
+        media_type = str(item.get("type") or "").casefold()
+        url = str(item.get("url") or "").strip()
+        preview = str(item.get("preview_image_url") or "").strip()
+        if media_type in {"video", "animated_gif"} and url:
+            output = {"type": "video", "url": url, "source": "x_media"}
+            if preview:
+                output["thumbnail_url"] = preview
+            items.append(output)
+        elif url:
+            items.append({"type": "image", "url": url, "source": "x_media"})
+    return items
 
 
 def _summary(username: str, name: str, text: str, metadata: dict[str, Any]) -> str:
