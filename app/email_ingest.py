@@ -20,6 +20,7 @@ from urllib.parse import parse_qsl, unquote, urlparse
 
 from app.feed_fetcher import FeedFetchError, FeedFetchResult, clean_html_text
 from app.models import EmailSourceRuntime, FeedEntry
+from app.feed_fetcher import extract_entry_image, extract_entry_video
 from app.normalizer import normalize_article_url, stable_hash
 
 logger = logging.getLogger(__name__)
@@ -289,6 +290,10 @@ def _entry_from_email(
             "parent_subject": parsed.subject,
         }
     low_signal = _is_low_signal_email(title, summary, url, parsed.metadata)
+    media_payload = {"summary": parsed.formatted_body or parsed.body or ""}
+    base_url = url or source.url
+    image = extract_entry_image(media_payload, base_url=base_url)
+    video = extract_entry_video(media_payload, base_url=base_url)
     metadata = {
         **parsed.metadata,
         "mailbox": source.mailbox,
@@ -298,6 +303,9 @@ def _entry_from_email(
         "email_low_signal": low_signal,
         **split_metadata,
     }
+    media_items = _media_items_from_primary(image=image, video=video)
+    if media_items:
+        metadata["media_items"] = media_items
     return FeedEntry(
         feed_key=source.feed_key,
         feed_name=source.display_name,
@@ -305,8 +313,10 @@ def _entry_from_email(
         raw_title=title,
         raw_url=url,
         summary=summary,
-        image_url=None,
-        image_source=None,
+        image_url=image[0],
+        image_source=image[1],
+        video_url=video[0],
+        video_source=video[1],
         raw_published_at=parsed.raw_date,
         parsed=metadata,
         source_id=source.source_id,
@@ -478,6 +488,29 @@ def _html_to_markdown(value: str) -> tuple[str | None, tuple[EmailLink, ...]]:
         if cleaned is not None
     )
     return formatted, links
+
+
+def _media_items_from_primary(
+    *,
+    image: tuple[str | None, str | None],
+    video: tuple[str | None, str | None],
+) -> list[dict[str, str]]:
+    items: list[dict[str, str]] = []
+    video_url, video_source = video
+    image_url, image_source = image
+    if video_url:
+        item = {"type": "video", "url": video_url}
+        if video_source:
+            item["source"] = video_source
+        if image_url:
+            item["thumbnail_url"] = image_url
+        items.append(item)
+    if image_url:
+        item = {"type": "image", "url": image_url}
+        if image_source:
+            item["source"] = image_source
+        items.append(item)
+    return items
 
 
 def _format_plain_text_markdown(value: str | None) -> str | None:

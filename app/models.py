@@ -245,6 +245,8 @@ class FeedEntry:
     source_class: str = "unknown"
     rich_metadata: dict[str, Any] = field(default_factory=dict)
     routing_tags: tuple[str, ...] = ()
+    video_url: str | None = None
+    video_source: str | None = None
 
 
 @dataclass(frozen=True)
@@ -279,6 +281,8 @@ class ArticleCandidate:
     fingerprints: tuple[tuple[str, str], ...]
     rich_metadata: dict[str, Any] = field(default_factory=dict)
     routing_tags: tuple[str, ...] = ()
+    video_url: str | None = None
+    video_source: str | None = None
 
 
 @dataclass(frozen=True)
@@ -305,3 +309,5 @@ class PostJob:
     is_new_article: bool = True
     importance_score: int = 0
     importance_reasons: tuple[str, ...] = ()
+    video_url: str | None = None
+    video_source: str | None = None

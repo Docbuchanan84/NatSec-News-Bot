@@ -213,4 +213,6 @@ def build_candidate(entry: FeedEntry, timestamp_settings: TimestampSettings, now
         fingerprints=tuple(fingerprints),
         rich_metadata=dict(entry.rich_metadata or {}),
         routing_tags=tuple(entry.routing_tags or ()),
+        video_url=entry.video_url,
+        video_source=entry.video_source,
     )

@@ -30,6 +30,8 @@ DEFAULT_USER_AGENT = (
 URL_RE = re.compile(r"(?:https?://|www\.)\S+|(?<!@)\b[a-z0-9][a-z0-9.-]+\.[a-z]{2,}/\S+", re.IGNORECASE)
 HTML_TAG_RE = re.compile(r"<[^>]+>")
 IMAGE_EXTENSIONS = (".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp", ".avif")
+VIDEO_EXTENSIONS = (".mp4", ".m4v", ".mov", ".webm")
+PLAYABLE_VIDEO_CONTENT_TYPES = ("video/mp4", "video/webm", "video/quicktime", "video/x-m4v")
 BLUESKY_POST_THREAD_URL = "https://public.api.bsky.app/xrpc/app.bsky.feed.getPostThread"
 DVIDS_HOST = "www.dvidshub.net"
 DVIDS_API_HOST = "api.dvidshub.net"
@@ -154,9 +156,16 @@ class FeedService:
         if _is_bluesky_rss(feed.url):
             title = _bluesky_title(summary)
             url = _first_external_url(summary) or url
-        image = extract_entry_image(raw_dict, base_url=str(url or feed.url))
+        base_url = str(url or feed.url)
+        image = extract_entry_image(raw_dict, base_url=base_url)
+        video = extract_entry_video(raw_dict, base_url=base_url)
         published = raw_dict.get("published") or raw_dict.get("updated") or raw_dict.get("created")
         metadata = _bluesky_metadata(social_url)
+        media_items = extract_entry_media_items(raw_dict, base_url=base_url)
+        if not media_items:
+            media_items = _media_items_from_primary(image=image, video=video)
+        if media_items:
+            metadata["media_items"] = media_items
         if routing_summary:
             metadata["routing_summary"] = routing_summary
         return FeedEntry(
@@ -174,6 +183,8 @@ class FeedService:
             source_class=feed.source_class,
             rich_metadata=metadata,
             routing_tags=feed.routing_tags,
+            video_url=video[0],
+            video_source=video[1],
         )
 
     async def _enrich_bluesky_entries(
@@ -211,19 +222,32 @@ class FeedService:
             logger.warning("Bluesky media lookup failed for %s: %s", entry.raw_guid, exc)
             return entry
 
-        media = extract_bluesky_media(payload)
+        media = extract_bluesky_media_details(payload)
         if media is None:
             return entry
-        article_url, image_url, image_source = media
+        article_url = media.get("article_url")
+        image_url = media.get("image_url")
+        image_source = media.get("image_source")
+        video_url = media.get("video_url")
+        video_source = media.get("video_source")
         metadata = dict(entry.rich_metadata or {})
         if _is_bluesky_post_url(entry.raw_url):
             metadata.setdefault("social_url", entry.raw_url)
             metadata.setdefault("bluesky_post_url", entry.raw_url)
+        raw_media_items = media.get("media_items")
+        media_items = raw_media_items if isinstance(raw_media_items, list) else _media_items_from_primary(
+            image=(image_url or entry.image_url, image_source or entry.image_source),
+            video=(video_url or entry.video_url, video_source or entry.video_source),
+        )
+        if media_items:
+            metadata["media_items"] = media_items
         return replace(
             entry,
-            raw_url=article_url or entry.raw_url,
+            raw_url=str(article_url or entry.raw_url),
             image_url=image_url or entry.image_url,
             image_source=image_source or entry.image_source,
+            video_url=video_url or entry.video_url,
+            video_source=video_source or entry.video_source,
             rich_metadata=metadata,
         )
 
@@ -321,6 +345,44 @@ class _ImageExtractor(HTMLParser):
             if cleaned:
                 self.image_url = cleaned
                 return
+
+
+class _HtmlMediaExtractor(HTMLParser):
+    def __init__(self, base_url: str) -> None:
+        super().__init__(convert_charrefs=True)
+        self.base_url = base_url
+        self.image_url: str | None = None
+        self.video_url: str | None = None
+        self.image_urls: list[str] = []
+        self.video_urls: list[str] = []
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        tag = tag.casefold()
+        attr_map = {name.casefold(): value for name, value in attrs if value}
+        if tag == "img":
+            for key in ("src", "data-src", "data-original", "data-lazy-src"):
+                candidate = attr_map.get(key)
+                if not candidate:
+                    continue
+                cleaned = _clean_image_url(urljoin(self.base_url, candidate), trusted=True)
+                if cleaned:
+                    if not self.image_url:
+                        self.image_url = cleaned
+                    if cleaned not in self.image_urls:
+                        self.image_urls.append(cleaned)
+                    break
+        if tag in {"video", "source"}:
+            for key in ("src", "data-src"):
+                candidate = attr_map.get(key)
+                if not candidate:
+                    continue
+                cleaned = _clean_video_url(urljoin(self.base_url, candidate), trusted=True)
+                if cleaned:
+                    if not self.video_url:
+                        self.video_url = cleaned
+                    if cleaned not in self.video_urls:
+                        self.video_urls.append(cleaned)
+                    break
 
 
 class _StateCollectionParser(HTMLParser):
@@ -475,7 +537,84 @@ def extract_entry_image(raw: dict[str, Any], base_url: str) -> tuple[str | None,
     return None, None
 
 
+def extract_entry_video(raw: dict[str, Any], base_url: str) -> tuple[str | None, str | None]:
+    for value in _iter_video_urls(raw.get("media_content")):
+        if cleaned := _clean_video_url(value, trusted=True):
+            return cleaned, "media_content"
+
+    for value in _iter_video_urls(raw.get("media_player")):
+        if cleaned := _clean_video_url(value, trusted=True):
+            return cleaned, "media_player"
+
+    for value in _iter_video_urls(raw.get("enclosures")):
+        if cleaned := _clean_video_url(value, trusted=True):
+            return cleaned, "enclosure"
+
+    for value in _iter_video_links(raw.get("links")):
+        if cleaned := _clean_video_url(value, trusted=True):
+            return cleaned, "link"
+
+    for key in ("summary", "description"):
+        if cleaned := _video_from_html(raw.get(key), base_url):
+            return cleaned, "html_video"
+
+    for content in _as_list(raw.get("content")):
+        if isinstance(content, dict) and (cleaned := _video_from_html(content.get("value"), base_url)):
+            return cleaned, "html_video"
+
+    return None, None
+
+
+def extract_entry_media_items(raw: dict[str, Any], base_url: str) -> list[dict[str, str]]:
+    items: list[dict[str, str]] = []
+    seen: set[str] = set()
+
+    def add(media_type: str, url: str | None, source: str) -> None:
+        if not url or url in seen:
+            return
+        seen.add(url)
+        items.append({"type": media_type, "url": url, "source": source})
+
+    for value in _iter_video_urls(raw.get("media_content")):
+        add("video", _clean_video_url(value, trusted=True), "media_content")
+    for value in _iter_video_urls(raw.get("media_player")):
+        add("video", _clean_video_url(value, trusted=True), "media_player")
+    for value in _iter_video_urls(raw.get("enclosures")):
+        add("video", _clean_video_url(value, trusted=True), "enclosure")
+    for value in _iter_video_links(raw.get("links")):
+        add("video", _clean_video_url(value, trusted=True), "link")
+
+    for value in _iter_media_urls(raw.get("media_thumbnail"), require_image_type=False):
+        add("image", _clean_image_url(value, trusted=True), "media_thumbnail")
+    for value in _iter_media_urls(raw.get("media_content"), require_image_type=True):
+        add("image", _clean_image_url(value, trusted=True), "media_content")
+    for value in _iter_media_urls(raw.get("enclosures"), require_image_type=True):
+        add("image", _clean_image_url(value, trusted=True), "enclosure")
+    for key in ("image", "itunes_image"):
+        add("image", _image_from_field(raw.get(key)), key)
+    for value in _iter_image_links(raw.get("links")):
+        add("image", _clean_image_url(value, trusted=True), "link")
+
+    for key in ("summary", "description"):
+        for item in _media_from_html(raw.get(key), base_url):
+            add(item["type"], item["url"], item["source"])
+    for content in _as_list(raw.get("content")):
+        if isinstance(content, dict):
+            for item in _media_from_html(content.get("value"), base_url):
+                add(item["type"], item["url"], item["source"])
+
+    return items
+
+
 def extract_bluesky_media(payload: dict[str, Any]) -> tuple[str | None, str | None, str | None] | None:
+    media = extract_bluesky_media_details(payload)
+    if media is None:
+        return None
+    image_source = media.get("image_source")
+    return media.get("article_url"), media.get("image_url"), str(image_source) if image_source else None
+
+
+def extract_bluesky_media_details(payload: dict[str, Any]) -> dict[str, Any] | None:
     thread = payload.get("thread")
     if not isinstance(thread, dict):
         return None
@@ -485,7 +624,7 @@ def extract_bluesky_media(payload: dict[str, Any]) -> tuple[str | None, str | No
     return _bluesky_media_from_post(post)
 
 
-def _bluesky_media_from_post(post: dict[str, Any]) -> tuple[str | None, str | None, str | None] | None:
+def _bluesky_media_from_post(post: dict[str, Any]) -> dict[str, Any] | None:
     embed = post.get("embed")
     if isinstance(embed, dict):
         media = _bluesky_media_from_embed(embed, in_record=False)
@@ -510,33 +649,54 @@ def _dvids_api_entry(feed: FeedRuntime, raw: dict[str, Any]) -> FeedEntry:
     summary = clean_html_text(raw.get("short_description") or raw.get("description"))
     published = raw.get("publishdate") or raw.get("date_published") or raw.get("timestamp") or raw.get("date")
     image_url = _clean_image_url(raw.get("thumbnail"), trusted=True)
+    raw_url = str(raw.get("url")) if raw.get("url") else None
+    video = extract_entry_video(raw, base_url=raw_url or feed.url)
+    metadata = {"media_items": _media_items_from_primary(image=(image_url, "dvids_api_thumbnail" if image_url else None), video=video)}
+    if not metadata["media_items"]:
+        metadata = {}
     return FeedEntry(
         feed_key=feed.feed_key,
         feed_name=feed.display_name,
         raw_guid=str(raw.get("id")) if raw.get("id") else None,
         raw_title=title,
-        raw_url=str(raw.get("url")) if raw.get("url") else None,
+        raw_url=raw_url,
         summary=summary,
         image_url=image_url,
         image_source="dvids_api_thumbnail" if image_url else None,
+        video_url=video[0],
+        video_source=video[1],
         raw_published_at=str(published) if published else None,
         parsed=raw,
         source_id=feed.source_id,
         source_class=feed.source_class,
+        rich_metadata=metadata,
     )
 
 
-def _bluesky_media_from_embed(embed: dict[str, Any], in_record: bool) -> tuple[str | None, str | None, str | None] | None:
+def _bluesky_media_from_embed(embed: dict[str, Any], in_record: bool) -> dict[str, Any] | None:
     embed_type = str(embed.get("$type") or "")
 
     if embed_type == "app.bsky.embed.images#view":
-        image = _first_dict(embed.get("images"))
-        if image:
+        images = [item for item in _as_list(embed.get("images")) if isinstance(item, dict)]
+        image_items: list[dict[str, str]] = []
+        for image in images:
             image_url = _clean_image_url(image.get("fullsize"), trusted=True) or _clean_image_url(
                 image.get("thumb"), trusted=True
             )
             if image_url:
-                return None, image_url, "bluesky_record_media" if in_record else "bluesky_image"
+                image_items.append(
+                    {
+                        "type": "image",
+                        "url": image_url,
+                        "source": "bluesky_record_media" if in_record else "bluesky_image",
+                    }
+                )
+        if image_items:
+            return _media_details(
+                image_url=image_items[0]["url"],
+                image_source=image_items[0]["source"],
+                media_items=image_items,
+            )
 
     if embed_type == "app.bsky.embed.external#view":
         external = embed.get("external")
@@ -544,10 +704,21 @@ def _bluesky_media_from_embed(embed: dict[str, Any], in_record: bool) -> tuple[s
             article_url = _clean_article_url(external.get("uri"))
             image_url = _clean_image_url(external.get("thumb"), trusted=True)
             source = "bluesky_video_thumb" if _is_video_url(article_url) else "bluesky_external_thumb"
+            video_url = _clean_video_url(article_url, trusted=True)
             if in_record:
                 source = "bluesky_record_media"
-            if article_url or image_url:
-                return article_url, image_url, source if image_url else None
+            if article_url or image_url or video_url:
+                return _media_details(
+                    article_url=article_url,
+                    image_url=image_url,
+                    image_source=source if image_url else None,
+                    video_url=video_url,
+                    video_source="bluesky_external_video" if video_url else None,
+                    media_items=_media_items_from_primary(
+                        image=(image_url, source if image_url else None),
+                        video=(video_url, "bluesky_external_video" if video_url else None),
+                    ),
+                )
 
     if embed_type == "app.bsky.embed.video#view":
         image_url = (
@@ -555,7 +726,14 @@ def _bluesky_media_from_embed(embed: dict[str, Any], in_record: bool) -> tuple[s
             or _clean_image_url(embed.get("thumb"), trusted=True)
         )
         if image_url:
-            return None, image_url, "bluesky_record_media" if in_record else "bluesky_video_thumb"
+            return _media_details(
+                image_url=image_url,
+                image_source="bluesky_record_media" if in_record else "bluesky_video_thumb",
+                media_items=_media_items_from_primary(
+                    image=(image_url, "bluesky_record_media" if in_record else "bluesky_video_thumb"),
+                    video=(None, None),
+                ),
+            )
 
     if embed_type == "app.bsky.embed.recordWithMedia#view":
         media = embed.get("media")
@@ -565,8 +743,13 @@ def _bluesky_media_from_embed(embed: dict[str, Any], in_record: bool) -> tuple[s
                 return resolved
         record_media = _bluesky_media_from_record_view(embed.get("record"))
         if record_media is not None:
-            article_url, image_url, _source = record_media
-            return article_url, image_url, "bluesky_record_media" if image_url else None
+            return _media_details(
+                article_url=record_media.get("article_url"),
+                image_url=record_media.get("image_url"),
+                image_source="bluesky_record_media" if record_media.get("image_url") else None,
+                video_url=record_media.get("video_url"),
+                video_source=record_media.get("video_source"),
+            )
 
     if embed_type == "app.bsky.embed.record#view":
         return _bluesky_media_from_record_view(embed)
@@ -574,7 +757,7 @@ def _bluesky_media_from_embed(embed: dict[str, Any], in_record: bool) -> tuple[s
     return None
 
 
-def _bluesky_media_from_record_view(value: object) -> tuple[str | None, str | None, str | None] | None:
+def _bluesky_media_from_record_view(value: object) -> dict[str, Any] | None:
     if not isinstance(value, dict):
         return None
     record = value.get("record")
@@ -626,6 +809,50 @@ def _is_video_url(value: str | None) -> bool:
     return "youtube.com" in host or "youtu.be" in host
 
 
+def _media_details(
+    *,
+    article_url: str | None = None,
+    image_url: str | None = None,
+    image_source: str | None = None,
+    video_url: str | None = None,
+    video_source: str | None = None,
+    media_items: list[dict[str, str]] | None = None,
+) -> dict[str, Any]:
+    details: dict[str, Any] = {
+        "article_url": article_url,
+        "image_url": image_url,
+        "image_source": image_source,
+        "video_url": video_url,
+        "video_source": video_source,
+    }
+    if media_items:
+        details["media_items"] = media_items
+    return details
+
+
+def _media_items_from_primary(
+    *,
+    image: tuple[str | None, str | None],
+    video: tuple[str | None, str | None],
+) -> list[dict[str, str]]:
+    items: list[dict[str, str]] = []
+    video_url, video_source = video
+    image_url, image_source = image
+    if video_url:
+        item = {"type": "video", "url": video_url}
+        if video_source:
+            item["source"] = video_source
+        if image_url:
+            item["thumbnail_url"] = image_url
+        items.append(item)
+    if image_url:
+        item = {"type": "image", "url": image_url}
+        if image_source:
+            item["source"] = image_source
+        items.append(item)
+    return items
+
+
 def _iter_media_urls(value: object, require_image_type: bool) -> list[str]:
     urls: list[str] = []
     for item in _as_list(value):
@@ -645,6 +872,27 @@ def _iter_media_urls(value: object, require_image_type: bool) -> list[str]:
     return urls
 
 
+def _iter_video_urls(value: object) -> list[str]:
+    urls: list[str] = []
+    for item in _as_list(value):
+        if isinstance(item, dict):
+            content_type = str(item.get("type") or "").casefold()
+            medium = str(item.get("medium") or "").casefold()
+            url = item.get("url") or item.get("href")
+            if not url:
+                continue
+            if (
+                content_type.startswith("video/")
+                or content_type in PLAYABLE_VIDEO_CONTENT_TYPES
+                or medium == "video"
+                or _looks_like_video_url(str(url))
+            ):
+                urls.append(str(url))
+        elif isinstance(item, str) and _looks_like_video_url(item):
+            urls.append(item)
+    return urls
+
+
 def _iter_image_links(value: object) -> list[str]:
     urls: list[str] = []
     for item in _as_list(value):
@@ -654,6 +902,19 @@ def _iter_image_links(value: object) -> list[str]:
         content_type = str(item.get("type") or "").casefold()
         href = item.get("href")
         if href and (content_type.startswith("image/") or (rel == "enclosure" and _looks_like_image_url(str(href)))):
+            urls.append(str(href))
+    return urls
+
+
+def _iter_video_links(value: object) -> list[str]:
+    urls: list[str] = []
+    for item in _as_list(value):
+        if not isinstance(item, dict):
+            continue
+        rel = str(item.get("rel") or "").casefold()
+        content_type = str(item.get("type") or "").casefold()
+        href = item.get("href")
+        if href and (content_type.startswith("video/") or (rel == "enclosure" and _looks_like_video_url(str(href)))):
             urls.append(str(href))
     return urls
 
@@ -681,6 +942,33 @@ def _image_from_html(value: object, base_url: str) -> str | None:
     return parser.image_url
 
 
+def _video_from_html(value: object, base_url: str) -> str | None:
+    if value is None:
+        return None
+    parser = _HtmlMediaExtractor(base_url)
+    try:
+        parser.feed(str(value))
+        parser.close()
+    except Exception:
+        return None
+    return parser.video_url
+
+
+def _media_from_html(value: object, base_url: str) -> list[dict[str, str]]:
+    if value is None:
+        return []
+    parser = _HtmlMediaExtractor(base_url)
+    try:
+        parser.feed(str(value))
+        parser.close()
+    except Exception:
+        return []
+    output: list[dict[str, str]] = []
+    output.extend({"type": "video", "url": url, "source": "html_video"} for url in parser.video_urls)
+    output.extend({"type": "image", "url": url, "source": "html_img"} for url in parser.image_urls)
+    return output
+
+
 def _as_list(value: object) -> list[object]:
     if value is None:
         return []
@@ -705,9 +993,30 @@ def _clean_image_url(value: object, trusted: bool) -> str | None:
     return url
 
 
+def _clean_video_url(value: object, trusted: bool) -> str | None:
+    if value is None:
+        return None
+    url = html.unescape(str(value)).strip()
+    if not url or any(char.isspace() for char in url):
+        return None
+    parsed = urlparse(url)
+    if parsed.scheme.casefold() not in {"http", "https"} or not parsed.netloc:
+        return None
+    if not trusted and not _looks_like_video_url(url):
+        return None
+    if _looks_like_video_url(url):
+        return url
+    return None
+
+
 def _looks_like_image_url(value: str) -> bool:
     path = urlparse(value).path.casefold()
     return path.endswith(IMAGE_EXTENSIONS)
+
+
+def _looks_like_video_url(value: str) -> bool:
+    path = urlparse(value).path.casefold()
+    return path.endswith(VIDEO_EXTENSIONS)
 
 
 def clean_html_text(value: object) -> str | None:

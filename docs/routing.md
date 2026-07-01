@@ -111,7 +111,15 @@ Routing decisions include a local `0` to `10` importance score. It is separate f
 
 The score is based on high-impact concepts, emitted or expanded tags, source class, headline terms, and review status. Active-conflict, attack, missile, drone, disaster, cyber, strategic-weapons, nuclear, and key regional-crisis signals carry more weight than routine government or diplomacy tags. Low-signal no-match decisions are capped so routine items do not appear urgent.
 
-The score and reason list are stored in `article_routing_decisions`. Posted embeds show new/update state, the Discord-formatted posted or updated time, and `Importance N/10` in the footer, with warmer colors for higher scores.
+The score and reason list are stored in `article_routing_decisions`. Posted embeds show new/update state and compact `Imp N` importance in the footer, with warmer colors for higher scores. The posted or updated time is attached to the embed timestamp field so Discord displays it in each viewer's local time.
+
+## Discord Media Presentation
+
+All source types should feed media into the same article metadata shape. RSS/Atom entries, email HTML, Bluesky posts, X/social link enrichment, and custom source fetchers can populate `image_url`, `video_url`, and `rich_metadata.media_items`.
+
+When publishing, direct image media and direct playable video files are temporarily downloaded and uploaded to Discord as message attachments above the embed. Multiple suitable images can be uploaded together when the source exposes them. Direct playable video uploads are limited to file URLs such as `.mp4`, `.m4v`, `.mov`, and `.webm`; video page URLs are left to Discord's link preview behavior instead of being treated as downloadable files.
+
+Embeds no longer set the primary image URL directly when attachment upload succeeds. This keeps RSS, email, Bluesky, X/social, and other enriched posts visually consistent with media above the text embed.
 
 ## Source Identity
 

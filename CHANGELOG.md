@@ -1,5 +1,22 @@
 # Changelog
 
+## 2026-07-01
+
+- Unified media handling across RSS/Atom, email, Bluesky, X/social link enrichment, and custom source metadata.
+- Added direct Discord uploads for suitable images and playable video files so media appears above embeds instead of as bare URLs.
+- Preserved multi-image payloads when sources expose them, including Bluesky image sets and RSS media collections.
+- Added video persistence fields to stored articles and backfilled missing media metadata on duplicate/article updates.
+- Updated embed footers to remove literal Discord timestamp markup, rely on native viewer-local embed timestamps, and shorten importance display to `Imp N`.
+- Added regression coverage for media extraction, Discord attachment uploads, video persistence, social-link video selection, multi-image posts, and compact footer formatting.
+
+Validation for this release should include:
+
+```powershell
+python -m app.main --validate-config --validate-env
+python -m app.main --validate-routing
+python -m pytest -q
+```
+
 ## 2026-06-27
 
 - Added support for RSS feed-level `initialBackfillHours` so first-run backfill windows are enforced for normal feeds, not only email sources.
