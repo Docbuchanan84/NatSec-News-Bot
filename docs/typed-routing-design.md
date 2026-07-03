@@ -1,4 +1,6 @@
-# Typed Routing Design Note
+# Legacy Typed Routing Design Note
+
+Weighted V2 routing under `config/routing_v2/` is now the primary routing system. This note documents the older typed tag/concept router under `config/routing/` for compatibility and historical reference.
 
 The routing config is now typed around one principle:
 

@@ -12,3 +12,4 @@ logs/
 ops/reports/
 config/routing/.editor_backups/
 config/routing/editor_settings.json
+config/routing_v2/.discord_backups/

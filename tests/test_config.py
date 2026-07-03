@@ -37,9 +37,31 @@ def test_loads_minimal_valid_config(tmp_path: Path) -> None:
     assert config.settings.polling.max_concurrent_email_fetches == 4
     assert config.settings.timestamps.max_post_age_hours == 48
     assert config.settings.routing.enabled is False
-    assert config.settings.routing.mode == "observe_only"
+    assert config.settings.routing.mode == "enforced"
+    assert config.settings.routing.engine == "weighted_v2"
+    assert config.settings.routing.weighted_config_dir == "config/routing_v2"
+    assert config.settings.routing.teach_changelog_channel_id is None
     assert config.settings.maintenance.enabled is True
     assert config.settings.maintenance.article_retention_days == 30
+
+
+def test_loads_routing_teach_changelog_channel_id(tmp_path: Path) -> None:
+    data = minimal_config()
+    data["settings"] = {"routing": {"teachChangelogChannelId": "1511175626672050197"}}
+
+    config = load_config(write_config(tmp_path, data))
+
+    assert config.settings.routing.teach_changelog_channel_id == "1511175626672050197"
+
+
+def test_rejects_invalid_routing_teach_changelog_channel_id(tmp_path: Path) -> None:
+    data = minimal_config()
+    data["settings"] = {"routing": {"teachChangelogChannelId": "not-a-channel"}}
+
+    with pytest.raises(ConfigError) as exc:
+        load_config(write_config(tmp_path, data))
+
+    assert "settings.routing.teachChangelogChannelId" in str(exc.value)
 
 
 def test_min_poll_interval_floor_applies_to_channel_interval(tmp_path: Path) -> None:
@@ -91,6 +113,31 @@ def test_rejects_unknown_routing_mode(tmp_path: Path) -> None:
     with pytest.raises(ConfigError) as exc:
         load_config(write_config(tmp_path, data))
     assert "settings.routing.mode" in str(exc.value)
+
+
+def test_loads_weighted_routing_engine_settings(tmp_path: Path) -> None:
+    data = minimal_config()
+    data["settings"] = {
+        "routing": {
+            "enabled": True,
+            "mode": "enforced",
+            "engine": "weighted_v2",
+            "weightedConfigDir": "config/routing_v2",
+        }
+    }
+
+    config = load_config(write_config(tmp_path, data))
+
+    assert config.settings.routing.engine == "weighted_v2"
+    assert config.settings.routing.weighted_config_dir == "config/routing_v2"
+
+
+def test_rejects_unknown_routing_engine(tmp_path: Path) -> None:
+    data = minimal_config()
+    data["settings"] = {"routing": {"enabled": True, "engine": "magic"}}
+    with pytest.raises(ConfigError) as exc:
+        load_config(write_config(tmp_path, data))
+    assert "settings.routing.engine" in str(exc.value)
 
 
 def test_loads_top_level_feeds_and_destination_only_channels(tmp_path: Path) -> None:

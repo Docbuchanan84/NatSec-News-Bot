@@ -73,9 +73,12 @@ class LoggingSettings:
 @dataclass(frozen=True)
 class RoutingSettings:
     enabled: bool = False
-    mode: str = "observe_only"
+    mode: str = "enforced"
+    engine: str = "weighted_v2"
     config_dir: str = "config/routing"
+    weighted_config_dir: str = "config/routing_v2"
     max_routing_summary_chars: int = 2000
+    teach_changelog_channel_id: str | None = None
 
 
 @dataclass(frozen=True)

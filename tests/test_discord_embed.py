@@ -4,12 +4,14 @@ import contextlib
 from datetime import UTC, datetime
 from pathlib import Path
 import tempfile
+from types import SimpleNamespace
 
 import pytest
 
 import app.discord_bot as discord_bot
 from app.discord_bot import DiscordPublisherAdapter, _format_importance_terms, _importance_color
 from app.routing.importance import ImportanceTerm
+from app.routing.models import RoutingDecision
 from app.models import PostJob
 from app.x_media import PreparedMedia
 
@@ -33,6 +35,125 @@ class FakeChannel:
         self.files = files
         self.suppress_embeds = suppress_embeds
         return FakeMessage()
+
+
+def test_teach_message_lookup_candidates_include_replied_to_article_message() -> None:
+    selected_reply = SimpleNamespace(
+        id="reply-message",
+        channel=SimpleNamespace(id="reply-channel"),
+        reference=SimpleNamespace(message_id="bot-article-message", channel_id="article-channel", resolved=None),
+    )
+
+    assert discord_bot._teach_message_lookup_candidates(selected_reply) == [
+        ("reply-message", "reply-channel"),
+        ("bot-article-message", "article-channel"),
+    ]
+
+
+def test_teach_message_lookup_candidates_include_resolved_reference() -> None:
+    selected_reply = SimpleNamespace(
+        id="reply-message",
+        channel=SimpleNamespace(id="reply-channel"),
+        reference=SimpleNamespace(
+            message_id=None,
+            channel_id=None,
+            resolved=SimpleNamespace(id="bot-article-message", channel=SimpleNamespace(id="article-channel")),
+        ),
+    )
+
+    assert discord_bot._teach_message_lookup_candidates(selected_reply) == [
+        ("reply-message", "reply-channel"),
+        ("bot-article-message", "article-channel"),
+    ]
+
+
+def test_article_id_from_message_embeds_reads_routing_debug_field() -> None:
+    message = SimpleNamespace(
+        embeds=[
+            SimpleNamespace(
+                footer=SimpleNamespace(text="DVIDS · New · Imp 2"),
+                fields=[
+                    SimpleNamespace(
+                        name="Routing Debug",
+                        value="Article ID: 139176\nDecision: ROUTED -> review",
+                    )
+                ],
+            )
+        ]
+    )
+
+    assert discord_bot._article_id_from_message_embeds(message) == 139176
+
+
+def test_host_from_url_supports_feed_url_modal_default() -> None:
+    assert discord_bot._host_from_url("https://example.com/rss/sports.xml") == "example.com"
+    assert discord_bot._host_from_url(None) is None
+
+
+def test_routing_teach_help_mentions_feed_url_menu_and_command() -> None:
+    text = discord_bot._routing_teach_help()
+
+    assert "Teach feed URL" in text
+    assert "/rss teach-feed-url" in text
+    assert "teach-source-url" not in text
+
+
+def test_build_teach_changelog_embed_includes_rule_details() -> None:
+    before = RoutingDecision(
+        content_mode="title_only",
+        matched_entries=(),
+        emitted_tags=(),
+        expanded_tags=(),
+        channel_scores=(),
+        selected_channel_keys=("review",),
+        decision_status="review",
+        top_score=0,
+        explanation=(),
+        review_channel_keys=("review",),
+        final_channel_keys=("review",),
+    )
+    after = RoutingDecision(
+        content_mode="title_only",
+        matched_entries=(),
+        emitted_tags=(),
+        expanded_tags=(),
+        channel_scores=(),
+        selected_channel_keys=("economy",),
+        decision_status="routed",
+        top_score=52,
+        explanation=(),
+        primary_channel_keys=("economy",),
+        final_channel_keys=("economy",),
+    )
+    result = SimpleNamespace(
+        rule=SimpleNamespace(
+            term="Fed rate",
+            id="discord-fed-rate-20260702",
+            rule_type="literal",
+            scores={"economy": 50, "review": -5},
+            fields=("title", "summary"),
+            notes="Macro policy signal.",
+        ),
+        before=before,
+        after=after,
+    )
+
+    embed = discord_bot._build_teach_changelog_embed(
+        event_id=12,
+        article_id=139271,
+        action_label="Added routing term",
+        actor="Doc",
+        result=result,
+    )
+
+    assert embed.title == "Added routing term"
+    assert embed.description == "`Fed rate`"
+    field_text = "\n".join(str(field.value) for field in embed.fields)
+    assert "economy:+50" in field_text
+    assert "review:-5" in field_text
+    assert "discord-fed-rate-20260702" in field_text
+    assert "Article" in [field.name for field in embed.fields]
+    assert embed.footer.text == "By Doc"
 
 
 class FakeClient:

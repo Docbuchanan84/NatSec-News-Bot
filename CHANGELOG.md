@@ -1,5 +1,30 @@
 # Changelog
 
+## 2026-07-02
+
+- Promoted weighted V2 routing to the primary/default routing engine.
+- Added weighted evidence routing in `config/routing_v2/evidence.json`, where each literal phrase or regex can add or subtract points for any route.
+- Added whole-word phrase matching, regex-backed variants, and longest-overlap precedence so specific phrases such as `sub sandwich` can block weaker word matches.
+- Added weighted source identity and configured feed URL scoring in `config/routing_v2/sources.json`, including bias-only positive URL scores and always-applied negative URL scores.
+- Added weighted route definitions, pseudo routes, review/noise outcomes, secondary-route selection, source gates, and source mirror rules under `config/routing_v2/`.
+- Added Discord routing teaching workflows: **Teach routing term**, **Teach feed URL**, `/rss teach`, `/rss teach-feed-url`, `/rss preview-rule`, `/rss undo-rule`, `/rss rule-history`, and `/rss rule-help`.
+- Added duplicate-rule handling for Discord teaching with current-config snippets, merge previews, and **Merge**, **Replace**, or **Cancel** actions.
+- Added route-name alias/autocomplete support so friendly route names resolve to canonical route keys.
+- Added routing-teach changelog embeds to the configured Discord changelog channel.
+- Added sports, weather, economy, feed URL, North America subdivision, NatSec source-gate, and review/noise routing coverage in the weighted config.
+- Updated docs, setup instructions, GPT helper files, and legacy editor messaging so new routing work targets weighted V2 instead of the old taxonomy/rag-style config.
+- Kept the legacy tag/concept router available behind `settings.routing.engine: "legacy"` for compatibility and validation.
+
+Validation for this release should include:
+
+```powershell
+python -m app.main --validate-config --validate-env
+python -m app.main --validate-routing
+python -m app.main --routing-diagnostics
+python -m app.main --route-backtest 50
+python -m pytest -q
+```
+
 ## 2026-07-01
 
 - Unified media handling across RSS/Atom, email, Bluesky, X/social link enrichment, and custom source metadata.

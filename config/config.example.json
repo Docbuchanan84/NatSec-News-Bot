@@ -63,9 +63,12 @@
     },
     "routing": {
       "enabled": true,
-      "mode": "observe_only",
+      "mode": "enforced",
+      "engine": "weighted_v2",
       "configDir": "config/routing",
-      "maxRoutingSummaryChars": 2000
+      "weightedConfigDir": "config/routing_v2",
+      "maxRoutingSummaryChars": 2000,
+      "teachChangelogChannelId": "999999999999999999"
     }
   },
   "feeds": [
@@ -107,19 +110,34 @@
       "discordChannelId": "222222222222222222"
     },
     {
+      "key": "sports",
+      "name": "Sports",
+      "discordChannelId": "333333333333333333"
+    },
+    {
+      "key": "weather",
+      "name": "Weather",
+      "discordChannelId": "444444444444444444"
+    },
+    {
+      "key": "economy",
+      "name": "Economy",
+      "discordChannelId": "555555555555555555"
+    },
+    {
       "key": "reuters",
       "name": "Reuters",
-      "discordChannelId": "333333333333333333"
+      "discordChannelId": "666666666666666666"
     },
     {
       "key": "dept-of-war",
       "name": "Department of War",
-      "discordChannelId": "444444444444444444"
+      "discordChannelId": "777777777777777777"
     },
     {
       "key": "review",
       "name": "Review",
-      "discordChannelId": "555555555555555555"
+      "discordChannelId": "888888888888888888"
     }
   ]
 }

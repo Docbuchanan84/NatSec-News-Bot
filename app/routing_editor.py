@@ -136,7 +136,10 @@ def main(argv: list[str] | None = None) -> int:
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="python -m app.routing_editor",
-        description="Inspect and safely edit RSS bot routing tags, knowledge IDs, aliases, and channel scores.",
+        description=(
+            "Inspect and safely edit legacy RSS bot tag/concept routing. "
+            "Weighted V2 routing uses config/routing_v2 and Discord /rss teaching commands."
+        ),
     )
     parser.add_argument("--routing-dir", default="config/routing", help="Routing config directory.")
     parser.add_argument("--config-path", default="config/config.json", help="Bot config path used for validation.")
@@ -783,7 +786,8 @@ def run_wizard(args: argparse.Namespace) -> int:
     print("======================")
     print_coaching(
         args,
-        "Use this wizard to inspect and edit routing config safely. "
+        "Use this wizard to inspect and edit legacy tag/concept routing config safely. "
+        "Weighted V2 routing uses config/routing_v2 and Discord /rss teaching commands. "
         "Every save is previewed, backed up, and validated before it replaces the live config files.",
     )
     while True:

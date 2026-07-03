@@ -1,0 +1,1801 @@
+{
+  "version": 1,
+  "evidence": [
+    {
+      "id": "sub_sandwich_noise",
+      "type": "literal",
+      "phrase": "sub sandwich",
+      "scores": {
+        "noise": 45,
+        "sea": -25
+      },
+      "blocks": [
+        "weak_sub"
+      ],
+      "block_window_before": 8,
+      "block_window_after": 8,
+      "priority": 100
+    },
+    {
+      "id": "old_navy_noise",
+      "type": "literal",
+      "phrase": "Old Navy",
+      "scores": {
+        "noise": 45,
+        "sea": -35
+      },
+      "blocks": [
+        "weak_navy"
+      ],
+      "block_window_before": 8,
+      "block_window_after": 8,
+      "priority": 100
+    },
+    {
+      "id": "navy_federal_noise",
+      "type": "literal",
+      "phrase": "Navy Federal Credit Union",
+      "scores": {
+        "noise": 45,
+        "sea": -35,
+        "the-hill": 5
+      },
+      "blocks": [
+        "weak_navy"
+      ],
+      "block_window_before": 8,
+      "block_window_after": 8,
+      "priority": 100
+    },
+    {
+      "id": "carrier_global_noise",
+      "type": "literal",
+      "phrase": "Carrier Global",
+      "scores": {
+        "noise": 45,
+        "sea": -40,
+        "air": -20,
+        "industrial-base": -15
+      },
+      "blocks": [
+        "aircraft_carrier",
+        "carrier_strike_group"
+      ],
+      "block_window_before": 8,
+      "block_window_after": 8,
+      "priority": 100
+    },
+    {
+      "id": "sub_money_noise",
+      "type": "pattern",
+      "pattern": "(?<![A-Za-z0-9])sub[-\\s]*\\$?\\d",
+      "scores": {
+        "noise": 40,
+        "sea": -25
+      },
+      "blocks": [
+        "weak_sub"
+      ],
+      "block_window_before": 5,
+      "block_window_after": 5,
+      "priority": 95
+    },
+    {
+      "id": "sub_title_noise",
+      "type": "pattern",
+      "pattern": "\\b(?:sub[-\\s]?inspector|sub[-\\s]?area|sub[-\\s]?group|sub[-\\s]?committee|sub[-\\s]?lease|sub[-\\s]?stack|sub[-\\s]?genre)\\b",
+      "scores": {
+        "noise": 38,
+        "sea": -25
+      },
+      "blocks": [
+        "weak_sub"
+      ],
+      "block_window_before": 6,
+      "block_window_after": 6,
+      "priority": 95
+    },
+    {
+      "id": "entertainment_noise",
+      "type": "pattern",
+      "pattern": "\\b(?:movie|film|box office|horror film|actor|actress|singer|celebrity|album|song|disco group|tv show|streaming series)\\b",
+      "scores": {
+        "noise": 35,
+        "sea": -12,
+        "air": -12,
+        "land": -12,
+        "space": -8
+      },
+      "priority": 70
+    },
+    {
+      "id": "sports_core",
+      "type": "pattern",
+      "pattern": "\\b(?:cricket|soccer|basketball|baseball|rugby|tennis|golf|hockey|olympics?|paralympics?|world cup|premier league|champions league|europa league|copa america|wimbledon|super bowl|stanley cup|world series|march madness|ipl)\\b",
+      "scores": {
+        "sports": 45,
+        "sea": -12,
+        "air": -12,
+        "land": -12,
+        "the-hill": -8,
+        "north-america": -6,
+        "europe": -6
+      },
+      "priority": 70
+    },
+    {
+      "id": "sports_world_cup",
+      "type": "pattern",
+      "pattern": "\\b(?:fifa\\s+world\\s+cup|world\\s+cup|usmnt|uswnt|fifa|knockout\\s+stage|round\\s+of\\s+(?:16|32)|last\\s+16|penalty\\s+(?:kick|spot|shootout)|extra\\s+time|stoppage\\s+time|group\\s+stage)\\b",
+      "scores": {
+        "sports": 34,
+        "noise": -18,
+        "the-hill": -10,
+        "north-america": -8,
+        "europe": -8,
+        "indo-pacific": -6,
+        "middle-east": -6,
+        "africa": -6
+      },
+      "priority": 85
+    },
+    {
+      "id": "sports_leagues",
+      "type": "pattern",
+      "pattern": "\\b(?:nba|nfl|mlb|nhl|wnba|mls|nwsl|ufc|pga|lpga|ncaa|uefa|concacaf|usmnt|uswnt)\\b",
+      "scores": {
+        "sports": 52,
+        "noise": -14,
+        "the-hill": -8,
+        "north-america": -6,
+        "europe": -6
+      },
+      "priority": 80
+    },
+    {
+      "id": "sports_football_context",
+      "type": "pattern",
+      "pattern": "\\b(?:football\\s+(?:team|club|coach|player|assistant\\s+coach|match|season|quarterback|striker)|(?:team|club|coach|player|assistant\\s+coach|match|season|quarterback|striker)\\s+football)\\b",
+      "scores": {
+        "sports": 42,
+        "noise": -10,
+        "land": -8,
+        "the-hill": -6
+      },
+      "priority": 72
+    },
+    {
+      "id": "sports_roster_transaction",
+      "type": "pattern",
+      "pattern": "\\b(?:free\\s+agency|draft\\s+(?:pick|capital|class)|blockbuster\\s+(?:nba|nfl|mlb|nhl)?\\s*(?:trade|deal)|nba\\s+blockbuster|nfl\\s+draft|mlb\\s+trade\\s+deadline|nhl\\s+trade\\s+deadline)\\b",
+      "scores": {
+        "sports": 34,
+        "review": 4,
+        "the-hill": -6,
+        "industrial-base": -8
+      },
+      "priority": 58
+    },
+    {
+      "id": "sports_media_handles",
+      "type": "pattern",
+      "pattern": "\\b(?:theathleticfc|sixersnba|celticsnba|nyknicks|76ers)\\b",
+      "scores": {
+        "sports": 38,
+        "noise": -8,
+        "the-hill": -6
+      },
+      "priority": 62
+    },
+    {
+      "id": "political_football_noise",
+      "type": "literal",
+      "phrase": "political football",
+      "scores": {
+        "noise": 24,
+        "sports": -60,
+        "the-hill": 8
+      },
+      "blocks": [
+        "discord-football-20260702",
+        "sports_football_context"
+      ],
+      "block_window_before": 6,
+      "block_window_after": 6,
+      "priority": 96
+    },
+    {
+      "id": "weather_metaphor_noise",
+      "type": "pattern",
+      "pattern": "\\b(?:political\\s+(?:storm|firestorm)|media\\s+firestorm|twitter\\s+storm|stormed\\s+(?:the\\s+)?(?:capitol|palace|parliament|building)|weathered\\s+(?:criticism|controversy|scandal|attacks)|brainstorm(?:ing)?|stormzy)\\b",
+      "scores": {
+        "noise": 24,
+        "weather": -45,
+        "the-hill": 4
+      },
+      "blocks": [
+        "weather_named_tropical_systems",
+        "weather_severe_hazards",
+        "weather_alert_conditions"
+      ],
+      "block_window_before": 6,
+      "block_window_after": 6,
+      "priority": 96
+    },
+    {
+      "id": "weather_named_tropical_systems",
+      "type": "pattern",
+      "pattern": "\\b(?:(?:tropical|subtropical)\\s+(?:storm|depression|cyclone)|hurricane\\s+(?:center|watch|warning|season|hunters?)|national\\s+hurricane\\s+center|typhoon\\s+(?:watch|warning|season)?|cyclone\\s+(?:watch|warning|season)?|storm\\s+surge|makes?\\s+landfall|made\\s+landfall|landfall\\s+(?:expected|near|in)|rapid(?:ly)?\\s+intensif(?:y|ies|ied|ying|ication))\\b",
+      "scores": {
+        "weather": 58,
+        "noise": -16,
+        "sports": -10,
+        "sea": -6,
+        "land": -4,
+        "the-hill": -8
+      },
+      "priority": 86
+    },
+    {
+      "id": "weather_severe_hazards",
+      "type": "pattern",
+      "pattern": "\\b(?:tornado(?:es)?|waterspouts?|severe\\s+thunderstorms?|thunderstorm\\s+(?:watch|warning)|flash\\s+flood(?:ing)?|flood\\s+(?:watch|warning|waters?)|coastal\\s+flood(?:ing)?|atmospheric\\s+river|bomb\\s+cyclone|derecho|blizzard|winter\\s+storm|ice\\s+storm|nor['-]?easter|monsoon\\s+(?:rains?|flooding)|heavy\\s+rain(?:fall)?|hailstorm|damaging\\s+winds?)\\b",
+      "scores": {
+        "weather": 52,
+        "noise": -12,
+        "sports": -8,
+        "sea": -6,
+        "air": -4,
+        "land": -4,
+        "the-hill": -6
+      },
+      "priority": 82
+    },
+    {
+      "id": "weather_alert_conditions",
+      "type": "pattern",
+      "pattern": "\\b(?:heat\\s+wave|heatwave|extreme\\s+heat|dangerous\\s+temperatures|excessive\\s+heat\\s+(?:watch|warning)|red\\s+flag\\s+warning|fire\\s+weather|wildfire\\s+smoke|air\\s+quality\\s+alert|freeze\\s+warning|hard\\s+freeze|winter\\s+weather\\s+advisory|weather\\s+(?:alert|warning|watch|advisory|forecast)|forecast\\s+(?:calls|warns|shows)\\b)\\b",
+      "scores": {
+        "weather": 46,
+        "noise": -10,
+        "science-technology": -4,
+        "the-hill": -5,
+        "north-america": -4
+      },
+      "priority": 76
+    },
+    {
+      "id": "economy_central_bank_rates",
+      "type": "pattern",
+      "pattern": "\\b(?:fed\\s+rate[-\\s]?(?:hike|cut|decision|prospects?|outlook)?|federal\\s+reserve\\s+(?:rate|rates|decision|meeting|policy)|fomc(?:\\s+(?:meeting|decision|minutes|statement|rate\\s+decision))?|interest\\s+rate\\s+(?:decision|cut|cuts|hike|hikes|pause|outlook)|rate[-\\s]?(?:hike|cut|decision|pause)s?\\s+(?:by|from|at|after)?\\s*(?:the\\s+)?(?:fed|federal\\s+reserve)|central\\s+bank(?:s)?\\s+(?:raises?|cuts?|holds?|pauses?)\\s+(?:interest\\s+)?rates?)\\b",
+      "scores": {
+        "economy": 52,
+        "review": -4,
+        "noise": -10,
+        "the-hill": -4,
+        "sports": -8,
+        "weather": -8
+      },
+      "priority": 84
+    },
+    {
+      "id": "economy_inflation_data",
+      "type": "pattern",
+      "pattern": "\\b(?:cpi\\s+(?:report|data|inflation|print|release)|consumer\\s+price\\s+index|ppi\\s+(?:report|data|inflation|print|release)|producer\\s+price\\s+index|pce\\s+(?:price\\s+index|inflation)|core\\s+inflation|inflation\\s+(?:accelerates|slows|cools|eases|rises|falls|hits|reaches|jumps|drops|ticks\\s+up|comes\\s+in))\\b",
+      "scores": {
+        "economy": 46,
+        "review": -3,
+        "noise": -8,
+        "the-hill": -4,
+        "sports": -8,
+        "weather": -6
+      },
+      "priority": 80
+    },
+    {
+      "id": "economy_labor_data",
+      "type": "pattern",
+      "pattern": "\\b(?:jobs\\s+report|nonfarm\\s+payrolls?|payrolls\\s+(?:rise|fall|jump|drop|slow)|unemployment\\s+(?:rate|claims|data|report)|initial\\s+jobless\\s+claims|jobless\\s+claims|labor\\s+market\\s+(?:report|data|cools|weakens|strengthens))\\b",
+      "scores": {
+        "economy": 42,
+        "review": -2,
+        "noise": -6,
+        "the-hill": -3,
+        "sports": -8
+      },
+      "priority": 76
+    },
+    {
+      "id": "economy_growth_recession_yields",
+      "type": "pattern",
+      "pattern": "\\b(?:gdp\\s+(?:growth|contracts?|expands?|report|data)|gross\\s+domestic\\s+product|recession\\s+(?:fears?|risk|odds|warning|signals?)|economic\\s+(?:growth|slowdown|contraction|forecast|outlook|data)|treasury\\s+yields?|yield\\s+curve|bond\\s+yields?)\\b",
+      "scores": {
+        "economy": 38,
+        "review": -2,
+        "noise": -6,
+        "the-hill": -2,
+        "industrial-base": -4,
+        "sports": -6
+      },
+      "priority": 70
+    },
+    {
+      "id": "shopping_deals_noise",
+      "type": "pattern",
+      "pattern": "\\b(?:lowest-ever price|buy now|under \\$\\d+|amazon deal|prime day|shopping|coupon|discount|oled tv|smartphone deal)\\b",
+      "scores": {
+        "noise": 40,
+        "science-technology": 8,
+        "sea": -18,
+        "air": -18,
+        "land": -18
+      },
+      "priority": 70
+    },
+    {
+      "id": "travel_lifestyle_noise",
+      "type": "pattern",
+      "pattern": "\\b(?:travel|best towns? to visit|places to visit|vacation|tourism|hotels?|restaurants?|weekend getaway|road trip)\\b",
+      "scores": {
+        "noise": 38,
+        "north-america": -20,
+        "europe": -12,
+        "indo-pacific": -12,
+        "africa": -12,
+        "south-central-america": -12
+      },
+      "priority": 70
+    },
+    {
+      "id": "crime_personal_noise",
+      "type": "pattern",
+      "pattern": "\\b(?:jailed|arrested|murder|sexual assault|pocso|obscene acts|court hears|jury told|lawsuit|divorce|missing person)\\b",
+      "scores": {
+        "noise": 25,
+        "review": 10,
+        "sea": -8,
+        "air": -8,
+        "land": -8
+      },
+      "priority": 55
+    },
+    {
+      "id": "finance_markets_noise",
+      "type": "pattern",
+      "pattern": "\\b(?:shares rise|shares fall|earnings|stock market|price target|analyst upgrade|market roundup|stocks to watch)\\b",
+      "scores": {
+        "noise": 35,
+        "industrial-base": -10,
+        "sea": -15,
+        "air": -15,
+        "land": -15
+      },
+      "priority": 70
+    },
+    {
+      "id": "ukraine_war_region",
+      "type": "pattern",
+      "pattern": "\\b(?:ukraine|kyiv|kiev|donetsk|kharkiv|crimea|black sea fleet|russia(?:n)? invasion)\\b",
+      "scores": {
+        "europe": 55,
+        "sea": -8,
+        "air": -5,
+        "land": 6
+      },
+      "priority": 80
+    },
+    {
+      "id": "europe_region",
+      "type": "pattern",
+      "pattern": "\\b(?:europe|nato|poland|warsaw|baltic states?|estonia|latvia|lithuania|germany|france|united kingdom|britain|norway|sweden|finland|romania|moldova|belarus|turkey)\\b",
+      "scores": {
+        "europe": 34
+      },
+      "priority": 40
+    },
+    {
+      "id": "middle_east_hot_region",
+      "type": "pattern",
+      "pattern": "\\b(?:red sea|houthi|houthis|yemen|iran|israel|gaza|hamas|hezbollah|lebanon|iraq|syria|strait of hormuz|bab el mandeb|centcom|arabian gulf|persian gulf)\\b",
+      "scores": {
+        "middle-east": 52,
+        "sea": -5,
+        "air": -5,
+        "land": -3
+      },
+      "priority": 85
+    },
+    {
+      "id": "middle_east_general_region",
+      "type": "pattern",
+      "pattern": "\\b(?:middle east|saudi arabia|uae|qatar|bahrain|kuwait|oman|jordan|west bank)\\b",
+      "scores": {
+        "middle-east": 35
+      },
+      "priority": 50
+    },
+    {
+      "id": "indo_pacific_hot_region",
+      "type": "pattern",
+      "pattern": "\\b(?:taiwan|taiwan strait|south china sea|philippine sea|china|chinese|pla navy|beijing|north korea|pyongyang|korean peninsula|india|pakistan|kashmir|philippines|japan|australia|guam|indo-pacific)\\b",
+      "scores": {
+        "indo-pacific": 45,
+        "sea": 2,
+        "air": 2
+      },
+      "priority": 75
+    },
+    {
+      "id": "africa_region",
+      "type": "pattern",
+      "pattern": "\\b(?:africa|africom|sudan|south sudan|nigeria|ethiopia|somalia|kenya|ghana|south africa|dr congo|congo|libya|tunisia|burkina faso|zambia|uganda|madagascar|namibia|malawi)\\b",
+      "scores": {
+        "africa": 42
+      },
+      "priority": 60
+    },
+    {
+      "id": "latin_america_region",
+      "type": "pattern",
+      "pattern": "\\b(?:latin america|south america|central america|venezuela|guyana|mexico|panama|colombia|brazil|argentina|chile|peru|ecuador|haiti|cuba|nicaragua|honduras|el salvador|dominican republic|puerto rico)\\b",
+      "scores": {
+        "south-central-america": 42
+      },
+      "priority": 60
+    },
+    {
+      "id": "north_america_region",
+      "type": "pattern",
+      "pattern": "\\b(?:united states|u\\.?s\\.?|america|canada|north america|washington|congress|pentagon)\\b",
+      "scores": {
+        "north-america": 20,
+        "the-hill": 4
+      },
+      "priority": 30
+    },
+    {
+      "id": "arctic_region",
+      "type": "pattern",
+      "pattern": "\\b(?:arctic|high north|greenland|alaska|barents sea|norad|northcom|northern fleet|kodiak|seward)\\b",
+      "scores": {
+        "arctic": 50,
+        "sea": 5,
+        "air": 3
+      },
+      "priority": 80
+    },
+    {
+      "id": "current_event_conflict",
+      "type": "pattern",
+      "pattern": "\\b(?:attack|strike|airstrike|drone attack|missile strike|shoots down|shot down|kills?|killed|wounded|casualties|ceasefire|sanctions|diplomacy|evacuation|invasion|incursion|riot|civil unrest|election|summit|talks)\\b",
+      "scores": {
+        "middle-east": 10,
+        "europe": 10,
+        "indo-pacific": 10,
+        "africa": 8,
+        "south-central-america": 8,
+        "review": 5,
+        "sea": -4,
+        "air": -3,
+        "land": -3
+      },
+      "priority": 50
+    },
+    {
+      "id": "carrier_strike_group",
+      "type": "literal",
+      "phrase": "carrier strike group",
+      "scores": {
+        "sea": 48,
+        "air": 10,
+        "industrial-base": 5
+      },
+      "priority": 90
+    },
+    {
+      "id": "aircraft_carrier",
+      "type": "literal",
+      "phrase": "aircraft carrier",
+      "scores": {
+        "sea": 42,
+        "air": 8
+      },
+      "priority": 85
+    },
+    {
+      "id": "amphibious_ready_group",
+      "type": "literal",
+      "phrase": "amphibious ready group",
+      "scores": {
+        "sea": 42,
+        "land": 10
+      },
+      "priority": 85
+    },
+    {
+      "id": "marine_expeditionary_unit",
+      "type": "literal",
+      "phrase": "Marine Expeditionary Unit",
+      "scores": {
+        "sea": 28,
+        "land": 26,
+        "training-and-doctrine": 8
+      },
+      "priority": 80
+    },
+    {
+      "id": "submarine",
+      "type": "pattern",
+      "pattern": "\\b(?:submarine|nuclear submarine|attack submarine|undersea warfare)\\b",
+      "scores": {
+        "sea": 42,
+        "strategic-weapons": 6
+      },
+      "priority": 85
+    },
+    {
+      "id": "naval_surface_combatant",
+      "type": "pattern",
+      "pattern": "\\b(?:destroyer|frigate|cruiser|warship|littoral combat ship|surface combatant|guided-missile destroyer|ddg|lcs)\\b",
+      "scores": {
+        "sea": 36,
+        "industrial-base": 5
+      },
+      "priority": 80
+    },
+    {
+      "id": "sealift_usns",
+      "type": "pattern",
+      "pattern": "\\b(?:usns|military sealift command|fleet replenishment oiler|expeditionary sea base|combat logistics force ship)\\b",
+      "scores": {
+        "sea": 38,
+        "training-and-doctrine": 8,
+        "industrial-base": 6
+      },
+      "priority": 80
+    },
+    {
+      "id": "naval_air_wing",
+      "type": "pattern",
+      "pattern": "\\b(?:carrier air wing|helicopter sea combat squadron|maritime patrol|p-8|p8 poseidon|anti-submarine warfare|asw)\\b",
+      "scores": {
+        "sea": 34,
+        "air": 18
+      },
+      "priority": 78
+    },
+    {
+      "id": "coast_guard",
+      "type": "literal",
+      "phrase": "Coast Guard",
+      "scores": {
+        "sea": 30,
+        "arctic": 12,
+        "north-america": 5
+      },
+      "priority": 70
+    },
+    {
+      "id": "naval_domain_terms",
+      "type": "pattern",
+      "pattern": "\\b(?:naval|navy|sailors|fleet)\\b",
+      "scores": {
+        "sea": 12,
+        "training-and-doctrine": 3
+      },
+      "priority": 35
+    },
+    {
+      "id": "weak_sub",
+      "type": "pattern",
+      "pattern": "(?<![A-Za-z0-9])sub(?![A-Za-z0-9])",
+      "scores": {
+        "sea": 4,
+        "review": 4
+      },
+      "priority": 10
+    },
+    {
+      "id": "weak_csg",
+      "type": "pattern",
+      "pattern": "\\bcsg\\b",
+      "scores": {
+        "sea": 5,
+        "review": 4
+      },
+      "priority": 10
+    },
+    {
+      "id": "fighter_aircraft",
+      "type": "pattern",
+      "pattern": "\\b(?:f-35|f35|f-22|f-15|f15|f-16|f16|f/a-18|super hornet|fighter aircraft|fighter jet|air wing|fighter wing)\\b",
+      "scores": {
+        "air": 40,
+        "sea": 5,
+        "industrial-base": 6
+      },
+      "priority": 80
+    },
+    {
+      "id": "bomber_aircraft",
+      "type": "pattern",
+      "pattern": "\\b(?:b-21|b-2|b-52|b52|bomber|strategic bomber)\\b",
+      "scores": {
+        "air": 36,
+        "strategic-weapons": 20
+      },
+      "priority": 80
+    },
+    {
+      "id": "air_domain_terms",
+      "type": "pattern",
+      "pattern": "\\b(?:air force|aircraft|aviation|airmen|pilot|squadron|wing|air base|airbase)\\b",
+      "scores": {
+        "air": 18,
+        "training-and-doctrine": 4
+      },
+      "priority": 40
+    },
+    {
+      "id": "drone_isr_ew",
+      "type": "pattern",
+      "pattern": "\\b(?:drone|uav|uas|counter-uas|isr|electronic warfare|command and control|c2|c4isr)\\b",
+      "scores": {
+        "air": 24,
+        "science-technology": 10,
+        "land": 5
+      },
+      "priority": 55
+    },
+    {
+      "id": "army_ground_force",
+      "type": "pattern",
+      "pattern": "\\b(?:army|soldiers|brigade|battalion|infantry|armor brigade|armored brigade|ground forces|field artillery|tank|stryker|combat team)\\b",
+      "scores": {
+        "land": 32,
+        "training-and-doctrine": 6
+      },
+      "priority": 70
+    },
+    {
+      "id": "air_missile_defense",
+      "type": "pattern",
+      "pattern": "\\b(?:air defense|missile defense|patriot battery|thaad|counter-rocket|counter artillery)\\b",
+      "scores": {
+        "land": 36,
+        "strategic-weapons": 8,
+        "air": -5
+      },
+      "priority": 80
+    },
+    {
+      "id": "ground_logistics",
+      "type": "pattern",
+      "pattern": "\\b(?:sustainment brigade|logistics hub|supply convoy|military logistics|prepositioned stocks)\\b",
+      "scores": {
+        "land": 26,
+        "industrial-base": 12,
+        "training-and-doctrine": 8
+      },
+      "priority": 65
+    },
+    {
+      "id": "space_military",
+      "type": "pattern",
+      "pattern": "\\b(?:space force|spacecom|satellite|missile warning|orbital|space domain awareness|gps constellation|space launch)\\b",
+      "scores": {
+        "space": 38,
+        "science-technology": 10,
+        "strategic-weapons": 8
+      },
+      "priority": 80
+    },
+    {
+      "id": "civil_space_science",
+      "type": "pattern",
+      "pattern": "\\b(?:nasa|moon lander|lunar surface|mars rover|space telescope|commercial space)\\b",
+      "scores": {
+        "science-technology": 42,
+        "space": 12,
+        "sea": -10
+      },
+      "priority": 75
+    },
+    {
+      "id": "special_operations",
+      "type": "pattern",
+      "pattern": "\\b(?:special operations|socom|special forces|green berets|rangers|seal team|naval special warfare|commando|counterterrorism raid)\\b",
+      "scores": {
+        "special-operations": 55,
+        "land": 8,
+        "sea": -12
+      },
+      "priority": 90
+    },
+    {
+      "id": "training_doctrine",
+      "type": "pattern",
+      "pattern": "\\b(?:exercise|training|doctrine|wargame|war game|lessons learned|professional military education|readiness|change of command)\\b",
+      "scores": {
+        "training-and-doctrine": 28,
+        "land": 4,
+        "sea": 4,
+        "air": 4
+      },
+      "priority": 55
+    },
+    {
+      "id": "strategic_weapons",
+      "type": "pattern",
+      "pattern": "\\b(?:nuclear weapon|nuclear deterrence|icbm|slbm|hypersonic|arms control|strategic weapon|ballistic missile|nuclear policy)\\b",
+      "scores": {
+        "strategic-weapons": 55,
+        "air": 6,
+        "space": 6
+      },
+      "priority": 90
+    },
+    {
+      "id": "industrial_base",
+      "type": "pattern",
+      "pattern": "\\b(?:procurement|contract|defense contract|shipbuilding|munitions|production|stockpile|industrial base|acquisition|solicitation|supply chain|maintenance model|repair method|3d printing)\\b",
+      "scores": {
+        "industrial-base": 38,
+        "science-technology": 5,
+        "training-and-doctrine": 5
+      },
+      "priority": 75
+    },
+    {
+      "id": "science_technology",
+      "type": "pattern",
+      "pattern": "\\b(?:artificial intelligence|ai|semiconductor|chips?|cyber|ransomware|zero-day|quantum|biotechnology|technology|software|robotics|laser|directed energy|genetic intelligence)\\b",
+      "scores": {
+        "science-technology": 36,
+        "natsec-news": 6
+      },
+      "priority": 65
+    },
+    {
+      "id": "government_politics",
+      "type": "pattern",
+      "pattern": "\\b(?:white house|congress|senate|house committee|president|secretary of defense|defense secretary|state department|legislation|bill|nomination|administration|memorandum of understanding)\\b",
+      "scores": {
+        "the-hill": 32,
+        "the-white-house": 14,
+        "north-america": 8,
+        "review": 3
+      },
+      "priority": 60
+    },
+    {
+      "id": "national_security",
+      "type": "pattern",
+      "pattern": "\\b(?:national security|intelligence|homeland security|counterterrorism|classified|espionage|cyber command|cybercom|combatant command)\\b",
+      "scores": {
+        "natsec-news": 35,
+        "the-hill": 8,
+        "science-technology": 5
+      },
+      "priority": 65
+    },
+    {
+      "id": "north_america_subdivision_us_states_a_m",
+      "type": "pattern",
+      "pattern": "\\b(?:Massachusetts|Connecticut|Mississippi|California|Louisiana|Minnesota|Arkansas|Colorado|Delaware|Illinois|Kentucky|Maryland|Michigan|Missouri|Alabama|Arizona|Florida|Georgia|Indiana|Montana|Alaska|Hawaii|Kansas|Idaho|Maine|Iowa)\\b",
+      "scores": {
+        "north-america": 10
+      },
+      "priority": 35,
+      "notes": "US state names A-M as low-weight regional evidence."
+    },
+    {
+      "id": "north_america_subdivision_us_states_n_w",
+      "type": "pattern",
+      "pattern": "\\b(?:North\\s+Carolina|South\\s+Carolina|New\\s+Hampshire|West\\s+Virginia|North\\s+Dakota|Pennsylvania|Rhode\\s+Island|South\\s+Dakota|New\\s+Jersey|New\\s+Mexico|Washington|Tennessee|Wisconsin|Nebraska|New\\s+York|Oklahoma|Virginia|Vermont|Wyoming|Nevada|Oregon|Texas|Ohio|Utah)\\b",
+      "scores": {
+        "north-america": 10
+      },
+      "priority": 35,
+      "notes": "US state names N-W as low-weight regional evidence."
+    },
+    {
+      "id": "north_america_us_state_nicknames_1",
+      "type": "pattern",
+      "pattern": "\\b(?:Constitution\\s+State|Grand\\s+Canyon\\s+State|Yellowhammer\\s+State|Centennial\\s+State|Bluegrass\\s+State|Sunflower\\s+State|Sunshine\\s+State|Hawkeye\\s+State|Hoosier\\s+State|Last\\s+Frontier|Natural\\s+State|Prairie\\s+State|Golden\\s+State|Aloha\\s+State|First\\s+State|Peach\\s+State|Gem\\s+State)\\b",
+      "scores": {
+        "north-america": 10
+      },
+      "priority": 34,
+      "notes": "Common US state nicknames as low-weight regional evidence."
+    },
+    {
+      "id": "north_america_us_state_nicknames_2",
+      "type": "pattern",
+      "pattern": "\\b(?:Land\\s+of\\s+Enchantment|Peace\\s+Garden\\s+State|Great\\s+Lakes\\s+State|Cornhusker\\s+State|North\\s+Star\\s+State|Pine\\s+Tree\\s+State|Magnolia\\s+State|Old\\s+Line\\s+State|Tar\\s+Heel\\s+State|Treasure\\s+State|Granite\\s+State|Pelican\\s+State|Show\\s+Me\\s+State|Empire\\s+State|Garden\\s+State|Silver\\s+State|Bay\\s+State)\\b",
+      "scores": {
+        "north-america": 10
+      },
+      "priority": 34,
+      "notes": "Common US state nicknames as low-weight regional evidence."
+    },
+    {
+      "id": "north_america_us_state_nicknames_3",
+      "type": "pattern",
+      "pattern": "\\b(?:Green\\s+Mountain\\s+State|Mount\\s+Rushmore\\s+State|Evergreen\\s+State|Lone\\s+Star\\s+State|Volunteer\\s+State|Equality\\s+State|Keystone\\s+State|Mountain\\s+State|Palmetto\\s+State|Beehive\\s+State|Buckeye\\s+State|Badger\\s+State|Beaver\\s+State|Old\\s+Dominion|Sooner\\s+State|Ocean\\s+State)\\b",
+      "scores": {
+        "north-america": 10
+      },
+      "priority": 34,
+      "notes": "Common US state nicknames as low-weight regional evidence."
+    },
+    {
+      "id": "north_america_subdivision_canada",
+      "type": "pattern",
+      "pattern": "\\b(?:Newfoundland\\s+and\\s+Labrador|Northwest\\s+Territories|Prince\\s+Edward\\s+Island|British\\s+Columbia|New\\s+Brunswick|Saskatchewan|Nova\\s+Scotia|Manitoba|Alberta|Nunavut|Ontario|Quebec|Yukon)\\b",
+      "scores": {
+        "north-america": 10
+      },
+      "priority": 35,
+      "notes": "Canadian provinces and territories as low-weight regional evidence."
+    },
+    {
+      "id": "north_america_subdivision_mexico_a_m",
+      "type": "pattern",
+      "pattern": "\\b(?:Baja\\s+California\\s+Sur|Baja\\s+California|State\\s+of\\s+Mexico|Aguascalientes|Mexico\\s+City|Guanajuato|Chihuahua|Michoacan|Campeche|Coahuila|Guerrero|Chiapas|Durango|Hidalgo|Jalisco|Morelos|Colima)\\b",
+      "scores": {
+        "north-america": 10
+      },
+      "priority": 35,
+      "notes": "Mexican federal entities A-M as low-weight regional evidence."
+    },
+    {
+      "id": "north_america_subdivision_mexico_n_z",
+      "type": "pattern",
+      "pattern": "\\b(?:San\\s+Luis\\s+Potosi|Quintana\\s+Roo|Nuevo\\s+Leon|Tamaulipas|Queretaro|Zacatecas|Tlaxcala|Veracruz|Nayarit|Sinaloa|Tabasco|Yucatan|Oaxaca|Puebla|Sonora)\\b",
+      "scores": {
+        "north-america": 10
+      },
+      "priority": 35,
+      "notes": "Mexican federal entities N-Z as low-weight regional evidence."
+    },
+    {
+      "id": "north_america_subdivision_prefixes",
+      "type": "pattern",
+      "pattern": "(?<![A-Za-z0-9])(?:TAMPS|CAMP|CDMX|CHIH|CHIS|COAH|MICH|QROO|TLAX|AGS|BCS|CMX|COL|DGO|GRO|GTO|HGO|JAL|MEX|MOR|NAY|OAX|PUE|QRO|SIN|SLP|SON|TAB|VER|YUC|ZAC|AB|AK|AL|AR|AZ|BC|CA|CO|CT|DE|FL|GA|HI|IA|ID|IL|IN|KS|KY|LA|MA|MB|MD|ME|MI|MN|MO|MS|MT|NB|NC|ND|NE|NH|NJ|NL|NM|NS|NT|NU|NV|NY|OH|OK|ON|OR|PA|PE|QC|RI|SC|SD|SK|TN|TX|UT|VA|VT|WA|WI|WV|WY|YT)\\s*[:\\-\\\\u2013\\\\u2014]",
+      "scores": {
+        "north-america": 10
+      },
+      "fields": [
+        "title",
+        "summary",
+        "url_slug"
+      ],
+      "priority": 38,
+      "notes": "Postal/state prefixes only when used as a headline prefix, e.g. CA: or ON -; avoids ordinary words like in/or/on."
+    },
+    {
+      "id": "north_america_subdivision_short_forms",
+      "type": "pattern",
+      "pattern": "\\b(?:Nuevo\\s+Leon|Michoacan|Queretaro|Baja\\s+Sur|Yucatan|Edomex|N\\s+W\\s+T|P\\s+E\\s+I|N\\s+W\\s+T|P\\s+E\\s+I|Q\\s+Roo|Alta|B\\s+C|Baja|CDMX|Nfld|Sask|B\\s+C|D\\s+F|NWT|PEI|Que|SLP|BC|DF)\\b",
+      "scores": {
+        "north-america": 10
+      },
+      "priority": 36,
+      "notes": "Common Canadian and Mexican subdivision short forms as low-weight regional evidence."
+    },
+    {
+      "id": "discord-met-police-20260701",
+      "type": "literal",
+      "scores": {
+        "europe": 50
+      },
+      "fields": [
+        "title",
+        "summary",
+        "url_slug"
+      ],
+      "priority": 75,
+      "phrase": "Met Police",
+      "notes": "That\u2019s a UK term, I believe."
+    },
+    {
+      "id": "discord-california-20260701",
+      "type": "literal",
+      "scores": {
+        "north-america": 50
+      },
+      "fields": [
+        "title",
+        "summary",
+        "url_slug"
+      ],
+      "priority": 75,
+      "phrase": "California",
+      "notes": "Cali is a state."
+    },
+    {
+      "id": "discord-force-structure-20260701",
+      "type": "literal",
+      "scores": {
+        "air": 15,
+        "land": 15,
+        "sea": 15
+      },
+      "fields": [
+        "title",
+        "summary",
+        "url_slug"
+      ],
+      "priority": 75,
+      "phrase": "Force Structure",
+      "notes": "Doctrine term."
+    },
+    {
+      "id": "discord-bruce-lee-20260701",
+      "type": "literal",
+      "scores": {
+        "noise": 50
+      },
+      "fields": [
+        "title",
+        "summary",
+        "url_slug"
+      ],
+      "priority": 75,
+      "phrase": "Bruce Lee",
+      "notes": "Not news"
+    },
+    {
+      "id": "discord-empire-state-building-20260702",
+      "type": "literal",
+      "scores": {
+        "north-america": 50
+      },
+      "fields": [
+        "title",
+        "summary",
+        "url_slug"
+      ],
+      "priority": 75,
+      "phrase": "Empire State Building"
+    },
+    {
+      "id": "discord-attorney-general-20260702",
+      "type": "literal",
+      "scores": {
+        "the-hill": 50
+      },
+      "fields": [
+        "title",
+        "summary",
+        "url_slug"
+      ],
+      "priority": 75,
+      "phrase": "Attorney General"
+    },
+    {
+      "id": "discord-world-cup-20260702",
+      "type": "literal",
+      "scores": {
+        "sports": 50
+      },
+      "fields": [
+        "title",
+        "summary",
+        "url_slug"
+      ],
+      "priority": 75,
+      "phrase": "World Cup"
+    },
+    {
+      "id": "discord-football-20260702",
+      "type": "literal",
+      "scores": {
+        "sports": 50
+      },
+      "fields": [
+        "title",
+        "summary",
+        "url_slug"
+      ],
+      "priority": 75,
+      "phrase": "Football"
+    },
+    {
+      "id": "discord-commandant-20260702",
+      "type": "literal",
+      "scores": {
+        "land": 25,
+        "sea": 20
+      },
+      "fields": [
+        "title",
+        "summary",
+        "url_slug"
+      ],
+      "priority": 75,
+      "phrase": "Commandant",
+      "notes": "Commandant of the Marine Corps."
+    },
+    {
+      "id": "discord-rabbinical-court-20260702",
+      "type": "literal",
+      "scores": {
+        "middle-east": 25
+      },
+      "fields": [
+        "title",
+        "summary",
+        "url_slug"
+      ],
+      "priority": 75,
+      "phrase": "Rabbinical Court"
+    },
+    {
+      "id": "discord-supreme-court-justice-20260702",
+      "type": "literal",
+      "scores": {
+        "the-hill": 75
+      },
+      "fields": [
+        "title",
+        "summary",
+        "url_slug"
+      ],
+      "priority": 75,
+      "phrase": "Supreme Court Justice"
+    },
+    {
+      "id": "discord-reflecting-pool-20260702",
+      "type": "literal",
+      "scores": {
+        "the-hill": 25
+      },
+      "fields": [
+        "title",
+        "summary",
+        "url_slug"
+      ],
+      "priority": 75,
+      "phrase": "Reflecting Pool"
+    },
+    {
+      "id": "discord-maharashtra-20260702",
+      "type": "literal",
+      "scores": {
+        "indo-pacific": 50
+      },
+      "fields": [
+        "title",
+        "summary",
+        "url_slug"
+      ],
+      "priority": 75,
+      "phrase": "maharashtra",
+      "notes": "Indian term"
+    },
+    {
+      "id": "discord-infantry-division-20260702",
+      "type": "literal",
+      "scores": {
+        "land": 25
+      },
+      "fields": [
+        "title",
+        "summary",
+        "url_slug"
+      ],
+      "priority": 75,
+      "phrase": "Infantry Division",
+      "notes": "Infantry are on land"
+    },
+    {
+      "id": "discord-robot-20260702",
+      "type": "literal",
+      "scores": {
+        "science-technology": 15
+      },
+      "fields": [
+        "title",
+        "summary",
+        "url_slug"
+      ],
+      "priority": 75,
+      "phrase": "Robot"
+    },
+    {
+      "id": "discord-trump-20260702",
+      "type": "literal",
+      "scores": {
+        "the-hill": 4
+      },
+      "fields": [
+        "title",
+        "summary",
+        "url_slug"
+      ],
+      "priority": 75,
+      "phrase": "Trump",
+      "notes": "Trump U.S. President"
+    },
+    {
+      "id": "discord-crew-20260702",
+      "type": "literal",
+      "scores": {
+        "air": 5,
+        "sea": 7
+      },
+      "fields": [
+        "title",
+        "summary",
+        "url_slug"
+      ],
+      "priority": 75,
+      "phrase": "crew"
+    },
+    {
+      "id": "discord-vip-movement-notification-20260702",
+      "type": "literal",
+      "scores": {
+        "the-white-house": 100
+      },
+      "fields": [
+        "title",
+        "summary",
+        "url_slug"
+      ],
+      "priority": 75,
+      "phrase": "VIP Movement Notification"
+    },
+    {
+      "id": "discord-ukrainian-air-force-20260702",
+      "type": "literal",
+      "scores": {
+        "europe": 25
+      },
+      "fields": [
+        "title",
+        "summary",
+        "url_slug"
+      ],
+      "priority": 75,
+      "phrase": "Ukrainian Air Force"
+    },
+    {
+      "id": "discord-kelce-20260702",
+      "type": "literal",
+      "scores": {
+        "north-america": 25,
+        "sports": 50
+      },
+      "fields": [
+        "title",
+        "summary",
+        "url_slug"
+      ],
+      "priority": 75,
+      "phrase": "Kelce"
+    },
+    {
+      "id": "discord-russian-offensive-20260702",
+      "type": "literal",
+      "scores": {
+        "europe": 75
+      },
+      "fields": [
+        "title",
+        "summary",
+        "url_slug"
+      ],
+      "priority": 75,
+      "phrase": "Russian Offensive"
+    },
+    {
+      "id": "discord-south-korea-20260702",
+      "type": "literal",
+      "scores": {
+        "indo-pacific": 20
+      },
+      "fields": [
+        "title",
+        "summary",
+        "url_slug"
+      ],
+      "priority": 75,
+      "phrase": "South Korea"
+    },
+    {
+      "id": "discord-guthrie-20260702",
+      "type": "literal",
+      "scores": {
+        "north-america": 50
+      },
+      "fields": [
+        "title",
+        "summary",
+        "url_slug"
+      ],
+      "priority": 75,
+      "phrase": "Guthrie"
+    },
+    {
+      "id": "discord-robotic-dog-20260702",
+      "type": "literal",
+      "scores": {
+        "land": 25
+      },
+      "fields": [
+        "title",
+        "summary",
+        "url_slug"
+      ],
+      "priority": 75,
+      "phrase": "Robotic Dog",
+      "notes": "UGV term"
+    },
+    {
+      "id": "discord-state-police-20260702",
+      "type": "literal",
+      "scores": {
+        "north-america": 10
+      },
+      "fields": [
+        "title",
+        "summary",
+        "url_slug"
+      ],
+      "priority": 75,
+      "phrase": "State Police"
+    },
+    {
+      "id": "discord-shares-fall-20260702",
+      "type": "literal",
+      "scores": {
+        "economy": 25
+      },
+      "fields": [
+        "title",
+        "summary",
+        "url_slug"
+      ],
+      "priority": 75,
+      "phrase": "Shares fall"
+    },
+    {
+      "id": "discord-job-data-20260702",
+      "type": "literal",
+      "scores": {
+        "economy": 25
+      },
+      "fields": [
+        "title",
+        "summary",
+        "url_slug"
+      ],
+      "priority": 75,
+      "phrase": "Job data"
+    },
+    {
+      "id": "discord-jobs-data-20260702",
+      "type": "literal",
+      "scores": {
+        "economy": 25
+      },
+      "fields": [
+        "title",
+        "summary",
+        "url_slug"
+      ],
+      "priority": 75,
+      "phrase": "Jobs data"
+    },
+    {
+      "id": "discord-beckham-20260702",
+      "type": "literal",
+      "scores": {
+        "sports": 30
+      },
+      "fields": [
+        "title",
+        "summary",
+        "url_slug"
+      ],
+      "priority": 75,
+      "phrase": "Beckham"
+    },
+    {
+      "id": "discord-coach-20260702",
+      "type": "literal",
+      "scores": {
+        "sports": 10
+      },
+      "fields": [
+        "title",
+        "summary",
+        "url_slug"
+      ],
+      "priority": 75,
+      "phrase": "Coach"
+    },
+    {
+      "id": "discord-apple-20260702",
+      "type": "literal",
+      "scores": {
+        "science-technology": 15
+      },
+      "fields": [
+        "title",
+        "summary",
+        "url_slug"
+      ],
+      "priority": 75,
+      "phrase": "Apple"
+    },
+    {
+      "id": "discord-team-20260702",
+      "type": "literal",
+      "scores": {
+        "sports": 5
+      },
+      "fields": [
+        "title",
+        "summary",
+        "url_slug"
+      ],
+      "priority": 75,
+      "phrase": "Team"
+    },
+    {
+      "id": "discord-sales-rise-20260702",
+      "type": "literal",
+      "scores": {
+        "economy": 20
+      },
+      "fields": [
+        "title",
+        "summary",
+        "url_slug"
+      ],
+      "priority": 75,
+      "phrase": "sales rise"
+    },
+    {
+      "id": "discord-mitch-mcconnell-20260702",
+      "type": "literal",
+      "scores": {
+        "the-hill": 25
+      },
+      "fields": [
+        "title",
+        "summary",
+        "url_slug"
+      ],
+      "priority": 75,
+      "phrase": "Mitch McConnell"
+    },
+    {
+      "id": "discord-playstation-20260702",
+      "type": "literal",
+      "scores": {
+        "science-technology": 50
+      },
+      "fields": [
+        "title",
+        "summary",
+        "url_slug"
+      ],
+      "priority": 75,
+      "phrase": "playstation",
+      "notes": "PlayStation is a game platform."
+    },
+    {
+      "id": "discord-contract-extension-20260702",
+      "type": "literal",
+      "scores": {
+        "economy": 15,
+        "sports": 50
+      },
+      "fields": [
+        "title",
+        "summary",
+        "url_slug"
+      ],
+      "priority": 75,
+      "phrase": "contract extension"
+    },
+    {
+      "id": "discord-pistons-20260702",
+      "type": "literal",
+      "scores": {
+        "sports": 35
+      },
+      "fields": [
+        "title",
+        "summary",
+        "url_slug"
+      ],
+      "priority": 75,
+      "phrase": "Pistons"
+    },
+    {
+      "id": "discord-spurs-20260702",
+      "type": "literal",
+      "scores": {
+        "sports": 35
+      },
+      "fields": [
+        "title",
+        "summary",
+        "url_slug"
+      ],
+      "priority": 75,
+      "phrase": "Spurs",
+      "notes": "NBA team"
+    },
+    {
+      "id": "discord-playoff-20260702",
+      "type": "literal",
+      "scores": {
+        "sports": 50
+      },
+      "fields": [
+        "title",
+        "summary",
+        "url_slug"
+      ],
+      "priority": 75,
+      "phrase": "playoff"
+    },
+    {
+      "id": "discord-free-agency-20260702",
+      "type": "literal",
+      "scores": {
+        "sports": 50
+      },
+      "fields": [
+        "title",
+        "summary",
+        "url_slug"
+      ],
+      "priority": 75,
+      "phrase": "free agency"
+    },
+    {
+      "id": "discord-free-agent-20260702",
+      "type": "literal",
+      "scores": {
+        "sports": 50
+      },
+      "fields": [
+        "title",
+        "summary",
+        "url_slug"
+      ],
+      "priority": 75,
+      "phrase": "Free Agent"
+    },
+    {
+      "id": "discord-nvidia-20260702",
+      "type": "literal",
+      "scores": {
+        "science-technology": 25
+      },
+      "fields": [
+        "title",
+        "summary",
+        "url_slug"
+      ],
+      "priority": 75,
+      "phrase": "Nvidia"
+    },
+    {
+      "id": "discord-madras-high-court-20260702",
+      "type": "literal",
+      "scores": {
+        "indo-pacific": 35
+      },
+      "fields": [
+        "title",
+        "summary",
+        "url_slug"
+      ],
+      "priority": 75,
+      "phrase": "Madras High Court"
+    },
+    {
+      "id": "discord-year-low-20260702",
+      "type": "literal",
+      "scores": {
+        "economy": 7
+      },
+      "fields": [
+        "title",
+        "summary",
+        "url_slug"
+      ],
+      "priority": 75,
+      "phrase": "Year low"
+    },
+    {
+      "id": "discord-mail-in-ballots-20260702",
+      "type": "literal",
+      "scores": {
+        "the-hill": 30
+      },
+      "fields": [
+        "title",
+        "summary",
+        "url_slug"
+      ],
+      "priority": 75,
+      "phrase": "Mail-in ballots"
+    },
+    {
+      "id": "discord-recipe-20260702",
+      "type": "literal",
+      "scores": {
+        "noise": 20
+      },
+      "fields": [
+        "title",
+        "summary",
+        "url_slug"
+      ],
+      "priority": 75,
+      "phrase": "Recipe"
+    },
+    {
+      "id": "discord-bond-market-20260702",
+      "type": "literal",
+      "scores": {
+        "economy": 75
+      },
+      "fields": [
+        "title",
+        "summary",
+        "url_slug"
+      ],
+      "priority": 75,
+      "phrase": "bond market"
+    },
+    {
+      "id": "discord-relationship-20260702",
+      "type": "literal",
+      "scores": {
+        "noise": 7
+      },
+      "fields": [
+        "title",
+        "summary",
+        "url_slug"
+      ],
+      "priority": 75,
+      "phrase": "Relationship"
+    },
+    {
+      "id": "discord-economic-20260702",
+      "type": "literal",
+      "scores": {
+        "economy": 15
+      },
+      "fields": [
+        "title",
+        "summary",
+        "url_slug"
+      ],
+      "priority": 75,
+      "phrase": "Economic"
+    },
+    {
+      "id": "discord-pulisic-20260702",
+      "type": "literal",
+      "scores": {
+        "sports": 25
+      },
+      "fields": [
+        "title",
+        "summary",
+        "url_slug"
+      ],
+      "priority": 75,
+      "phrase": "Pulisic"
+    },
+    {
+      "id": "discord-wall-street-20260702",
+      "type": "literal",
+      "scores": {
+        "economy": 10
+      },
+      "fields": [
+        "title",
+        "summary",
+        "url_slug"
+      ],
+      "priority": 75,
+      "phrase": "Wall Street"
+    },
+    {
+      "id": "discord-rcmp-20260702",
+      "type": "literal",
+      "scores": {
+        "north-america": 20
+      },
+      "fields": [
+        "title",
+        "summary",
+        "url_slug"
+      ],
+      "priority": 75,
+      "phrase": "RCMP"
+    },
+    {
+      "id": "discord-republicans-20260702",
+      "type": "literal",
+      "scores": {
+        "the-hill": 30
+      },
+      "fields": [
+        "title",
+        "summary",
+        "url_slug"
+      ],
+      "priority": 75,
+      "phrase": "Republicans"
+    },
+    {
+      "id": "discord-exoplanet-20260702",
+      "type": "literal",
+      "scores": {
+        "space": 30
+      },
+      "fields": [
+        "title",
+        "summary",
+        "url_slug"
+      ],
+      "priority": 75,
+      "phrase": "exoplanet"
+    },
+    {
+      "id": "discord-supreme-court-20260702",
+      "type": "literal",
+      "scores": {
+        "the-hill": 30
+      },
+      "fields": [
+        "title",
+        "summary",
+        "url_slug"
+      ],
+      "priority": 75,
+      "phrase": "Supreme Court"
+    },
+    {
+      "id": "discord-sen-20260702",
+      "type": "literal",
+      "scores": {
+        "the-hill": 25
+      },
+      "fields": [
+        "title",
+        "summary",
+        "url_slug"
+      ],
+      "priority": 75,
+      "phrase": "Sen."
+    },
+    {
+      "id": "discord-venezuela-20260702",
+      "type": "literal",
+      "scores": {
+        "south-central-america": 40
+      },
+      "fields": [
+        "title",
+        "summary",
+        "url_slug"
+      ],
+      "priority": 75,
+      "phrase": "Venezuela"
+    },
+    {
+      "id": "discord-secret-service-20260702",
+      "type": "literal",
+      "scores": {
+        "the-hill": 30
+      },
+      "fields": [
+        "title",
+        "summary",
+        "url_slug"
+      ],
+      "priority": 75,
+      "phrase": "Secret Service"
+    },
+    {
+      "id": "discord-kherson-20260702",
+      "type": "literal",
+      "scores": {
+        "europe": 50
+      },
+      "fields": [
+        "title",
+        "summary",
+        "url_slug"
+      ],
+      "priority": 75,
+      "phrase": "Kherson"
+    },
+    {
+      "id": "discord-american-flag-20260702",
+      "type": "literal",
+      "scores": {
+        "the-hill": 35
+      },
+      "fields": [
+        "title",
+        "summary",
+        "url_slug"
+      ],
+      "priority": 75,
+      "phrase": "American flag"
+    },
+    {
+      "id": "discord-declaration-of-independence-20260702",
+      "type": "literal",
+      "scores": {
+        "the-hill": 35
+      },
+      "fields": [
+        "title",
+        "summary",
+        "url_slug"
+      ],
+      "priority": 75,
+      "phrase": "Declaration of Independence"
+    },
+    {
+      "id": "discord-heat-emergency-20260702",
+      "type": "literal",
+      "scores": {
+        "weather": 50
+      },
+      "fields": [
+        "title",
+        "summary",
+        "url_slug"
+      ],
+      "priority": 75,
+      "phrase": "heat emergency"
+    },
+    {
+      "id": "discord-u-s-army-20260703",
+      "type": "literal",
+      "scores": {
+        "land": 25
+      },
+      "fields": [
+        "title",
+        "summary",
+        "url_slug"
+      ],
+      "priority": 75,
+      "phrase": "U.S. Army"
+    },
+    {
+      "id": "discord-crypto-20260703",
+      "type": "literal",
+      "scores": {
+        "economy": 25
+      },
+      "fields": [
+        "title",
+        "summary",
+        "url_slug"
+      ],
+      "priority": 75,
+      "phrase": "Crypto"
+    }
+  ]
+}

@@ -5,8 +5,10 @@ import os
 import json
 import re
 import time
+from dataclasses import replace
 from datetime import UTC
 from datetime import datetime
+from typing import Any
 from urllib.parse import unquote, urlparse
 
 import discord
@@ -18,7 +20,7 @@ from app.feed_fetcher import clean_html_text
 from app.logging_config import configure_logging
 from app.models import PostJob
 from app.publisher import PublisherAdapter, PublisherService
-from app.routing import RoutingConfigError, RoutingEngine, load_routing_config
+from app.routing import RoutingConfigError
 from app.routing.importance import (
     ImportanceTerm,
     apply_importance,
@@ -28,6 +30,24 @@ from app.routing.importance import (
 )
 from app.routing.models import RoutingArticle
 from app.routing.reporting import format_backtest_summary, format_decision, truncate
+from app.routing.runtime import load_selected_routing_engine, selected_routing_engine_name
+from app.routing_v2.teaching import (
+    RoutingTeachError,
+    apply_duplicate_teaching_rule,
+    apply_duplicate_source_url_teaching_rule,
+    apply_source_url_teaching_rule,
+    apply_teaching_rule,
+    decision_summary,
+    evidence_json_snippet,
+    make_source_url_teaching_rule,
+    make_teaching_rule,
+    preview_duplicate_source_url_teaching_rule,
+    preview_duplicate_teaching_rule,
+    preview_source_url_teaching_rule,
+    preview_teaching_rule,
+    route_score_suggestions,
+    restore_latest_backup,
+)
 from app.scheduler import SchedulerService
 from app.social_link_embed import SocialLinkEmbedService
 from app.x_media import PreparedMedia, prepared_remote_media_files, prepared_x_media_files
@@ -238,6 +258,9 @@ class RSSDiscordClient(discord.Client):
     def _register_commands(self) -> None:
         group = app_commands.Group(name="rss", description="RSS dispatch bot commands")
 
+        async def scores_autocomplete(interaction: discord.Interaction, current: str) -> list[app_commands.Choice[str]]:
+            return self._route_score_autocomplete(current)
+
         @group.command(name="status", description="Show RSS bot status")
         async def status(interaction: discord.Interaction) -> None:
             config = self.config_service.active_config
@@ -253,7 +276,9 @@ class RSSDiscordClient(discord.Client):
             next_poll_text = _format_relative_seconds((next_poll - datetime.now(UTC)).total_seconds()) if next_poll else "unknown"
             recent_posts = self.db.recent_post_count(hours=24)
             routing_state = (
-                f"{config.settings.routing.mode}" if config.settings.routing.enabled else "off"
+                f"{config.settings.routing.mode}/{selected_routing_engine_name(config)}"
+                if config.settings.routing.enabled
+                else "off"
             )
             lines = [
                 "**RSS Dispatch Bot Status**",
@@ -516,23 +541,14 @@ class RSSDiscordClient(discord.Client):
                 await interaction.response.send_message("No active config.", ephemeral=True)
                 return
             try:
-                routing_config = load_routing_config(config.settings.routing.config_dir, config)
+                _engine, routing_config, engine_name = load_selected_routing_engine(config)
                 status = "valid"
-                detail = [
-                    f"Routing enabled: {config.settings.routing.enabled}",
-                    f"Routing mode: {config.settings.routing.mode}",
-                    f"Validation: {status}",
-                    f"Taxonomy version: {routing_config.taxonomy_version}",
-                    f"Knowledge base version: {routing_config.knowledge_base_version}",
-                    f"Channel rules: {len(routing_config.channel_rules)}",
-                    f"Loaded tags: {len(routing_config.taxonomy)}",
-                    f"Loaded knowledge entries: {len(routing_config.knowledge_entries)}",
-                    f"Recent routing errors: {self.db.recent_routing_error_count()}",
-                ]
+                detail = _routing_status_lines(config, routing_config, engine_name, status, self.db.recent_routing_error_count())
             except RoutingConfigError as exc:
                 detail = [
                     f"Routing enabled: {config.settings.routing.enabled}",
                     f"Routing mode: {config.settings.routing.mode}",
+                    f"Routing engine: {selected_routing_engine_name(config)}",
                     "Validation: invalid",
                     "Errors:",
                     truncate("\n".join(exc.errors), 1500),
@@ -548,7 +564,195 @@ class RSSDiscordClient(discord.Client):
                 return
             await interaction.response.send_message(_format_persisted_routing_explanation(row), ephemeral=True)
 
+        @group.command(name="teach", description="Teach routing from an article post or article ID")
+        @app_commands.describe(
+            term="Word, phrase, or regex to score",
+            scores="Route scores like sea:+35, air:-5",
+            message_id="Discord message ID for a bot article post",
+            article_id="Article ID from the SQLite articles table",
+            rule_type="literal by default; use pattern or regex for regex",
+            fields="Fields to match, default title,summary,url_slug",
+            notes="Optional reason for this routing change",
+        )
+        @app_commands.autocomplete(scores=scores_autocomplete)
+        async def teach(
+            interaction: discord.Interaction,
+            term: str,
+            scores: str,
+            message_id: str | None = None,
+            article_id: int | None = None,
+            rule_type: str = "literal",
+            fields: str | None = None,
+            notes: str | None = None,
+        ) -> None:
+            await interaction.response.defer(ephemeral=True)
+            await self._teach_from_inputs(
+                interaction,
+                term=term,
+                scores=scores,
+                message_id=message_id,
+                article_id=article_id,
+                rule_type=rule_type,
+                fields=fields,
+                notes=notes,
+            )
+
+        @group.command(name="teach-feed-url", description="Teach routing from a configured feed URL")
+        @app_commands.describe(
+            scores="Route scores like sea:+10, sports:-20",
+            host="Optional feed host, e.g. fifa.com",
+            path_term="Optional complete path term, e.g. world cup",
+            path_regex="Optional regex matched against the feed URL path",
+            message_id="Discord message ID for a bot article post",
+            article_id="Article ID from the SQLite articles table",
+            notes="Optional reason for this feed URL routing change",
+            url_bias_only="Keep positive URL-only matches from routing by themselves; default yes",
+        )
+        @app_commands.autocomplete(scores=scores_autocomplete)
+        async def teach_feed_url(
+            interaction: discord.Interaction,
+            scores: str,
+            host: str | None = None,
+            path_term: str | None = None,
+            path_regex: str | None = None,
+            message_id: str | None = None,
+            article_id: int | None = None,
+            notes: str | None = None,
+            url_bias_only: bool = True,
+        ) -> None:
+            await interaction.response.defer(ephemeral=True)
+            await self._teach_source_url_from_inputs(
+                interaction,
+                scores=scores,
+                host=host,
+                path_term=path_term,
+                path_regex=path_regex,
+                message_id=message_id,
+                article_id=article_id,
+                notes=notes,
+                url_bias_only=url_bias_only,
+            )
+
+        @group.command(name="preview-rule", description="Preview a routing teaching rule without saving it")
+        @app_commands.describe(
+            term="Word, phrase, or regex to score",
+            scores="Route scores like sea:+35, air:-5",
+            message_id="Discord message ID for a bot article post",
+            article_id="Article ID from the SQLite articles table",
+            rule_type="literal by default; use pattern or regex for regex",
+            fields="Fields to match, default title,summary,url_slug",
+            notes="Optional reason for this routing change",
+        )
+        @app_commands.autocomplete(scores=scores_autocomplete)
+        async def preview_rule(
+            interaction: discord.Interaction,
+            term: str,
+            scores: str,
+            message_id: str | None = None,
+            article_id: int | None = None,
+            rule_type: str = "literal",
+            fields: str | None = None,
+            notes: str | None = None,
+        ) -> None:
+            await interaction.response.defer(ephemeral=True)
+            await self._preview_teach_from_inputs(
+                interaction,
+                term=term,
+                scores=scores,
+                message_id=message_id,
+                article_id=article_id,
+                rule_type=rule_type,
+                fields=fields,
+                notes=notes,
+            )
+
+        @group.command(name="undo-rule", description="Undo the latest Discord-taught routing rule")
+        async def undo_rule(interaction: discord.Interaction) -> None:
+            await interaction.response.defer(ephemeral=True)
+            config = self.config_service.active_config
+            if config is None:
+                await interaction.followup.send("No active config.", ephemeral=True)
+                return
+            try:
+                restored = restore_latest_backup(config.settings.routing.weighted_config_dir)
+                self._reload_runtime_config()
+            except (ConfigError, RoutingTeachError) as exc:
+                message = str(exc)
+                self.db.record_routing_teach_event(
+                    action="rollback",
+                    status="failed",
+                    user_id=str(interaction.user.id) if interaction.user else None,
+                    user_name=str(interaction.user) if interaction.user else None,
+                    channel_id=str(interaction.channel_id) if interaction.channel_id else None,
+                    error=message,
+                )
+                await interaction.followup.send("Rollback failed: " + truncate(message, 1600), ephemeral=True)
+                return
+            event_id = self.db.record_routing_teach_event(
+                action="rollback",
+                status="applied",
+                user_id=str(interaction.user.id) if interaction.user else None,
+                user_name=str(interaction.user) if interaction.user else None,
+                channel_id=str(interaction.channel_id) if interaction.channel_id else None,
+                backup_path=str(restored),
+            )
+            await interaction.followup.send(f"Restored latest routing backup and reloaded config. Event #{event_id}.", ephemeral=True)
+
+        @group.command(name="rule-history", description="Show recent Discord-taught routing changes")
+        @app_commands.describe(limit="Number of recent events, max 50")
+        async def rule_history(interaction: discord.Interaction, limit: int = 10) -> None:
+            rows = self.db.recent_routing_teach_events(limit=limit)
+            await interaction.response.send_message(_format_routing_teach_history(rows), ephemeral=True)
+
+        @group.command(name="rule-help", description="Show examples for teaching routing terms")
+        async def rule_help(interaction: discord.Interaction) -> None:
+            await interaction.response.send_message(_routing_teach_help(), ephemeral=True)
+
         self.tree.add_command(group)
+
+        async def teach_routing_term_context(interaction: discord.Interaction, message: discord.Message) -> None:
+            resolved = self._article_id_for_context_teach_message(message)
+            if resolved is None:
+                await interaction.response.send_message(
+                    "I could not connect that Discord message or its replied-to message to a posted article. "
+                    "Use `/rss teach` with an article ID or bot message ID instead.",
+                    ephemeral=True,
+                )
+                return
+            article_id, matched_message_id, matched_channel_id = resolved
+            await interaction.response.send_modal(
+                RoutingTeachModal(
+                    self,
+                    article_id=article_id,
+                    message_id=matched_message_id,
+                    channel_id=matched_channel_id,
+                )
+            )
+
+        self.tree.add_command(app_commands.ContextMenu(name="Teach routing term", callback=teach_routing_term_context))
+
+        async def teach_feed_url_context(interaction: discord.Interaction, message: discord.Message) -> None:
+            resolved = self._article_id_for_context_teach_message(message)
+            if resolved is None:
+                await interaction.response.send_message(
+                    "I could not connect that Discord message or its replied-to message to a posted article. "
+                    "Use `/rss teach-feed-url` with an article ID or bot message ID instead.",
+                    ephemeral=True,
+                )
+                return
+            article_id, matched_message_id, matched_channel_id = resolved
+            article = self._routing_article_for_teach(article_id)
+            await interaction.response.send_modal(
+                RoutingFeedUrlTeachModal(
+                    self,
+                    article=article,
+                    article_id=article_id,
+                    message_id=matched_message_id,
+                    channel_id=matched_channel_id,
+                )
+            )
+
+        self.tree.add_command(app_commands.ContextMenu(name="Teach feed URL", callback=teach_feed_url_context))
 
         @self.tree.command(name="debugmode", description="Toggle routing score details on RSS embeds")
         @app_commands.describe(enabled="Show routing score details on future RSS embeds")
@@ -565,11 +769,683 @@ class RSSDiscordClient(discord.Client):
             )
             await interaction.followup.send(f"Routing embed debug mode {state}.", ephemeral=True)
 
-    def _routing_engine_for_command(self) -> RoutingEngine:
+    def _routing_engine_for_command(self) -> Any:
         config = self.config_service.active_config
         if config is None:
             raise RoutingConfigError(["No active config."])
-        return RoutingEngine(load_routing_config(config.settings.routing.config_dir, config))
+        engine, _routing_config, _engine_name = load_selected_routing_engine(config)
+        return engine
+
+    def _reload_runtime_config(self) -> None:
+        config = self.config_service.reload()
+        configure_logging(config)
+        self.publisher.configure(config)
+        self.scheduler.configure(config)
+        self.scheduler.start()
+        self.social_link_embeds.configure(config)
+
+    async def _preview_teach_from_inputs(
+        self,
+        interaction: discord.Interaction,
+        *,
+        term: str,
+        scores: str,
+        message_id: str | None = None,
+        article_id: int | None = None,
+        rule_type: str = "literal",
+        fields: str | None = None,
+        notes: str | None = None,
+    ) -> None:
+        try:
+            resolved_article_id = self._resolve_teach_article_id(article_id=article_id, message_id=message_id, channel_id=None)
+            article = self._routing_article_for_teach(resolved_article_id)
+            config = self._weighted_teach_config()
+            rule = make_teaching_rule(
+                term=term,
+                scores=scores,
+                app_config=config,
+                rule_type=rule_type,
+                fields=fields,
+                notes=notes,
+            )
+            preview = preview_teaching_rule(article, config, rule)
+            duplicate = preview_duplicate_teaching_rule(article, config, rule)
+        except (RoutingConfigError, RoutingTeachError) as exc:
+            self.db.record_routing_teach_event(
+                action="preview",
+                status="failed",
+                user_id=str(interaction.user.id) if interaction.user else None,
+                user_name=str(interaction.user) if interaction.user else None,
+                article_id=article_id,
+                channel_id=str(interaction.channel_id) if interaction.channel_id else None,
+                message_id=message_id,
+                term=term,
+                rule_type=rule_type,
+                notes=notes,
+                error=str(exc),
+            )
+            await interaction.followup.send("Rule preview failed: " + truncate(str(exc), 1600), ephemeral=True)
+            return
+        if duplicate is not None:
+            event_id = self.db.record_routing_teach_event(
+                action="preview_duplicate",
+                status="previewed",
+                user_id=str(interaction.user.id) if interaction.user else None,
+                user_name=str(interaction.user) if interaction.user else None,
+                article_id=resolved_article_id,
+                channel_id=str(interaction.channel_id) if interaction.channel_id else None,
+                message_id=message_id,
+                rule_id=duplicate.duplicate.rule_id,
+                term=rule.term,
+                rule_type=rule.rule_type,
+                fields=rule.fields,
+                scores=rule.scores,
+                notes=rule.notes,
+                before_decision=duplicate.before.to_json_dict(),
+                after_decision=duplicate.merge_after.to_json_dict(),
+            )
+            await interaction.followup.send(_format_duplicate_preview(event_id, resolved_article_id, duplicate), ephemeral=True)
+            return
+        event_id = self.db.record_routing_teach_event(
+            action="preview",
+            status="previewed",
+            user_id=str(interaction.user.id) if interaction.user else None,
+            user_name=str(interaction.user) if interaction.user else None,
+            article_id=resolved_article_id,
+            channel_id=str(interaction.channel_id) if interaction.channel_id else None,
+            message_id=message_id,
+            rule_id=rule.id,
+            term=rule.term,
+            rule_type=rule.rule_type,
+            fields=rule.fields,
+            scores=rule.scores,
+            notes=rule.notes,
+            before_decision=preview.before.to_json_dict(),
+            after_decision=preview.after.to_json_dict(),
+        )
+        await interaction.followup.send(_format_teach_preview(event_id, resolved_article_id, preview), ephemeral=True)
+
+    async def _teach_from_inputs(
+        self,
+        interaction: discord.Interaction,
+        *,
+        term: str,
+        scores: str,
+        message_id: str | None = None,
+        article_id: int | None = None,
+        rule_type: str = "literal",
+        fields: str | None = None,
+        notes: str | None = None,
+    ) -> None:
+        try:
+            resolved_article_id = self._resolve_teach_article_id(article_id=article_id, message_id=message_id, channel_id=None)
+            await self._teach_article(
+                interaction,
+                article_id=resolved_article_id,
+                message_id=message_id,
+                term=term,
+                scores=scores,
+                rule_type=rule_type,
+                fields=fields,
+                notes=notes,
+            )
+        except (RoutingConfigError, RoutingTeachError) as exc:
+            self.db.record_routing_teach_event(
+                action="teach",
+                status="failed",
+                user_id=str(interaction.user.id) if interaction.user else None,
+                user_name=str(interaction.user) if interaction.user else None,
+                article_id=article_id,
+                channel_id=str(interaction.channel_id) if interaction.channel_id else None,
+                message_id=message_id,
+                term=term,
+                rule_type=rule_type,
+                notes=notes,
+                error=str(exc),
+            )
+            await interaction.followup.send("Teaching failed: " + truncate(str(exc), 1600), ephemeral=True)
+
+    async def _teach_source_url_from_inputs(
+        self,
+        interaction: discord.Interaction,
+        *,
+        scores: str,
+        host: str | None = None,
+        path_term: str | None = None,
+        path_regex: str | None = None,
+        message_id: str | None = None,
+        article_id: int | None = None,
+        notes: str | None = None,
+        url_bias_only: bool = True,
+    ) -> None:
+        try:
+            resolved_article_id: int | None = None
+            article: RoutingArticle
+            source_url: str | None = None
+            if article_id is not None or message_id:
+                resolved_article_id = self._resolve_teach_article_id(
+                    article_id=article_id,
+                    message_id=message_id,
+                    channel_id=None,
+                )
+                article = self._routing_article_for_teach(resolved_article_id)
+                source_url = article.source_url
+            else:
+                source_url = f"https://{host.strip()}/" if host and host.strip() else None
+                article = RoutingArticle(
+                    title="Feed URL teaching preview",
+                    source_name="Feed URL",
+                    source_url=source_url,
+                )
+            await self._teach_source_url_article(
+                interaction,
+                article=article,
+                article_id=resolved_article_id,
+                message_id=message_id,
+                scores=scores,
+                host=host,
+                path_term=path_term,
+                path_regex=path_regex,
+                source_url=source_url,
+                notes=notes,
+                url_bias_only=url_bias_only,
+            )
+        except (RoutingConfigError, RoutingTeachError) as exc:
+            self.db.record_routing_teach_event(
+                action="teach_source_url",
+                status="failed",
+                user_id=str(interaction.user.id) if interaction.user else None,
+                user_name=str(interaction.user) if interaction.user else None,
+                article_id=article_id,
+                channel_id=str(interaction.channel_id) if interaction.channel_id else None,
+                message_id=message_id,
+                term=host or path_term or path_regex,
+                rule_type="source_url",
+                notes=notes,
+                error=str(exc),
+            )
+            await interaction.followup.send("Feed URL teaching failed: " + truncate(str(exc), 1600), ephemeral=True)
+
+    async def _teach_source_url_article(
+        self,
+        interaction: discord.Interaction,
+        *,
+        article: RoutingArticle,
+        article_id: int | None,
+        message_id: str | None,
+        scores: str,
+        host: str | None,
+        path_term: str | None,
+        path_regex: str | None,
+        source_url: str | None,
+        notes: str | None,
+        url_bias_only: bool,
+    ) -> None:
+        config = self._weighted_teach_config()
+        rule = make_source_url_teaching_rule(
+            scores=scores,
+            app_config=config,
+            host=host,
+            path_term=path_term,
+            path_regex=path_regex,
+            source_url=source_url,
+            notes=notes,
+            url_bias_only=url_bias_only,
+        )
+        duplicate = preview_duplicate_source_url_teaching_rule(article, config, rule)
+        if duplicate is not None:
+            event_id = self.db.record_routing_teach_event(
+                action="teach_source_url_duplicate",
+                status="pending",
+                user_id=str(interaction.user.id) if interaction.user else None,
+                user_name=str(interaction.user) if interaction.user else None,
+                article_id=article_id,
+                channel_id=str(interaction.channel_id) if interaction.channel_id else None,
+                message_id=message_id,
+                rule_id=duplicate.duplicate.rule_id,
+                term=rule.term,
+                rule_type=rule.rule_type,
+                fields=rule.fields,
+                scores=rule.scores,
+                notes=rule.notes,
+                before_decision=duplicate.before.to_json_dict(),
+                after_decision=duplicate.merge_after.to_json_dict(),
+            )
+            await interaction.followup.send(
+                _format_duplicate_prompt(event_id, article_id, duplicate),
+                view=RoutingDuplicateSourceUrlRuleView(
+                    self,
+                    article=article,
+                    article_id=article_id,
+                    message_id=message_id,
+                    scores=scores,
+                    host=host,
+                    path_term=path_term,
+                    path_regex=path_regex,
+                    source_url=source_url,
+                    notes=notes,
+                    url_bias_only=url_bias_only,
+                ),
+                ephemeral=True,
+            )
+            return
+        result = apply_source_url_teaching_rule(article, config, rule)
+        try:
+            self._reload_runtime_config()
+        except ConfigError as exc:
+            restore_latest_backup(config.settings.routing.weighted_config_dir)
+            self._reload_runtime_config()
+            self.db.record_routing_teach_event(
+                action="teach_source_url",
+                status="failed",
+                user_id=str(interaction.user.id) if interaction.user else None,
+                user_name=str(interaction.user) if interaction.user else None,
+                article_id=article_id,
+                channel_id=str(interaction.channel_id) if interaction.channel_id else None,
+                message_id=message_id,
+                rule_id=rule.id,
+                term=rule.term,
+                rule_type=rule.rule_type,
+                fields=rule.fields,
+                scores=rule.scores,
+                notes=rule.notes,
+                before_decision=result.before.to_json_dict(),
+                after_decision=result.after.to_json_dict(),
+                error="Config reload failed after feed URL write; backup restored. " + str(exc),
+                backup_path=str(result.backup_path),
+            )
+            raise RoutingTeachError("Config reload failed after write, so the backup was restored.") from exc
+        event_id = self.db.record_routing_teach_event(
+            action="teach_source_url",
+            status="applied",
+            user_id=str(interaction.user.id) if interaction.user else None,
+            user_name=str(interaction.user) if interaction.user else None,
+            article_id=article_id,
+            channel_id=str(interaction.channel_id) if interaction.channel_id else None,
+            message_id=message_id,
+            rule_id=result.rule.id,
+            term=result.rule.term,
+            rule_type=result.rule.rule_type,
+            fields=result.rule.fields,
+            scores=result.rule.scores,
+            notes=result.rule.notes,
+            before_decision=result.before.to_json_dict(),
+            after_decision=result.after.to_json_dict(),
+            backup_path=str(result.backup_path),
+        )
+        await self._send_teach_changelog(
+            event_id=event_id,
+            article_id=article_id,
+            action_label="Added feed URL rule",
+            actor=str(interaction.user) if interaction.user else None,
+            result=result,
+        )
+        await interaction.followup.send(_format_teach_applied(event_id, article_id, result), ephemeral=True)
+
+    async def _teach_article(
+        self,
+        interaction: discord.Interaction,
+        *,
+        article_id: int,
+        message_id: str | None,
+        term: str,
+        scores: str,
+        rule_type: str = "literal",
+        fields: str | None = None,
+        notes: str | None = None,
+    ) -> None:
+        article = self._routing_article_for_teach(article_id)
+        config = self._weighted_teach_config()
+        rule = make_teaching_rule(
+            term=term,
+            scores=scores,
+            app_config=config,
+            rule_type=rule_type,
+            fields=fields,
+            notes=notes,
+        )
+        duplicate = preview_duplicate_teaching_rule(article, config, rule)
+        if duplicate is not None:
+            event_id = self.db.record_routing_teach_event(
+                action="teach_duplicate",
+                status="pending",
+                user_id=str(interaction.user.id) if interaction.user else None,
+                user_name=str(interaction.user) if interaction.user else None,
+                article_id=article_id,
+                channel_id=str(interaction.channel_id) if interaction.channel_id else None,
+                message_id=message_id,
+                rule_id=duplicate.duplicate.rule_id,
+                term=rule.term,
+                rule_type=rule.rule_type,
+                fields=rule.fields,
+                scores=rule.scores,
+                notes=rule.notes,
+                before_decision=duplicate.before.to_json_dict(),
+                after_decision=duplicate.merge_after.to_json_dict(),
+            )
+            await interaction.followup.send(
+                _format_duplicate_prompt(event_id, article_id, duplicate),
+                view=RoutingDuplicateRuleView(
+                    self,
+                    article_id=article_id,
+                    message_id=message_id,
+                    term=term,
+                    scores=scores,
+                    rule_type=rule_type,
+                    fields=fields,
+                    notes=notes,
+                ),
+                ephemeral=True,
+            )
+            return
+        result = apply_teaching_rule(article, config, rule)
+        try:
+            self._reload_runtime_config()
+        except ConfigError as exc:
+            restore_latest_backup(config.settings.routing.weighted_config_dir)
+            self._reload_runtime_config()
+            self.db.record_routing_teach_event(
+                action="teach",
+                status="failed",
+                user_id=str(interaction.user.id) if interaction.user else None,
+                user_name=str(interaction.user) if interaction.user else None,
+                article_id=article_id,
+                channel_id=str(interaction.channel_id) if interaction.channel_id else None,
+                message_id=message_id,
+                rule_id=rule.id,
+                term=rule.term,
+                rule_type=rule.rule_type,
+                fields=rule.fields,
+                scores=rule.scores,
+                notes=rule.notes,
+                before_decision=result.before.to_json_dict(),
+                after_decision=result.after.to_json_dict(),
+                error="Config reload failed after write; backup restored. " + str(exc),
+                backup_path=str(result.backup_path),
+            )
+            raise RoutingTeachError("Config reload failed after write, so the backup was restored.") from exc
+        event_id = self.db.record_routing_teach_event(
+            action="teach",
+            status="applied",
+            user_id=str(interaction.user.id) if interaction.user else None,
+            user_name=str(interaction.user) if interaction.user else None,
+            article_id=article_id,
+            channel_id=str(interaction.channel_id) if interaction.channel_id else None,
+            message_id=message_id,
+            rule_id=result.rule.id,
+            term=result.rule.term,
+            rule_type=result.rule.rule_type,
+            fields=result.rule.fields,
+            scores=result.rule.scores,
+            notes=result.rule.notes,
+            before_decision=result.before.to_json_dict(),
+            after_decision=result.after.to_json_dict(),
+            backup_path=str(result.backup_path),
+        )
+        await self._send_teach_changelog(
+            event_id=event_id,
+            article_id=article_id,
+            action_label="Added routing term",
+            actor=str(interaction.user) if interaction.user else None,
+            result=result,
+        )
+        await interaction.followup.send(_format_teach_applied(event_id, article_id, result), ephemeral=True)
+
+    async def _apply_duplicate_teach(
+        self,
+        interaction: discord.Interaction,
+        *,
+        mode: str,
+        article_id: int,
+        message_id: str | None,
+        term: str,
+        scores: str,
+        rule_type: str,
+        fields: str | None,
+        notes: str | None,
+    ) -> None:
+        article = self._routing_article_for_teach(article_id)
+        config = self._weighted_teach_config()
+        rule = make_teaching_rule(
+            term=term,
+            scores=scores,
+            app_config=config,
+            rule_type=rule_type,
+            fields=fields,
+            notes=notes,
+        )
+        result = apply_duplicate_teaching_rule(article, config, rule, mode)
+        try:
+            self._reload_runtime_config()
+        except ConfigError as exc:
+            restore_latest_backup(config.settings.routing.weighted_config_dir)
+            self._reload_runtime_config()
+            self.db.record_routing_teach_event(
+                action=f"teach_{mode}",
+                status="failed",
+                user_id=str(interaction.user.id) if interaction.user else None,
+                user_name=str(interaction.user) if interaction.user else None,
+                article_id=article_id,
+                channel_id=str(interaction.channel_id) if interaction.channel_id else None,
+                message_id=message_id,
+                rule_id=result.rule.id,
+                term=result.rule.term,
+                rule_type=result.rule.rule_type,
+                fields=result.rule.fields,
+                scores=result.rule.scores,
+                notes=result.rule.notes,
+                before_decision=result.before.to_json_dict(),
+                after_decision=result.after.to_json_dict(),
+                error="Config reload failed after duplicate write; backup restored. " + str(exc),
+                backup_path=str(result.backup_path),
+            )
+            raise RoutingTeachError("Config reload failed after write, so the backup was restored.") from exc
+        event_id = self.db.record_routing_teach_event(
+            action=f"teach_{mode}",
+            status="applied",
+            user_id=str(interaction.user.id) if interaction.user else None,
+            user_name=str(interaction.user) if interaction.user else None,
+            article_id=article_id,
+            channel_id=str(interaction.channel_id) if interaction.channel_id else None,
+            message_id=message_id,
+            rule_id=result.rule.id,
+            term=result.rule.term,
+            rule_type=result.rule.rule_type,
+            fields=result.rule.fields,
+            scores=result.rule.scores,
+            notes=result.rule.notes,
+            before_decision=result.before.to_json_dict(),
+            after_decision=result.after.to_json_dict(),
+            backup_path=str(result.backup_path),
+        )
+        await self._send_teach_changelog(
+            event_id=event_id,
+            article_id=article_id,
+            action_label=f"{mode.title()}d routing term",
+            actor=str(interaction.user) if interaction.user else None,
+            result=result,
+        )
+        await interaction.followup.send(_format_duplicate_applied(event_id, article_id, mode, result), ephemeral=True)
+
+    async def _apply_duplicate_source_url_teach(
+        self,
+        interaction: discord.Interaction,
+        *,
+        mode: str,
+        article: RoutingArticle,
+        article_id: int | None,
+        message_id: str | None,
+        scores: str,
+        host: str | None,
+        path_term: str | None,
+        path_regex: str | None,
+        source_url: str | None,
+        notes: str | None,
+        url_bias_only: bool,
+    ) -> None:
+        config = self._weighted_teach_config()
+        rule = make_source_url_teaching_rule(
+            scores=scores,
+            app_config=config,
+            host=host,
+            path_term=path_term,
+            path_regex=path_regex,
+            source_url=source_url,
+            notes=notes,
+            url_bias_only=url_bias_only,
+        )
+        result = apply_duplicate_source_url_teaching_rule(article, config, rule, mode)
+        try:
+            self._reload_runtime_config()
+        except ConfigError as exc:
+            restore_latest_backup(config.settings.routing.weighted_config_dir)
+            self._reload_runtime_config()
+            self.db.record_routing_teach_event(
+                action=f"teach_source_url_{mode}",
+                status="failed",
+                user_id=str(interaction.user.id) if interaction.user else None,
+                user_name=str(interaction.user) if interaction.user else None,
+                article_id=article_id,
+                channel_id=str(interaction.channel_id) if interaction.channel_id else None,
+                message_id=message_id,
+                rule_id=result.rule.id,
+                term=result.rule.term,
+                rule_type=result.rule.rule_type,
+                fields=result.rule.fields,
+                scores=result.rule.scores,
+                notes=result.rule.notes,
+                before_decision=result.before.to_json_dict(),
+                after_decision=result.after.to_json_dict(),
+                error="Config reload failed after duplicate feed URL write; backup restored. " + str(exc),
+                backup_path=str(result.backup_path),
+            )
+            raise RoutingTeachError("Config reload failed after write, so the backup was restored.") from exc
+        event_id = self.db.record_routing_teach_event(
+            action=f"teach_source_url_{mode}",
+            status="applied",
+            user_id=str(interaction.user.id) if interaction.user else None,
+            user_name=str(interaction.user) if interaction.user else None,
+            article_id=article_id,
+            channel_id=str(interaction.channel_id) if interaction.channel_id else None,
+            message_id=message_id,
+            rule_id=result.rule.id,
+            term=result.rule.term,
+            rule_type=result.rule.rule_type,
+            fields=result.rule.fields,
+            scores=result.rule.scores,
+            notes=result.rule.notes,
+            before_decision=result.before.to_json_dict(),
+            after_decision=result.after.to_json_dict(),
+            backup_path=str(result.backup_path),
+        )
+        await self._send_teach_changelog(
+            event_id=event_id,
+            article_id=article_id,
+            action_label=f"{mode.title()}d feed URL rule",
+            actor=str(interaction.user) if interaction.user else None,
+            result=result,
+        )
+        await interaction.followup.send(_format_duplicate_applied(event_id, article_id, mode, result), ephemeral=True)
+
+    async def _send_teach_changelog(
+        self,
+        *,
+        event_id: int,
+        article_id: int | None,
+        action_label: str,
+        actor: str | None,
+        result,
+    ) -> None:
+        config = self.config_service.active_config
+        channel_id = config.settings.routing.teach_changelog_channel_id if config else None
+        if not channel_id:
+            return
+        try:
+            channel = self.get_channel(int(channel_id))
+            if channel is None:
+                channel = await self.fetch_channel(int(channel_id))
+            if not hasattr(channel, "send"):
+                logger.warning("Routing teach changelog channel %s cannot receive messages.", channel_id)
+                return
+            await channel.send(
+                embed=_build_teach_changelog_embed(
+                    event_id=event_id,
+                    article_id=article_id,
+                    action_label=action_label,
+                    actor=actor,
+                    result=result,
+                )
+            )
+        except Exception:
+            logger.warning("Routing teach changelog send failed for event_id=%s channel_id=%s", event_id, channel_id, exc_info=True)
+
+    def _resolve_teach_article_id(
+        self,
+        *,
+        article_id: int | None,
+        message_id: str | None,
+        channel_id: str | None,
+    ) -> int:
+        if article_id is not None and message_id:
+            raise RoutingTeachError("Use either article_id or message_id, not both.")
+        if article_id is not None:
+            return int(article_id)
+        if message_id:
+            resolved = self.db.article_id_for_discord_message(str(message_id), channel_id)
+            if resolved is None and channel_id is not None:
+                resolved = self.db.article_id_for_discord_message(str(message_id), None)
+            if resolved is None:
+                raise RoutingTeachError("No posted article was found for that Discord message ID.")
+            return resolved
+        raise RoutingTeachError("Provide an article_id or a Discord message_id.")
+
+    def _article_id_for_context_teach_message(self, message: discord.Message) -> tuple[int, str, str] | None:
+        for message_id, channel_id in _teach_message_lookup_candidates(message):
+            resolved = self.db.article_id_for_discord_message(message_id, channel_id)
+            if resolved is None and channel_id is not None:
+                resolved = self.db.article_id_for_discord_message(message_id, None)
+            if resolved is not None:
+                return resolved, message_id, channel_id or ""
+        article_id = _article_id_from_message_embeds(message)
+        if article_id is not None:
+            channel_id = str(getattr(getattr(message, "channel", None), "id", "") or "")
+            return article_id, str(getattr(message, "id", "") or ""), channel_id
+        return None
+
+    def _routing_article_for_teach(self, article_id: int) -> RoutingArticle:
+        row = self.db.get_article_for_routing(article_id)
+        if row is None:
+            raise RoutingTeachError(f"Article not found: {article_id}")
+        return replace(_routing_article_from_row(row), source_url=self._source_url_for_article(article_id))
+
+    def _source_url_for_article(self, article_id: int) -> str | None:
+        if not hasattr(self.db, "feed_key_for_article"):
+            return None
+        feed_key = self.db.feed_key_for_article(article_id)
+        if not feed_key:
+            return None
+        source = self.scheduler.feeds.get(feed_key) or self.scheduler.email_sources.get(feed_key)
+        if source is None:
+            return None
+        return getattr(source, "normalized_url", None) or getattr(source, "url", None)
+
+    def _weighted_teach_config(self):
+        config = self.config_service.active_config
+        if config is None:
+            raise RoutingTeachError("No active config.")
+        if selected_routing_engine_name(config) != "weighted_v2":
+            raise RoutingTeachError("Routing teaching requires the weighted_v2 engine to be active.")
+        return config
+
+    def _route_score_autocomplete(self, current: str) -> list[app_commands.Choice[str]]:
+        config = self.config_service.active_config
+        if config is None or selected_routing_engine_name(config) != "weighted_v2":
+            return []
+        try:
+            suggestions = route_score_suggestions(config, current)
+        except RoutingTeachError:
+            return []
+        return [app_commands.Choice(name=name, value=value) for name, value in suggestions]
 
     def _apply_importance_for_command(self, decision, article: RoutingArticle):
         return apply_importance(
@@ -591,6 +1467,315 @@ class RSSDiscordClient(discord.Client):
         await interaction.response.send_message(message, ephemeral=True)
 
 
+class RoutingTeachModal(discord.ui.Modal):
+    def __init__(self, client: RSSDiscordClient, *, article_id: int, message_id: str, channel_id: str) -> None:
+        super().__init__(title="Teach routing term")
+        self.client = client
+        self.article_id = article_id
+        self.message_id = message_id
+        self.channel_id = channel_id
+        self.term = discord.ui.TextInput(
+            label="Term or phrase",
+            placeholder="nuclear deterrence",
+            max_length=200,
+            required=True,
+        )
+        self.scores = discord.ui.TextInput(
+            label="Scores",
+            placeholder="US Politics:+50 or strategic-weapons:+55, air:+6",
+            max_length=500,
+            required=True,
+        )
+        self.rule_type = discord.ui.TextInput(
+            label="Type",
+            placeholder="literal (default) or regex",
+            default="literal",
+            max_length=20,
+            required=False,
+        )
+        self.fields = discord.ui.TextInput(
+            label="Fields",
+            placeholder="title,summary,url_slug",
+            default="title,summary,url_slug",
+            max_length=100,
+            required=False,
+        )
+        self.notes = discord.ui.TextInput(
+            label="Notes",
+            placeholder="Optional reason",
+            style=discord.TextStyle.paragraph,
+            max_length=500,
+            required=False,
+        )
+        for item in (self.term, self.scores, self.rule_type, self.fields, self.notes):
+            self.add_item(item)
+
+    async def on_submit(self, interaction: discord.Interaction) -> None:
+        await interaction.response.defer(ephemeral=True)
+        try:
+            await self.client._teach_article(
+                interaction,
+                article_id=self.article_id,
+                message_id=self.message_id,
+                term=str(self.term.value),
+                scores=str(self.scores.value),
+                rule_type=str(self.rule_type.value or "literal"),
+                fields=str(self.fields.value or "title,summary,url_slug"),
+                notes=str(self.notes.value or ""),
+            )
+        except (RoutingConfigError, RoutingTeachError) as exc:
+            self.client.db.record_routing_teach_event(
+                action="teach",
+                status="failed",
+                user_id=str(interaction.user.id) if interaction.user else None,
+                user_name=str(interaction.user) if interaction.user else None,
+                article_id=self.article_id,
+                channel_id=self.channel_id,
+                message_id=self.message_id,
+                term=str(self.term.value),
+                rule_type=str(self.rule_type.value or "literal"),
+                notes=str(self.notes.value or ""),
+                error=str(exc),
+            )
+            await interaction.followup.send("Teaching failed: " + truncate(str(exc), 1600), ephemeral=True)
+
+
+class RoutingFeedUrlTeachModal(discord.ui.Modal):
+    def __init__(
+        self,
+        client: RSSDiscordClient,
+        *,
+        article: RoutingArticle,
+        article_id: int,
+        message_id: str,
+        channel_id: str,
+    ) -> None:
+        super().__init__(title="Teach feed URL")
+        self.client = client
+        self.article = article
+        self.article_id = article_id
+        self.message_id = message_id
+        self.channel_id = channel_id
+        self.scores = discord.ui.TextInput(
+            label="Scores",
+            placeholder="sports:+35 or sports:+35, review:-5",
+            max_length=500,
+            required=True,
+        )
+        self.host = discord.ui.TextInput(
+            label="Feed host",
+            placeholder="Optional. Leave as inferred host unless needed.",
+            default=_host_from_url(article.source_url) or "",
+            max_length=200,
+            required=False,
+        )
+        self.path_term = discord.ui.TextInput(
+            label="URL path term",
+            placeholder="sports",
+            max_length=200,
+            required=False,
+        )
+        self.path_regex = discord.ui.TextInput(
+            label="URL path regex",
+            placeholder="Optional advanced regex for the feed URL path",
+            max_length=500,
+            required=False,
+        )
+        self.notes = discord.ui.TextInput(
+            label="Notes",
+            placeholder="Optional reason",
+            style=discord.TextStyle.paragraph,
+            max_length=500,
+            required=False,
+        )
+        for item in (self.scores, self.host, self.path_term, self.path_regex, self.notes):
+            self.add_item(item)
+
+    async def on_submit(self, interaction: discord.Interaction) -> None:
+        await interaction.response.defer(ephemeral=True)
+        try:
+            await self.client._teach_source_url_article(
+                interaction,
+                article=self.article,
+                article_id=self.article_id,
+                message_id=self.message_id,
+                scores=str(self.scores.value),
+                host=str(self.host.value or ""),
+                path_term=str(self.path_term.value or ""),
+                path_regex=str(self.path_regex.value or ""),
+                source_url=self.article.source_url,
+                notes=str(self.notes.value or ""),
+                url_bias_only=True,
+            )
+        except (RoutingConfigError, RoutingTeachError) as exc:
+            self.client.db.record_routing_teach_event(
+                action="teach_source_url",
+                status="failed",
+                user_id=str(interaction.user.id) if interaction.user else None,
+                user_name=str(interaction.user) if interaction.user else None,
+                article_id=self.article_id,
+                channel_id=self.channel_id,
+                message_id=self.message_id,
+                term=str(self.host.value or self.path_term.value or self.path_regex.value or ""),
+                rule_type="source_url",
+                notes=str(self.notes.value or ""),
+                error=str(exc),
+            )
+            await interaction.followup.send("Feed URL teaching failed: " + truncate(str(exc), 1600), ephemeral=True)
+
+
+class RoutingDuplicateRuleView(discord.ui.View):
+    def __init__(
+        self,
+        client: RSSDiscordClient,
+        *,
+        article_id: int,
+        message_id: str | None,
+        term: str,
+        scores: str,
+        rule_type: str,
+        fields: str | None,
+        notes: str | None,
+    ) -> None:
+        super().__init__(timeout=600)
+        self.client = client
+        self.article_id = article_id
+        self.message_id = message_id
+        self.term = term
+        self.scores = scores
+        self.rule_type = rule_type
+        self.fields = fields
+        self.notes = notes
+
+    @discord.ui.button(label="Merge", style=discord.ButtonStyle.primary)
+    async def merge(self, interaction: discord.Interaction, _button: discord.ui.Button) -> None:
+        await self._apply(interaction, "merge")
+
+    @discord.ui.button(label="Replace", style=discord.ButtonStyle.secondary)
+    async def replace(self, interaction: discord.Interaction, _button: discord.ui.Button) -> None:
+        await self._apply(interaction, "replace")
+
+    @discord.ui.button(label="Cancel", style=discord.ButtonStyle.danger)
+    async def cancel(self, interaction: discord.Interaction, _button: discord.ui.Button) -> None:
+        for child in self.children:
+            child.disabled = True
+        await interaction.response.edit_message(content="Duplicate routing change canceled. Nothing was saved.", view=self)
+
+    async def _apply(self, interaction: discord.Interaction, mode: str) -> None:
+        for child in self.children:
+            child.disabled = True
+        await interaction.response.edit_message(content=f"Applying duplicate rule {mode}...", view=self)
+        try:
+            await self.client._apply_duplicate_teach(
+                interaction,
+                mode=mode,
+                article_id=self.article_id,
+                message_id=self.message_id,
+                term=self.term,
+                scores=self.scores,
+                rule_type=self.rule_type,
+                fields=self.fields,
+                notes=self.notes,
+            )
+        except (RoutingConfigError, RoutingTeachError) as exc:
+            self.client.db.record_routing_teach_event(
+                action=f"teach_{mode}",
+                status="failed",
+                user_id=str(interaction.user.id) if interaction.user else None,
+                user_name=str(interaction.user) if interaction.user else None,
+                article_id=self.article_id,
+                channel_id=str(interaction.channel_id) if interaction.channel_id else None,
+                message_id=self.message_id,
+                term=self.term,
+                rule_type=self.rule_type,
+                notes=self.notes,
+                error=str(exc),
+            )
+            await interaction.followup.send(f"Duplicate rule {mode} failed: " + truncate(str(exc), 1600), ephemeral=True)
+
+
+class RoutingDuplicateSourceUrlRuleView(discord.ui.View):
+    def __init__(
+        self,
+        client: RSSDiscordClient,
+        *,
+        article: RoutingArticle,
+        article_id: int | None,
+        message_id: str | None,
+        scores: str,
+        host: str | None,
+        path_term: str | None,
+        path_regex: str | None,
+        source_url: str | None,
+        notes: str | None,
+        url_bias_only: bool,
+    ) -> None:
+        super().__init__(timeout=600)
+        self.client = client
+        self.article = article
+        self.article_id = article_id
+        self.message_id = message_id
+        self.scores = scores
+        self.host = host
+        self.path_term = path_term
+        self.path_regex = path_regex
+        self.source_url = source_url
+        self.notes = notes
+        self.url_bias_only = url_bias_only
+
+    @discord.ui.button(label="Merge", style=discord.ButtonStyle.primary)
+    async def merge(self, interaction: discord.Interaction, _button: discord.ui.Button) -> None:
+        await self._apply(interaction, "merge")
+
+    @discord.ui.button(label="Replace", style=discord.ButtonStyle.secondary)
+    async def replace(self, interaction: discord.Interaction, _button: discord.ui.Button) -> None:
+        await self._apply(interaction, "replace")
+
+    @discord.ui.button(label="Cancel", style=discord.ButtonStyle.danger)
+    async def cancel(self, interaction: discord.Interaction, _button: discord.ui.Button) -> None:
+        for child in self.children:
+            child.disabled = True
+        await interaction.response.edit_message(content="Duplicate feed URL change canceled. Nothing was saved.", view=self)
+
+    async def _apply(self, interaction: discord.Interaction, mode: str) -> None:
+        for child in self.children:
+            child.disabled = True
+        await interaction.response.edit_message(content=f"Applying duplicate feed URL rule {mode}...", view=self)
+        try:
+            await self.client._apply_duplicate_source_url_teach(
+                interaction,
+                mode=mode,
+                article=self.article,
+                article_id=self.article_id,
+                message_id=self.message_id,
+                scores=self.scores,
+                host=self.host,
+                path_term=self.path_term,
+                path_regex=self.path_regex,
+                source_url=self.source_url,
+                notes=self.notes,
+                url_bias_only=self.url_bias_only,
+            )
+        except (RoutingConfigError, RoutingTeachError) as exc:
+            self.client.db.record_routing_teach_event(
+                action=f"teach_source_url_{mode}",
+                status="failed",
+                user_id=str(interaction.user.id) if interaction.user else None,
+                user_name=str(interaction.user) if interaction.user else None,
+                article_id=self.article_id,
+                channel_id=str(interaction.channel_id) if interaction.channel_id else None,
+                message_id=self.message_id,
+                term=self.host or self.path_term or self.path_regex,
+                rule_type="source_url",
+                notes=self.notes,
+                error=str(exc),
+            )
+            await interaction.followup.send(
+                f"Duplicate feed URL rule {mode} failed: " + truncate(str(exc), 1600),
+                ephemeral=True,
+            )
+
+
 def _routing_article_from_row(row) -> RoutingArticle:
     return RoutingArticle(
         article_id=int(row["id"]),
@@ -607,6 +1792,44 @@ def _routing_article_from_row(row) -> RoutingArticle:
     )
 
 
+def _routing_status_lines(config, routing_config, engine_name: str, status: str, recent_errors: int) -> list[str]:
+    lines = [
+        f"Routing enabled: {config.settings.routing.enabled}",
+        f"Routing mode: {config.settings.routing.mode}",
+        f"Routing engine: {engine_name}",
+        f"Validation: {status}",
+    ]
+    if engine_name == "weighted_v2":
+        regex_rules = sum(1 for rule in routing_config.evidence_rules if rule.type == "pattern")
+        literal_rules = len(routing_config.evidence_rules) - regex_rules
+        lines.extend(
+            [
+                f"Weighted config version: {routing_config.version}",
+                f"Routes: {len(routing_config.routes)}",
+                f"Evidence rules: {len(routing_config.evidence_rules)} ({literal_rules} literal, {regex_rules} regex)",
+                f"Source rules: {len(routing_config.source_rules)}",
+                f"Mirror rules: {len(routing_config.mirror_rules)}",
+                (
+                    "Thresholds: "
+                    f"primary {routing_config.primary_threshold}, review {routing_config.review_threshold}, "
+                    f"noise {routing_config.noise_threshold}, secondaries within {routing_config.secondary_within_percent}%"
+                ),
+            ]
+        )
+    else:
+        lines.extend(
+            [
+                f"Taxonomy version: {routing_config.taxonomy_version}",
+                f"Knowledge base version: {routing_config.knowledge_base_version}",
+                f"Channel rules: {len(routing_config.channel_rules)}",
+                f"Loaded tags: {len(routing_config.taxonomy)}",
+                f"Loaded knowledge entries: {len(routing_config.knowledge_entries)}",
+            ]
+        )
+    lines.append(f"Recent routing errors: {recent_errors}")
+    return lines
+
+
 def _parse_datetime(value: object) -> datetime | None:
     if not isinstance(value, str) or not value:
         return None
@@ -614,6 +1837,68 @@ def _parse_datetime(value: object) -> datetime | None:
         return datetime.fromisoformat(value)
     except ValueError:
         return None
+
+
+def _host_from_url(value: str | None) -> str | None:
+    if not value:
+        return None
+    parsed = urlparse(value)
+    return parsed.hostname or None
+
+
+def _teach_message_lookup_candidates(message: Any) -> list[tuple[str, str | None]]:
+    candidates: list[tuple[str, str | None]] = []
+    seen: set[tuple[str, str | None]] = set()
+
+    def snowflake(value: object) -> str | None:
+        if value is None:
+            return None
+        text = str(value).strip()
+        return text or None
+
+    def add(message_id: object, channel_id: object | None) -> None:
+        resolved_message_id = snowflake(message_id)
+        if resolved_message_id is None:
+            return
+        resolved_channel_id = snowflake(channel_id)
+        key = (resolved_message_id, resolved_channel_id)
+        if key in seen:
+            return
+        seen.add(key)
+        candidates.append(key)
+
+    selected_channel_id = snowflake(getattr(getattr(message, "channel", None), "id", None))
+    add(getattr(message, "id", None), selected_channel_id)
+
+    reference = getattr(message, "reference", None)
+    if reference is not None:
+        reference_channel_id = snowflake(getattr(reference, "channel_id", None)) or selected_channel_id
+        add(getattr(reference, "message_id", None), reference_channel_id)
+
+        resolved = getattr(reference, "resolved", None)
+        if resolved is not None:
+            resolved_channel_id = snowflake(getattr(getattr(resolved, "channel", None), "id", None)) or reference_channel_id
+            add(getattr(resolved, "id", None), resolved_channel_id)
+
+    return candidates
+
+
+def _article_id_from_message_embeds(message: Any) -> int | None:
+    for embed in getattr(message, "embeds", None) or []:
+        values: list[str] = []
+        footer = getattr(embed, "footer", None)
+        footer_text = getattr(footer, "text", None)
+        if footer_text:
+            values.append(str(footer_text))
+        for field in getattr(embed, "fields", None) or []:
+            name = str(getattr(field, "name", "") or "")
+            value = str(getattr(field, "value", "") or "")
+            values.append(f"{name}\n{value}")
+        for value in values:
+            match = re.search(r"\bArticle ID:\s*(\d+)\b", value, re.IGNORECASE)
+            if match:
+                return int(match.group(1))
+    return None
 
 
 def _format_importance_terms(terms: tuple[ImportanceTerm, ...], limit: int = 1900) -> str:
@@ -659,6 +1944,8 @@ def _format_routing_debug_field(db: Database, article_id: int) -> str | None:
     ][:2]
 
     lines = [
+        f"Article ID: {article_id}",
+        "Teach: right-click this post -> Apps -> Teach routing term or Teach feed URL",
         f"Decision: {str(row['decision_status']).upper()} -> {', '.join(selected) or 'none'}",
         f"Reason: {row['reason'] or 'none'}",
         f"Top score: {row['top_score']}",
@@ -733,6 +2020,164 @@ def _format_persisted_routing_explanation(row) -> str:
         lines.append("Explanation:")
         lines.extend(str(item) for item in explanation[:8])
     return truncate("\n".join(lines), 1900)
+
+
+def _format_teach_preview(event_id: int, article_id: int | None, preview) -> str:
+    lines = [
+        f"Routing rule preview #{event_id}",
+        f"Article: {article_id or 'none'}",
+        f"Rule: {preview.rule.id}",
+        f"Term: {preview.rule.term}",
+        "Scores: " + _format_score_map(preview.rule.scores),
+        "Before: " + decision_summary(preview.before),
+        "After: " + decision_summary(preview.after),
+        "",
+        "Nothing was saved.",
+    ]
+    return truncate("\n".join(lines), 1900)
+
+
+def _format_teach_applied(event_id: int, article_id: int | None, result) -> str:
+    lines = [
+        f"Routing rule saved #{event_id}",
+        f"Article: {article_id or 'none'}",
+        f"Rule: {result.rule.id}",
+        f"Term: {result.rule.term}",
+        "Scores: " + _format_score_map(result.rule.scores),
+        "Before: " + decision_summary(result.before),
+        "After: " + decision_summary(result.after),
+        "",
+        "Config reloaded. Use `/rss undo-rule` to restore the latest backup.",
+    ]
+    return truncate("\n".join(lines), 1900)
+
+
+def _format_duplicate_preview(event_id: int, article_id: int | None, duplicate) -> str:
+    return _format_duplicate_message(
+        header=f"Duplicate routing rule preview #{event_id}",
+        article_id=article_id,
+        duplicate=duplicate,
+        footer="Nothing was saved.",
+    )
+
+
+def _format_duplicate_prompt(event_id: int, article_id: int | None, duplicate) -> str:
+    return _format_duplicate_message(
+        header=f"Duplicate term detected #{event_id}",
+        article_id=article_id,
+        duplicate=duplicate,
+        footer="Choose Merge to update scores in the existing rule, Replace to overwrite its scores/fields/term, or Cancel.",
+    )
+
+
+def _format_duplicate_applied(event_id: int, article_id: int | None, mode: str, result) -> str:
+    lines = [
+        f"Duplicate routing rule {mode} saved #{event_id}",
+        f"Article: {article_id or 'none'}",
+        f"Rule: {result.rule.id}",
+        f"Term: {result.rule.term}",
+        "Scores: " + _format_score_map(result.rule.scores),
+        "Before: " + decision_summary(result.before),
+        "After: " + decision_summary(result.after),
+        "",
+        "Config reloaded. Use `/rss undo-rule` to restore the latest backup.",
+    ]
+    return truncate("\n".join(lines), 1900)
+
+
+def _build_teach_changelog_embed(
+    *,
+    event_id: int,
+    article_id: int | None,
+    action_label: str,
+    actor: str | None,
+    result,
+) -> discord.Embed:
+    embed = discord.Embed(
+        title=action_label,
+        description=f"`{result.rule.term}`",
+        color=0x2ECC71,
+        timestamp=datetime.now(UTC),
+    )
+    embed.add_field(name="Scores", value=truncate(_format_score_map(result.rule.scores), 1024), inline=False)
+    embed.add_field(name="Rule", value=f"`{result.rule.id}`\nType: `{result.rule.rule_type}`", inline=True)
+    embed.add_field(name="Article", value=f"`{article_id or 'none'}`", inline=True)
+    embed.add_field(name="Event", value=f"`#{event_id}`", inline=True)
+    embed.add_field(name="Fields", value=", ".join(f"`{field}`" for field in result.rule.fields) or "none", inline=False)
+    embed.add_field(
+        name="Routing",
+        value=truncate(f"Before: {decision_summary(result.before)}\nAfter: {decision_summary(result.after)}", 1024),
+        inline=False,
+    )
+    if result.rule.notes:
+        embed.add_field(name="Notes", value=truncate(result.rule.notes, 1024), inline=False)
+    embed.set_footer(text=f"By {actor or 'unknown user'}")
+    return embed
+
+
+def _format_duplicate_message(header: str, article_id: int | None, duplicate, footer: str) -> str:
+    lines = [
+        header,
+        f"Article: {article_id or 'none'}",
+        f"Existing rule: {duplicate.duplicate.rule_id} ({duplicate.duplicate.match_type})",
+        f"Submitted scores: {_format_score_map(duplicate.submitted.scores)}",
+        "",
+        "Current config snippet:",
+        "```json",
+        evidence_json_snippet(duplicate.current_json, 520),
+        "```",
+        "Merge preview:",
+        "```json",
+        evidence_json_snippet(duplicate.merge_json, 520),
+        "```",
+        "Before: " + decision_summary(duplicate.before),
+        "Merge after: " + decision_summary(duplicate.merge_after),
+        "Replace after: " + decision_summary(duplicate.replace_after),
+        "",
+        footer,
+    ]
+    return truncate("\n".join(lines), 1900)
+
+
+def _format_routing_teach_history(rows) -> str:
+    if not rows:
+        return "No routing teaching events yet."
+    lines = ["Recent routing teaching events:"]
+    for row in rows:
+        actor = row["user_name"] or "unknown user"
+        status = row["status"]
+        action = row["action"]
+        article = row["article_id"] or "none"
+        rule = row["rule_id"] or "none"
+        term = row["term"] or "none"
+        error = f" error={truncate(str(row['error']), 80)}" if row["error"] else ""
+        lines.append(f"#{row['id']} {status}/{action} article={article} rule={rule} by {actor}: {term}{error}")
+    return truncate("\n".join(lines), 1900)
+
+
+def _routing_teach_help() -> str:
+    return "\n".join(
+        [
+            "Best path: right-click or long-press a bot article post, then choose Apps -> Teach routing term.",
+            "For feed URL terms, use Apps -> Teach feed URL from the same article menu.",
+            "",
+            "Score format:",
+            "`sea:+35, strategic-weapons:+55, air:-5`",
+            "",
+            "Slash fallback examples:",
+            "`/rss teach message_id:123 term:\"nuclear deterrence\" scores:\"strategic-weapons:+55\"`",
+            "`/rss preview-rule article_id:456 term:\"sub sandwich\" scores:\"noise:+45, sea:-25\"`",
+            "`/rss teach-feed-url message_id:123 path_term:\"sports\" scores:\"sports:+35\"`",
+            "`/rss teach-feed-url host:\"fifa.com\" path_term:\"world cup\" scores:\"sports:+15, review:-5\"`",
+            "",
+            "Literal is the default for terms. Use type `regex` only when you intentionally need a text pattern.",
+            "Feed URL positives are bias-only by default: they boost matching routes but do not route by themselves.",
+        ]
+    )
+
+
+def _format_score_map(scores: dict[str, int]) -> str:
+    return ", ".join(f"{key}:{value:+}" for key, value in sorted(scores.items())) or "none"
 
 
 def _format_score_line(score: dict) -> str:

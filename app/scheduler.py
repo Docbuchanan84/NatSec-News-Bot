@@ -6,6 +6,7 @@ import re
 import time
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
+from typing import Any
 from urllib.parse import urlparse
 
 import aiohttp
@@ -16,9 +17,10 @@ from app.feed_fetcher import FeedFetchError, FeedFetchResult, FeedService
 from app.models import AppConfig, EmailSourceRuntime, FeedRuntime, MaintenanceSettings
 from app.normalizer import build_candidate, normalize_feed_url, stable_hash
 from app.publisher import PublisherService
-from app.routing import RoutingConfigError, RoutingEngine, load_routing_config
+from app.routing import RoutingConfigError
 from app.routing.importance import apply_importance, build_importance_config
 from app.routing.models import RoutingArticle, RoutingDecision
+from app.routing.runtime import load_selected_routing_engine
 
 logger = logging.getLogger(__name__)
 audit_logger = logging.getLogger("app.audit")
@@ -50,7 +52,7 @@ class SchedulerService:
         self.email_sources: dict[str, EmailSourceRuntime] = {}
         self.channel_to_feed_keys: dict[str, tuple[str, ...]] = {}
         self.channel_key_to_id: dict[str, str] = {}
-        self.routing_engine: RoutingEngine | None = None
+        self.routing_engine: Any | None = None
         self.routing_mode = "observe_only"
         self._next_due: dict[str, datetime] = {}
         self._host_locks: dict[str, asyncio.Lock] = {}
@@ -84,20 +86,36 @@ class SchedulerService:
         )
         if config.settings.routing.enabled:
             try:
-                routing_config = load_routing_config(config.settings.routing.config_dir, config)
-                self.routing_engine = RoutingEngine(routing_config)
+                self.routing_engine, routing_config, engine_name = load_selected_routing_engine(config)
+                if engine_name == "legacy":
+                    config_detail = (
+                        f"{len(routing_config.taxonomy)} tags, "
+                        f"{len(routing_config.knowledge_entries)} knowledge entries, "
+                        f"{len(routing_config.channel_rules)} channel rules"
+                    )
+                    audit_detail = (
+                        f"taxonomy_version={routing_config.taxonomy_version} "
+                        f"knowledge_base_version={routing_config.knowledge_base_version} "
+                        f"channels_version={routing_config.channels_version}"
+                    )
+                else:
+                    config_detail = (
+                        f"{len(routing_config.routes)} routes, "
+                        f"{len(routing_config.evidence_rules)} evidence rules, "
+                        f"{len(routing_config.source_rules)} source rules, "
+                        f"{len(routing_config.mirror_rules)} mirror rules"
+                    )
+                    audit_detail = f"weighted_version={routing_config.version}"
                 logger.info(
-                    "Routing config loaded: %s tags, %s knowledge entries, %s channel rules, mode=%s",
-                    len(routing_config.taxonomy),
-                    len(routing_config.knowledge_entries),
-                    len(routing_config.channel_rules),
+                    "Routing config loaded: engine=%s %s, mode=%s",
+                    engine_name,
+                    config_detail,
                     self.routing_mode,
                 )
                 audit_logger.info(
-                    "routing_config_loaded taxonomy_version=%s knowledge_base_version=%s channels_version=%s mode=%s",
-                    routing_config.taxonomy_version,
-                    routing_config.knowledge_base_version,
-                    routing_config.channels_version,
+                    "routing_config_loaded engine=%s %s mode=%s",
+                    engine_name,
+                    audit_detail,
                     self.routing_mode,
                 )
             except RoutingConfigError as exc:
@@ -655,7 +673,12 @@ class SchedulerService:
             else:
                 duplicates += 1
             persist_routing = dedupe.is_new_article or not self.db.has_routing_decision(dedupe.article_id)
-            routing_decision = self._route_candidate(dedupe.article_id, candidate, persist=persist_routing)
+            routing_decision = self._route_candidate(
+                dedupe.article_id,
+                candidate,
+                persist=persist_routing,
+                source_url=result.feed.normalized_url or result.feed.url,
+            )
             for channel_id in self._target_channel_ids(result.feed.channel_ids, routing_decision, result.feed, candidate):
                 if self.db.has_channel_post(dedupe.article_id, channel_id):
                     duplicates += 1
@@ -852,7 +875,14 @@ class SchedulerService:
             return max(base_retry_seconds, backoff.minor_retry_seconds)
         return base_retry_seconds
 
-    def _route_candidate(self, article_id: int, candidate, *, persist: bool = True) -> RoutingDecision | None:
+    def _route_candidate(
+        self,
+        article_id: int,
+        candidate,
+        *,
+        persist: bool = True,
+        source_url: str | None = None,
+    ) -> RoutingDecision | None:
         if self.routing_engine is None:
             return None
         try:
@@ -868,6 +898,7 @@ class SchedulerService:
                 source_id=candidate.source_id,
                 source_class=candidate.source_class,
                 url=candidate.url,
+                source_url=source_url,
                 normalized_title=candidate.normalized_title,
                 routing_tags=candidate.routing_tags,
                 published_at=getattr(candidate, "normalized_published_at", None),

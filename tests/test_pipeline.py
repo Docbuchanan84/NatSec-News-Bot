@@ -106,6 +106,7 @@ def write_routing_config(tmp_path: Path) -> Path:
             "routing": {
               "enabled": true,
               "mode": "enforced",
+              "engine": "legacy",
               "configDir": "__ROUTING_DIR__"
             }
           },

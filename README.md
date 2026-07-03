@@ -9,7 +9,7 @@ Sharing this project with another operator? Send them `FRIEND_SETUP.md` after cl
 
 The config is feed-first: top-level `feeds` are inputs, and `channels` are Discord destinations selected by routing. Legacy channel-scoped feeds are still accepted for compatibility.
 
-Structured routing is configured in `config/routing/` and documented in `docs/routing.md`. The example config enables routing in `observe_only` mode so operators can validate scoring before switching to enforced routing.
+Weighted routing is the primary routing system. It is configured in `config/routing_v2/`, selected with `settings.routing.engine: "weighted_v2"`, and documented in `docs/routing.md`. The older tag/concept router under `config/routing/` remains available only for compatibility with `settings.routing.engine: "legacy"`.
 
 ## Quick Start With Docker Desktop
 
@@ -117,7 +117,11 @@ Then run this in Discord:
 
 If the config is invalid, the bot reports the errors and keeps the previous working config active.
 
-Routing destinations are configured separately. Add the destination channel under `channels`, then update `config/routing/channels.json` when the channel should receive routed stories by topic, source, or concept. Keep `settings.routing.mode` as `observe_only` while validating a new routing setup, then switch to enforced routing once `/rss route-test`, `/rss route-backtest`, and local validation look correct.
+Routing destinations are configured separately. Add the destination channel under `channels`, then update the active weighted routing config. Weighted routing is the primary router and uses `settings.routing.engine: "weighted_v2"` with `config/routing_v2/*.json`. The legacy tag/concept router remains available only as a compatibility option with `settings.routing.engine: "legacy"` or `ROUTING_ENGINE=legacy`, and uses `config/routing/channels.json`.
+
+Weighted V2 routing scores every article against every route. Regex-backed phrase rules in `config/routing_v2/evidence.json` can add or subtract points for any channel, `noise`, or `review`. Longest overlapping phrase matches win, so a phrase such as `sub sandwich` blocks weaker `sub` evidence. Source scoring lives in `config/routing_v2/sources.json`, while source mirrors remain in `config/routing_v2/mirrors.json`. Feed URL rules can match configured feed hosts, complete URL path terms, or path regexes; positive URL-only scores are bias-only by default, so they can boost a route with content/source evidence but cannot route an unrelated article by feed URL alone. Negative URL scores always apply. Use `settings.routing.mode: "enforced"` for normal operation; use `observe_only` only when deliberately testing a routing change without affecting posting.
+
+When weighted V2 is active, server users can teach routing evidence from Discord without editing JSON by hand. Best path: right-click or long-press a bot article post, choose **Apps -> Teach routing term**, then fill in the modal. Feed URL scoring is in the same article menu as **Apps -> Teach feed URL**. Slash fallbacks are available with `/rss teach message_id:<discord_message_id> term:"nuclear deterrence" scores:"strategic-weapons:+55, air:+6"` and `/rss preview-rule article_id:<article_id> term:"sub sandwich" scores:"noise:+45, sea:-25"`. Feed URL scoring can be taught with `/rss teach-feed-url message_id:<discord_message_id> path_term:"sports" scores:"sports:+35"` to infer the feed host from that article, or with explicit criteria such as `/rss teach-feed-url host:"fifa.com" path_term:"world cup" scores:"sports:+15, review:-5"`. Score route names accept canonical keys, friendly names, and configured aliases from `routes.json`, so `US Politics:+50`, `The Hill:+50`, and `the-hill:+50` all resolve to the same route. Slash command score fields also autocomplete route suggestions. If the taught term or feed URL rule already exists, the bot pauses before writing, shows the current JSON snippet, previews a merge, and offers **Merge**, **Replace**, or **Cancel** buttons. Merge updates submitted route scores and preserves other existing scores; replace overwrites the existing rule's criteria/scores/notes while keeping its rule ID. `/rss undo-rule` restores the latest Discord-taught evidence or source backup, and `/rss rule-history` shows recent teaching actions. Discord-taught rules edit `config/routing_v2/evidence.json` or `config/routing_v2/sources.json`, keep one latest rollback backup under `config/routing_v2/.discord_backups/`, validate route names and regex patterns before saving, write a short embed to `settings.routing.teachChangelogChannelId` when configured, and reload routing in-process after a successful write.
 
 For new feeds, keep `initialBackfillHours` at `24` unless you intentionally want a tighter first-run window. Feed-level `routingTags` are optional routing hints for tightly scoped sources, such as a maritime-only or cyber-only feed; avoid broad tags on general news feeds.
 
@@ -136,6 +140,7 @@ MSCIO document-folder URLs are supported for UKMTO/JMIC-style maritime security 
 - `/rss route-backtest` runs routing against recent SQLite articles.
 - `/rss routing-status` shows routing mode, versions, rule counts, and validation status.
 - `/rss explain` shows the latest persisted routing decision for an article, including routing details used for review/debug workflows.
+- `/rss teach`, `/rss teach-feed-url`, `/rss preview-rule`, `/rss undo-rule`, `/rss rule-history`, and `/rss rule-help` manage weighted V2 routing evidence/feed URL scoring from Discord. The message context menus **Teach routing term** and **Teach feed URL** are the preferred workflows from article posts.
 
 ## Long-Running Maintenance
 
@@ -222,6 +227,14 @@ Preview routing locally:
 ```powershell
 python -m app.main --route-test-title "Chinese carrier Liaoning enters Philippine Sea"
 python -m app.main --route-backtest 25
+python -m app.main --route-test-title "U.S. Navy shoots down Houthi drone in the Red Sea" --route-test-source "DVIDS" --route-test-source-id dvids --route-test-source-class official_us_defense
+```
+
+Legacy routing compatibility checks:
+
+```powershell
+python -m app.main --validate-routing --routing-engine legacy
+python -m app.main --routing-diagnostics --routing-engine legacy
 ```
 
 Initialize the database only:

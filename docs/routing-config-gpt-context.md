@@ -1,10 +1,10 @@
-# RSS Bot Routing Config Context
+# RSS Bot Weighted Routing Config Context
 
-This file is intended to be uploaded into a ChatGPT Project/GPT alongside the latest routing config files. It gives the assistant enough context to help draft safe JSON edits without using Codex.
+This file is intended to be uploaded into a ChatGPT Project/GPT alongside the latest routing config files. It gives the assistant enough context to draft safe weighted routing JSON edits without using Codex.
 
 ## Project Goal
 
-The RSS bot reads many RSS/feed sources and posts articles into Discord channels. Routing is controlled by JSON config. The assistant's job is to help the user quickly improve routing by drafting tags, knowledge entries, aliases, boosts, penalties, and route-test examples.
+The RSS bot reads RSS/feed, email, social, and custom sources and posts articles into Discord channels. Routing is controlled by JSON config plus Discord teaching commands. The assistant's job is to help the user improve weighted routing by drafting evidence rules, source/feed URL rules, route scores, and route-test examples.
 
 The assistant should produce paste-ready snippets and explain exactly where they belong.
 
@@ -12,24 +12,32 @@ The assistant should produce paste-ready snippets and explain exactly where they
 
 Always prefer the latest versions from GitHub or a fresh manual upload:
 
+- `config/routing_v2/routes.json`
+- `config/routing_v2/evidence.json`
+- `config/routing_v2/sources.json`
+- `config/routing_v2/mirrors.json`
+- `config/config.example.json`
+- `docs/routing.md`
+- `docs/routing-config-gpt-context.md`
+- `docs/routing-config-gpt-prompt.md`
+
+Useful optional files:
+
+- `README.md`
+- `app/routing_v2/config.py`
+- `app/routing_v2/engine.py`
+- `app/routing_v2/matcher.py`
+- `app/routing_v2/teaching.py`
+- `app/discord_bot.py`
+- `ops/apply-routing-changes.ps1`
+
+Legacy-only reference files:
+
 - `config/routing/taxonomy.json`
 - `config/routing/knowledge_base.json`
 - `config/routing/suppressions.json`
 - `config/routing/channels.json`
-- `config/config.example.json`
-- `docs/routing.md`
-- `docs/routing-config-gpt-context.md`
-
-Useful optional files:
-
 - `app/routing_editor.py`
-- `app/routing/engine.py`
-- `app/routing/scorer.py`
-- `app/routing/matcher.py`
-- `app/routing/config.py`
-- `app/routing/models.py`
-- `ops/apply-routing-changes.ps1`
-- `README.md`
 
 Do not upload:
 
@@ -37,229 +45,264 @@ Do not upload:
 - private tokens
 - local logs unless intentionally sharing examples
 - SQLite database files
+- `config/routing_v2/.discord_backups/`
 - `config/routing/.editor_backups/`
 
-## How Routing Works
+## How Weighted Routing Works
 
-Routing has three main layers.
+Weighted V2 is the primary router. It scores each incoming article against every route. Rules in `config/routing_v2/evidence.json` add or subtract route points from matched text. Rules in `config/routing_v2/sources.json` add or subtract points from source IDs, source classes, source names, or configured feed URLs. The highest eligible primary route wins, with a second primary route allowed when it is within the configured score percentage.
 
-### 1. Taxonomy Tags
+`review` and `noise` are pseudo/review outcomes:
 
-`taxonomy.json` defines every valid tag. Tags can have `parent_tags`, so a specific tag can inherit broader categories.
+- `review` means the article is useful but ambiguous or needs human attention.
+- `noise` means the item should generally not post to a topical channel.
 
-Example:
+Legacy routing files are retained for compatibility and historical reference, but new routing work should target `config/routing_v2/` unless the user explicitly asks for legacy router edits.
 
-```json
-"switzerland": {
-  "parent_tags": ["europe"],
-  "description": "Swiss national politics, security, economy, society, and public affairs."
-}
-```
+## Weighted V2 Files
 
-If a knowledge entry emits `switzerland`, the router also expands to `europe` and then to any broader parents.
+### `routes.json`
 
-### 2. Knowledge Concepts
+Defines route keys, display names, aliases, thresholds, priorities, pseudo routes, and route-level gates.
 
-`knowledge_base.json` defines concept IDs and aliases. Aliases are matched against article title/summary text. When an alias matches, its knowledge entry emits tags.
+Important fields:
 
-Example:
+- `key`: canonical route key used in scores.
+- `aliases`: friendly names accepted by slash command score parsing.
+- `channel_key`: destination channel key from `config/config.json` for real routes.
+- `route_type`: `primary`, `review`, `noise`, or similar route class.
+- `minimum_score`: score needed to select the route.
+- `priority`: tie-breaker after score.
+- `required_source_ids`: hard source gate. Use for source-exclusive channels.
+- `pseudo`: true for non-channel scoring routes such as `noise`.
 
-```json
-{
-  "id": "switzerland",
-  "aliases": [
-    "Switzerland",
-    "Swiss",
-    "Swiss voters",
-    "Swiss referendum"
-  ],
-  "tags": [
-    "switzerland",
-    "europe"
-  ],
-  "priority": 60,
-  "score": 4,
-  "description": "Swiss country and public affairs routing."
-}
-```
+### `evidence.json`
 
-Aliases belong here, not in channel rules.
+Defines words, phrases, and regexes that score article text. Evidence can add or subtract points for any route.
 
-### 3. Suppressions
-
-`suppressions.json` defines known false-positive text that should skip routing unless protected tags are present.
+Literal example:
 
 ```json
 {
-  "id": "false_positive_sports",
-  "aliases": ["Premier League", "World Cup", "soccer"],
-  "action": "skip",
-  "unless_tags_any": ["military", "government", "disaster"],
-  "priority": 50
+  "id": "naval_operations",
+  "type": "literal",
+  "terms": ["naval operations", "carrier strike group"],
+  "scores": {
+    "sea": 55,
+    "land": -15
+  },
+  "notes": "Specific maritime/naval routing evidence."
 }
 ```
 
-Use suppressions for sports, entertainment, travel, commercial airline/shipping, market roundup, and similar noise.
+Regex example:
+
+```json
+{
+  "id": "world_cup_variants",
+  "type": "pattern",
+  "patterns": ["\\b(?:fifa\\s+)?world cup\\b"],
+  "scores": {
+    "sports": 55,
+    "review": -10
+  },
+  "notes": "Sports routing for World Cup coverage."
+}
+```
 
 Important details:
 
-- Aliases match case-insensitively.
-- Whitespace and hyphen differences are handled.
-- Longer overlapping alias matches win over shorter ones.
-- `priority` helps break overlap ties.
-- `score` is match metadata. It is useful context, but channel destination score is mainly controlled in `channels.json`.
-- The `id` should be stable. Rename IDs only with care because channel `concept_boosts`, `concept_penalties`, `required_concepts`, or `excluded_concepts` may reference them.
+- Literal terms compile to whole-word, case-insensitive regex.
+- Whitespace and hyphen differences should be tolerated.
+- Regex is best for robust variants, plurals, abbreviations, and optional words.
+- Longer overlapping matches win.
+- Phrase rules can block weaker nearby word rules.
+- Short terms must not match inside larger words.
 
-### 3. Channel Scores
+### `sources.json`
 
-`channels.json` defines which Discord channel should receive a story.
+Defines source identity scoring and configured feed URL scoring.
 
-Core fields:
+Example:
 
-- `channel_key`: channel identifier from bot config.
-- `destination_class`: `primary`, `mirror`, or `review`.
-- `minimum_score`: score needed to select the channel.
-- `priority`: tie-breaker after score.
-- `tag_boosts`: add score when emitted/expanded tags match.
-- `tag_penalties`: subtract score when tags match.
-- `concept_boosts`: add score when a knowledge ID matches.
-- `concept_penalties`: subtract score when a knowledge ID matches.
-- `required_tags` / `excluded_tags`: gate by taxonomy tags.
-- `required_concepts` / `excluded_concepts`: gate by knowledge IDs.
-- `required_any`, `excluded_any`, `term_boosts`, and `term_penalties`: legacy compatibility only.
+```json
+{
+  "id": "fifa_feed_sports_bias",
+  "source_url_hosts": ["fifa.com"],
+  "source_url_path_terms": ["world cup"],
+  "scores": {
+    "sports": 35,
+    "review": -5
+  },
+  "url_bias_only": true,
+  "notes": "Boost World Cup feed URL matches without routing by URL alone."
+}
+```
 
-The channel score is not simply the sum of `knowledge_base.score`. To change where things route, edit channel boosts, penalties, and gates.
+Feed URL scoring matches the configured feed/source URL, not the article URL. Positive URL-only scores should usually keep `url_bias_only: true`; they boost content/source evidence but cannot route an unrelated article by themselves. Negative URL scores always apply.
+
+### `mirrors.json`
+
+Defines archive/copy destinations after routing. Mirrors do not make a no-match item post. Use source gates on mirrors when possible.
 
 ## Destination Selection
 
 The bot is intentionally narrow:
 
 - It normally chooses one primary topical channel.
-- It may also include one mirror/archive channel when relevant.
-- If no mirror/archive channel is relevant, a second primary channel can be selected only when scoring is strong enough.
-- Review tags and suppressions can override normal routing.
+- It may add a second primary when scoring is within the configured percentage of the winner.
+- It may add source mirrors after a route/review destination exists.
+- It sends ambiguous useful items to review with debug details.
+- It sends low-value off-topic items to noise/no post.
 
-Behavior tags:
+Decision order:
 
-- `review_required` and `ambiguous` send posts to review.
-- `skip_candidate` still skips normal posting for compatibility, but false positives should live in `suppressions.json`.
+1. Build article routing context from title, summary, URL slug, source name, source ID, source class, and configured feed URL.
+2. Match evidence rules.
+3. Apply longest-match precedence.
+4. Apply source identity and feed URL scoring.
+5. Enforce route source gates.
+6. Compare primary, review, and noise thresholds.
+7. Select winner, optional high-scoring secondary, review, or no post.
+8. Add mirrors after routing.
+9. Persist routing/debug information and importance score.
+
+## Region Versus Domain
+
+Region routes should win current events about wars, diplomacy, sanctions, elections, civil unrest, government crisis, and conflict developments. It is more important for region channels not to miss important current events.
+
+Domain routes should win when the news is specifically about a domain changing or operating: naval/maritime affairs, airpower, land forces, cyber, space, strategic weapons, procurement, doctrine, capability adaptation, accidents, force structure, or industrial base.
+
+Good routing fixes usually combine:
+
+- a positive score for the intended route
+- a negative score for common wrong routes
+- a `review` or `noise` score when the item should not go straight to a normal channel
+
+Example reasoning:
+
+- `submarine` can score Sea strongly.
+- `sub sandwich` can score Noise and block weaker `sub`.
+- `Navy` can score Sea and negatively score Land.
+- `movie` or `film` can score Noise and negatively score routes where entertainment content has leaked.
+
+## Score Scale
+
+Use granular scores. A near-perfect article for a route can total around 100 points.
+
+Suggested scale:
+
+- `+50` to `+80`: strong direct evidence.
+- `+25` to `+45`: solid evidence.
+- `+5` to `+20`: weak/contextual evidence.
+- `-10` to `-40`: wrong-route deterrent.
+- `+35` to `+70` for `noise` or `review` when those outcomes are intentional.
+
+Avoid making every broad word decisive. Use phrase specificity and negative scoring.
+
+## Discord Teaching Workflow
+
+Preferred UI:
+
+- Right-click or long-press a bot article post.
+- Choose **Apps -> Teach routing term** for text evidence.
+- Choose **Apps -> Teach feed URL** for configured feed URL evidence.
+
+Slash fallback commands:
+
+```text
+/rss teach message_id:<discord_message_id> term:"nuclear deterrence" scores:"strategic-weapons:+55, air:+6"
+/rss teach-feed-url message_id:<discord_message_id> path_term:"sports" scores:"sports:+35"
+/rss preview-rule article_id:<article_id> term:"sub sandwich" scores:"noise:+45, sea:-25"
+/rss undo-rule
+/rss rule-history
+/rss rule-help
+```
+
+Teaching behavior:
+
+- Validates route names and regexes.
+- Accepts canonical route keys, friendly names, and configured aliases.
+- Creates one latest rollback backup under `config/routing_v2/.discord_backups/`.
+- Reloads routing in-process after a successful write.
+- Records an event in SQLite.
+- Posts a short embed to `settings.routing.teachChangelogChannelId` when configured.
+
+Duplicate behavior:
+
+- Duplicate term/feed URL detected: show current JSON snippet.
+- Show a merge preview.
+- User can choose **Merge**, **Replace**, or **Cancel**.
+- Merge updates submitted route scores and preserves other scores.
+- Replace overwrites criteria/scores/notes while keeping the rule ID.
 
 ## Practical Editing Recipes
 
-### Add Aliases To Existing Topic
+### Add A Phrase Or Variant Family
 
-Use when the tag/ID already exists but the bot misses common headline wording.
-
-Edit `knowledge_base.json`:
+Use `evidence.json`. Prefer literal terms for a small set of phrases and regex for many variants.
 
 ```json
-"aliases": [
-  "Existing alias",
-  "New specific alias",
-  "Another headline phrase"
-]
-```
-
-Then test likely headlines.
-
-### Add New Country Or Region Topic
-
-1. Add a specific tag in `taxonomy.json` if missing.
-2. Add a knowledge entry in `knowledge_base.json`.
-3. Add channel score changes in `channels.json` if the regional channel does not already score the tag.
-
-Example channel scoring:
-
-```json
-"tag_boosts": {
-  "switzerland": 5
-},
-"required_tags": [
-  "europe",
-  "switzerland"
-]
+{
+  "id": "fed_rate_decision",
+  "type": "pattern",
+  "patterns": ["\\b(?:fed|federal reserve)\\s+(?:rate|interest rate)s?\\b"],
+  "scores": {
+    "economy": 50,
+    "review": -5
+  },
+  "notes": "Economy routing for Federal Reserve rate coverage."
+}
 ```
 
 ### Fix Wrong Channel Routing
 
-When something routes to the wrong channel, consider all three:
+Check whether:
 
-1. Is the correct concept being matched?
-2. Is the correct tag emitted?
-3. Does the intended channel score that tag more strongly than the wrong channel?
+1. The intended route has positive evidence.
+2. The wrong route has a repeatable false-positive pattern.
+3. A longer phrase should block a shorter word.
+4. Source or feed URL scoring is biasing the wrong route.
+5. The item should be review or noise instead of a normal route.
 
-Good fixes usually combine:
+Good fixes usually add positive and negative route scores in the same rule.
 
-- More specific aliases.
-- Correct channel boost.
-- Wrong-channel penalty.
-- A tighter `required_tags` or `required_concepts` gate.
-- A suppression entry when the item is pure noise.
+### Add Feed URL Bias
 
-### Use Negative Scoring
-
-Negative scoring is valuable for recurring false positives.
-
-Example: if civilian aviation stories are leaking into military air:
+Use `sources.json`, not `evidence.json`.
 
 ```json
-"tag_penalties": {
-  "civilian_aviation": 6,
-  "consumer_travel": 5
+{
+  "id": "sports_feed_path_bias",
+  "source_url_path_terms": ["sports"],
+  "scores": {
+    "sports": 35
+  },
+  "url_bias_only": true,
+  "notes": "Configured feed URL sports path bias."
 }
 ```
 
-Use penalties to push a wrong channel down without weakening the right channel.
+### Add A New Channel/Route
 
-### Ripple Rename
-
-If renaming a tag, update:
-
-- `taxonomy.json` tag key.
-- every `parent_tags` reference.
-- every knowledge entry `tags` list.
-- `channels.json` tag boosts/penalties.
-- `required_tags`, `excluded_tags`, and `suppress_when_tags_any`.
-- suppression `unless_tags_any`.
-- `review_tags` and `skip_tags` if relevant.
-
-If renaming a knowledge ID, update:
-
-- `knowledge_base.json` `id`.
-- `channels.json` `concept_boosts`.
-- `channels.json` `concept_penalties`.
-- `required_concepts` and `excluded_concepts` if they reference the ID.
+1. Add the channel to `config/config.json`.
+2. Add the route to `config/routing_v2/routes.json`.
+3. Add evidence in `evidence.json`.
+4. Add source/feed URL bias in `sources.json` if useful.
+5. Add mirror behavior in `mirrors.json` only if needed.
+6. Validate and route-test.
 
 ## Preferred Assistant Output Format
 
-For an edit request, answer like this:
+For an edit request:
 
 - Start with a one- or two-sentence recommendation.
-- Name the exact file and existing entry/rule to update.
+- Name the exact file and existing rule to update.
 - Provide the JSON snippet in a fenced `json` block.
 - Provide route-test and validation commands in a fenced `powershell` block.
-- Mention whether a channel score or penalty should also be checked.
+- Mention whether the Discord teaching UI can apply it directly.
 
 Keep snippets small unless a full replacement object is safer.
-
-## Local Editor Available To User
-
-The repo has a local editor:
-
-```powershell
-python -m app.routing_editor wizard
-python -m app.routing_editor find switzerland
-python -m app.routing_editor show-entry switzerland
-python -m app.routing_editor show-channel europe
-python -m app.routing_editor lint
-```
-
-Double-click launchers:
-
-- `config/Open Routing Editor.cmd`
-- `config/Test and Redeploy Routing Changes.cmd`
-
-The editor validates before saving and creates backups.
 
 ## Validation And Deployment
 
@@ -267,8 +310,16 @@ After applying edits:
 
 ```powershell
 python -m app.main --validate-routing
+python -m app.main --routing-diagnostics
+python -m app.main --route-test-title "Example headline"
+python -m app.main --route-backtest 25
+```
+
+Legacy-only lint:
+
+```powershell
 python -m app.routing_editor lint
-python -m app.routing_editor route-test "Example headline"
+python -m app.main --validate-routing --routing-engine legacy
 ```
 
 Deploy config-only changes:

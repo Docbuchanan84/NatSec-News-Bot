@@ -64,7 +64,8 @@ Edit `config/config.json`:
 - RSS and email ingest run independently. Use `settings.polling.maxConcurrentFeedFetches` for RSS parallelism and `settings.polling.maxConcurrentEmailFetches` for email parallelism.
 - Use `legacyChannelKeys` only when a feed should still target a destination directly while routing is being tested.
 - Use `routingTags` only for tightly scoped sources where every item should carry the same routing hint, such as a cyber, maritime, air, or industrial-base feed.
-- Routing rules live in `config/routing/`. Start with `settings.routing.mode` set to `observe_only`, validate the scoring, then switch to enforced routing when ready.
+- Weighted routing rules live in `config/routing_v2/` and are active when `settings.routing.engine` is `"weighted_v2"`. Keep `settings.routing.mode` set to `"enforced"` for normal posting. Use `observe_only` only for a deliberate routing trial where you want the bot to classify but keep old feed targets.
+- The old tag/concept routing files in `config/routing/` are compatibility files for `settings.routing.engine: "legacy"` and should not be the normal editing path.
 - Leave `postOldArticlesOnFirstRun` as `false` unless you want the bot to post older feed entries on first startup. New feeds should normally use `initialBackfillHours: 24` so first startup does not dump old articles.
 
 ## Run With Docker Desktop
@@ -120,6 +121,7 @@ After the bot is running:
 /rss status
 /rss testpost
 /rss refresh
+/rss rule-help
 ```
 
 If slash commands do not appear, confirm `DISCORD_GUILD_ID` is the correct server ID, confirm the bot was invited with slash command permissions, and restart the bot.
@@ -127,6 +129,8 @@ If slash commands do not appear, confirm `DISCORD_GUILD_ID` is the correct serve
 Normal posts include a footer that says whether the item is new or an update and shows a compact importance score as `Imp N`. The post timestamp is attached to the embed itself, so Discord displays it in each user's local time. Higher-importance posts also use warmer embed colors.
 
 When feeds or enriched social/email sources expose suitable images or direct playable video files, the bot uploads them as Discord attachments above the embed. This keeps media visible and playable without showing bare media URLs in the message text.
+
+Weighted routing can be taught from Discord. Right-click or long-press a bot article post, choose **Apps -> Teach routing term**, and fill in a term plus route scores such as `Sea:+35, Review:-10`. Feed/source URL scoring is in the same menu as **Teach feed URL**. Slash fallbacks include `/rss teach`, `/rss teach-feed-url`, `/rss preview-rule`, `/rss undo-rule`, and `/rss rule-history`.
 
 ## Validate Before Handing Off
 

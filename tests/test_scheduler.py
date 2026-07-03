@@ -394,6 +394,7 @@ def test_new_pacing_and_routing_settings_load_from_config(tmp_path):
             "routing": {
               "enabled": true,
               "mode": "enforced",
+              "engine": "legacy",
               "configDir": "config/routing",
               "maxRoutingSummaryChars": 2400
             }

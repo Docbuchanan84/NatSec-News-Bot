@@ -274,6 +274,29 @@ CREATE TABLE IF NOT EXISTS importance_watch_terms (
     updated_at TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS routing_teach_events (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    created_at TEXT NOT NULL,
+    action TEXT NOT NULL,
+    status TEXT NOT NULL,
+    user_id TEXT,
+    user_name TEXT,
+    article_id INTEGER,
+    channel_id TEXT,
+    message_id TEXT,
+    rule_id TEXT,
+    term TEXT,
+    rule_type TEXT,
+    fields TEXT NOT NULL DEFAULT '[]',
+    scores TEXT NOT NULL DEFAULT '{}',
+    notes TEXT,
+    before_decision TEXT NOT NULL DEFAULT '{}',
+    after_decision TEXT NOT NULL DEFAULT '{}',
+    error TEXT,
+    backup_path TEXT,
+    FOREIGN KEY(article_id) REFERENCES articles(id)
+);
+
 CREATE INDEX IF NOT EXISTS idx_articles_normalized_url ON articles(normalized_url);
 CREATE INDEX IF NOT EXISTS idx_articles_title_source_time ON articles(normalized_title, source_name, normalized_published_at);
 CREATE INDEX IF NOT EXISTS idx_feed_status_next_poll ON feed_status(next_poll_at);
@@ -289,6 +312,8 @@ CREATE INDEX IF NOT EXISTS idx_article_routing_decisions_status ON article_routi
 CREATE INDEX IF NOT EXISTS idx_article_tags_tag ON article_tags(tag, article_id);
 CREATE INDEX IF NOT EXISTS idx_article_matches_entry ON article_matches(knowledge_entry_id, article_id);
 CREATE INDEX IF NOT EXISTS idx_importance_watch_terms_enabled ON importance_watch_terms(enabled, category);
+CREATE INDEX IF NOT EXISTS idx_routing_teach_events_created ON routing_teach_events(created_at);
+CREATE INDEX IF NOT EXISTS idx_routing_teach_events_article ON routing_teach_events(article_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_social_link_embeds_lookup
 ON social_link_embeds(channel_id, platform, post_id, created_at);
 """
@@ -451,6 +476,44 @@ class Database:
             """
             CREATE INDEX IF NOT EXISTS idx_importance_watch_terms_enabled
             ON importance_watch_terms(enabled, category)
+            """
+        )
+        self._conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS routing_teach_events (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                created_at TEXT NOT NULL,
+                action TEXT NOT NULL,
+                status TEXT NOT NULL,
+                user_id TEXT,
+                user_name TEXT,
+                article_id INTEGER,
+                channel_id TEXT,
+                message_id TEXT,
+                rule_id TEXT,
+                term TEXT,
+                rule_type TEXT,
+                fields TEXT NOT NULL DEFAULT '[]',
+                scores TEXT NOT NULL DEFAULT '{}',
+                notes TEXT,
+                before_decision TEXT NOT NULL DEFAULT '{}',
+                after_decision TEXT NOT NULL DEFAULT '{}',
+                error TEXT,
+                backup_path TEXT,
+                FOREIGN KEY(article_id) REFERENCES articles(id)
+            )
+            """
+        )
+        self._conn.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_routing_teach_events_created
+            ON routing_teach_events(created_at)
+            """
+        )
+        self._conn.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_routing_teach_events_article
+            ON routing_teach_events(article_id, created_at)
             """
         )
         self._conn.execute(
@@ -972,13 +1035,133 @@ class Database:
         with self._lock:
             cursor = self._conn.execute(
                 """
-                INSERT OR IGNORE INTO channel_posts (article_id, channel_id, discord_message_id, posted_at, status)
+                INSERT INTO channel_posts (article_id, channel_id, discord_message_id, posted_at, status)
                 VALUES (?, ?, ?, ?, 'posted')
+                ON CONFLICT(article_id, channel_id) DO UPDATE SET
+                    discord_message_id = excluded.discord_message_id,
+                    posted_at = excluded.posted_at,
+                    status = 'posted'
+                WHERE channel_posts.status != 'posted'
+                   OR channel_posts.discord_message_id IS NULL
                 """,
                 (article_id, channel_id, message_id, datetime.now(UTC).isoformat()),
             )
             self._conn.commit()
             return cursor.rowcount == 1
+
+    def article_id_for_discord_message(
+        self,
+        message_id: str,
+        channel_id: str | None = None,
+    ) -> int | None:
+        message_id = str(message_id or "").strip()
+        if not message_id:
+            return None
+        params: list[object] = [message_id]
+        channel_filter = ""
+        if channel_id:
+            channel_filter = "AND channel_id = ?"
+            params.append(str(channel_id))
+        with self._lock:
+            row = self._conn.execute(
+                f"""
+                SELECT article_id
+                FROM channel_posts
+                WHERE discord_message_id = ?
+                  {channel_filter}
+                  AND status = 'posted'
+                ORDER BY posted_at DESC, id DESC
+                LIMIT 1
+                """,
+                tuple(params),
+            ).fetchone()
+            return int(row["article_id"]) if row else None
+
+    def feed_key_for_article(self, article_id: int) -> str | None:
+        with self._lock:
+            row = self._conn.execute(
+                """
+                SELECT feed_key
+                FROM feed_entries
+                WHERE article_id = ?
+                ORDER BY seen_at DESC
+                LIMIT 1
+                """,
+                (int(article_id),),
+            ).fetchone()
+            return str(row["feed_key"]) if row else None
+
+    def record_routing_teach_event(
+        self,
+        *,
+        action: str,
+        status: str,
+        user_id: str | None = None,
+        user_name: str | None = None,
+        article_id: int | None = None,
+        channel_id: str | None = None,
+        message_id: str | None = None,
+        rule_id: str | None = None,
+        term: str | None = None,
+        rule_type: str | None = None,
+        fields: list[str] | tuple[str, ...] | None = None,
+        scores: dict[str, int] | None = None,
+        notes: str | None = None,
+        before_decision: dict[str, Any] | None = None,
+        after_decision: dict[str, Any] | None = None,
+        error: str | None = None,
+        backup_path: str | None = None,
+    ) -> int:
+        now = datetime.now(UTC).isoformat()
+        with self._lock:
+            cursor = self._conn.execute(
+                """
+                INSERT INTO routing_teach_events (
+                    created_at, action, status, user_id, user_name, article_id, channel_id, message_id,
+                    rule_id, term, rule_type, fields, scores, notes, before_decision, after_decision,
+                    error, backup_path
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    now,
+                    action,
+                    status,
+                    user_id,
+                    user_name,
+                    article_id,
+                    channel_id,
+                    message_id,
+                    rule_id,
+                    term,
+                    rule_type,
+                    json.dumps(list(fields or []), sort_keys=True),
+                    json.dumps(scores or {}, sort_keys=True),
+                    notes,
+                    json.dumps(before_decision or {}, sort_keys=True),
+                    json.dumps(after_decision or {}, sort_keys=True),
+                    error,
+                    backup_path,
+                ),
+            )
+            self._conn.commit()
+            return int(cursor.lastrowid)
+
+    def recent_routing_teach_events(self, limit: int = 10) -> list[sqlite3.Row]:
+        bounded_limit = max(1, min(int(limit), 50))
+        with self._lock:
+            return list(
+                self._conn.execute(
+                    """
+                    SELECT id, created_at, action, status, user_name, article_id, message_id,
+                           rule_id, term, rule_type, fields, scores, notes, error
+                    FROM routing_teach_events
+                    ORDER BY id DESC
+                    LIMIT ?
+                    """,
+                    (bounded_limit,),
+                )
+            )
 
     def record_channel_suppressed(
         self,

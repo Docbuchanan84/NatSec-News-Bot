@@ -79,6 +79,67 @@ def test_channel_posts_are_unique(tmp_path: Path) -> None:
     assert db.record_channel_post(article.article_id, "222222222222222222", "m3") is True
 
 
+def test_record_channel_post_updates_existing_skipped_row(tmp_path: Path) -> None:
+    db = Database(tmp_path / "rss.sqlite")
+    db.initialize()
+    article = db.resolve_article(make_candidate("Story", "https://example.com/a", "1"), 24)
+
+    assert db.record_channel_skipped(
+        article.article_id,
+        "111111111111111111",
+        "story",
+        "story",
+        "duplicate_same_source",
+    )
+    assert db.article_id_for_discord_message("m1") is None
+
+    assert db.record_channel_post(article.article_id, "111111111111111111", "m1") is True
+    assert db.article_id_for_discord_message("m1") == article.article_id
+
+
+def test_article_id_for_discord_message_and_teach_audit(tmp_path: Path) -> None:
+    db = Database(tmp_path / "rss.sqlite")
+    db.initialize()
+    article = db.resolve_article(make_candidate("Story", "https://example.com/a", "1"), 24)
+    db.record_channel_post(article.article_id, "111111111111111111", "m1")
+
+    assert db.article_id_for_discord_message("m1") == article.article_id
+    assert db.article_id_for_discord_message("m1", "111111111111111111") == article.article_id
+    assert db.article_id_for_discord_message("m1", "222222222222222222") is None
+
+    event_id = db.record_routing_teach_event(
+        action="teach",
+        status="applied",
+        user_id="u1",
+        user_name="User",
+        article_id=article.article_id,
+        channel_id="111111111111111111",
+        message_id="m1",
+        rule_id="discord-test",
+        term="nuclear deterrence",
+        rule_type="literal",
+        fields=("title", "summary"),
+        scores={"strategic-weapons": 55},
+        before_decision={"final_channel_keys": ["review"]},
+        after_decision={"final_channel_keys": ["strategic-weapons"]},
+    )
+    rows = db.recent_routing_teach_events()
+
+    assert rows[0]["id"] == event_id
+    assert rows[0]["status"] == "applied"
+    assert rows[0]["term"] == "nuclear deterrence"
+    assert rows[0]["scores"] == '{"strategic-weapons": 55}'
+
+
+def test_feed_key_for_article_returns_latest_feed_entry(tmp_path: Path) -> None:
+    db = Database(tmp_path / "rss.sqlite")
+    db.initialize()
+    article = db.resolve_article(make_candidate("Story", "https://example.com/a", "1"), 24)
+
+    assert db.feed_key_for_article(article.article_id) == "feed_1"
+    assert db.feed_key_for_article(999999) is None
+
+
 def test_email_cursor_persists_high_water_uid(tmp_path: Path) -> None:
     db = Database(tmp_path / "rss.sqlite")
     db.initialize()

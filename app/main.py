@@ -20,6 +20,7 @@ from app.routing.bootstrap import bootstrap_routing_config, recent_seed_report
 from app.routing.importance import apply_importance, build_importance_config
 from app.routing.models import RoutingArticle
 from app.routing.reporting import format_backtest_summary, format_decision
+from app.routing.runtime import load_selected_routing_engine, selected_routing_engine_name
 from app.scheduler import build_email_source_runtime_map, build_feed_runtime_map
 
 logger = logging.getLogger(__name__)
@@ -36,6 +37,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--min-feed-failures", type=int, default=10, help="Minimum failures for --feed-health-report")
     parser.add_argument("--feed-health-limit", type=int, default=50, help="Maximum rows for --feed-health-report")
     parser.add_argument("--validate-routing", action="store_true", help="Validate routing config and exit")
+    parser.add_argument(
+        "--routing-engine",
+        choices=("legacy", "weighted_v2"),
+        help="Override settings.routing.engine for validation, route tests, diagnostics, and backtests",
+    )
     parser.add_argument("--route-test-title", help="Run routing against a supplied title and exit")
     parser.add_argument("--route-test-summary", help="Optional summary/stub for --route-test-title")
     parser.add_argument("--route-test-source", help="Optional source/feed name for --route-test-title")
@@ -88,6 +94,8 @@ def main() -> int:
     load_dotenv()
     configure_logging()
     args = parse_args()
+    if args.routing_engine:
+        os.environ["ROUTING_ENGINE"] = args.routing_engine
     config_path = Path(os.environ.get("CONFIG_PATH", "config/config.json"))
     database_path = Path(os.environ.get("DATABASE_PATH", "data/rssbot.sqlite"))
     config_service = ConfigService(config_path)
@@ -138,17 +146,11 @@ def main() -> int:
             print(f"Config OK: {len(config.channels)} channels loaded from {config_path}")
             return 0
         if args.validate_routing:
-            routing_config = load_routing_config(config.settings.routing.config_dir, config)
-            print(
-                "Routing OK: "
-                f"{len(routing_config.taxonomy)} tags, "
-                f"{len(routing_config.knowledge_entries)} knowledge entries, "
-                f"{len(routing_config.suppression_entries)} suppressions, "
-                f"{len(routing_config.channel_rules)} channel rules loaded from {config.settings.routing.config_dir}"
-            )
+            _engine, routing_config, engine_name = load_selected_routing_engine(config)
+            print(format_routing_config_summary(routing_config, engine_name, config))
             return 0
         if args.routing_diagnostics:
-            routing_config = load_routing_config(config.settings.routing.config_dir, config)
+            _engine, routing_config, _engine_name = load_selected_routing_engine(config)
             print(format_routing_diagnostics(config, routing_config))
             return 0
         if args.bootstrap_routing_config:
@@ -166,8 +168,7 @@ def main() -> int:
             return 0
         if args.route_test_title:
             db.initialize()
-            routing_config = load_routing_config(config.settings.routing.config_dir, config)
-            engine = RoutingEngine(routing_config)
+            engine, _routing_config, _engine_name = load_selected_routing_engine(config)
             importance_config = build_importance_config(db.list_importance_watch_terms(include_disabled=True))
             article = RoutingArticle(
                 title=args.route_test_title,
@@ -186,8 +187,7 @@ def main() -> int:
             return 0
         if args.route_backtest is not None:
             db.initialize()
-            routing_config = load_routing_config(config.settings.routing.config_dir, config)
-            engine = RoutingEngine(routing_config)
+            engine, _routing_config, _engine_name = load_selected_routing_engine(config)
             importance_config = build_importance_config(db.list_importance_watch_terms(include_disabled=True))
             limit = max(1, min(args.route_backtest, 500))
             results = []
@@ -240,6 +240,8 @@ def _install_signal_handlers(stop_event: asyncio.Event) -> None:
 
 
 def format_routing_diagnostics(config, routing_config) -> str:
+    if hasattr(routing_config, "evidence_rules"):
+        return format_weighted_routing_diagnostics(config, routing_config)
     channel_keys = {channel.key for channel in config.channels}
     rule_keys = {rule.channel_key for rule in routing_config.channel_rules}
     feed_source_ids = {
@@ -304,6 +306,65 @@ def format_routing_diagnostics(config, routing_config) -> str:
             legacy_rules.append(f"{rule.channel_key}({', '.join(legacy_fields)})")
     lines.append("Rules using legacy routing fields: " + (", ".join(legacy_rules) if legacy_rules else "none"))
     return "\n".join(lines)
+
+
+def format_routing_config_summary(routing_config, engine_name: str, config) -> str:
+    if engine_name == "weighted_v2":
+        return (
+            "Routing OK: "
+            f"engine=weighted_v2, "
+            f"{len(routing_config.routes)} routes, "
+            f"{len(routing_config.evidence_rules)} evidence rules, "
+            f"{len(routing_config.source_rules)} source rules, "
+            f"{len(routing_config.mirror_rules)} mirror rules loaded from {config.settings.routing.weighted_config_dir}"
+        )
+    return (
+        "Routing OK: "
+        f"engine=legacy, "
+        f"{len(routing_config.taxonomy)} tags, "
+        f"{len(routing_config.knowledge_entries)} knowledge entries, "
+        f"{len(routing_config.suppression_entries)} suppressions, "
+        f"{len(routing_config.channel_rules)} channel rules loaded from {config.settings.routing.config_dir}"
+    )
+
+
+def format_weighted_routing_diagnostics(config, routing_config) -> str:
+    channel_keys = {channel.key for channel in config.channels}
+    route_keys = {route.key for route in routing_config.routes if not route.pseudo}
+    source_ids = {
+        feed.source_id
+        for feed in list(config.feeds) + [feed for channel in config.channels for feed in channel.feeds]
+    }
+    source_ids.update(source.source_id for source in config.email_sources)
+    missing_channels = sorted(route_keys - channel_keys)
+    channels_without_routes = sorted(channel_keys - route_keys - {rule.channel_key for rule in routing_config.mirror_rules})
+    mirror_without_sources = []
+    for rule in routing_config.mirror_rules:
+        if rule.required_source_ids and not (set(rule.required_source_ids) & source_ids):
+            mirror_without_sources.append(rule.channel_key)
+    regex_rules = sum(1 for rule in routing_config.evidence_rules if rule.type == "pattern")
+    literal_rules = len(routing_config.evidence_rules) - regex_rules
+    return "\n".join(
+        [
+            "Routing diagnostics",
+            (
+                f"engine=weighted_v2 routes={len(routing_config.routes)} evidence={len(routing_config.evidence_rules)} "
+                f"literal_rules={literal_rules} regex_rules={regex_rules} source_rules={len(routing_config.source_rules)} "
+                f"mirrors={len(routing_config.mirror_rules)} top_level_feeds={len(config.feeds)} "
+                f"email_sources={len(config.email_sources)}"
+            ),
+            "Routes missing config channels: " + (", ".join(missing_channels) if missing_channels else "none"),
+            "Config channels without V2 routes/mirrors: "
+            + (", ".join(channels_without_routes) if channels_without_routes else "none"),
+            "Source mirrors with no matching source IDs: "
+            + (", ".join(sorted(mirror_without_sources)) if mirror_without_sources else "none"),
+            (
+                "Thresholds: "
+                f"primary={routing_config.primary_threshold} review={routing_config.review_threshold} "
+                f"noise={routing_config.noise_threshold} secondary_within={routing_config.secondary_within_percent}%"
+            ),
+        ]
+    )
 
 
 def format_feed_health_report(db: Database, min_failures: int = 10, limit: int = 50) -> str:

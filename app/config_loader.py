@@ -409,14 +409,25 @@ def _parse_settings(raw: dict[str, Any], errors: list[str]) -> Settings:
     routing = RoutingSettings(
         enabled=_bool(routing_raw.get("enabled", False), "settings.routing.enabled", errors),
         mode=_choice(
-            routing_raw.get("mode", "observe_only"),
+            routing_raw.get("mode", "enforced"),
             "settings.routing.mode",
             errors,
             {"observe_only", "route_preview", "enforced"},
         ),
+        engine=_choice(
+            routing_raw.get("engine", "weighted_v2"),
+            "settings.routing.engine",
+            errors,
+            {"legacy", "weighted_v2"},
+        ),
         config_dir=_string(
             routing_raw.get("configDir", "config/routing"),
             "settings.routing.configDir",
+            errors,
+        ),
+        weighted_config_dir=_string(
+            routing_raw.get("weightedConfigDir", "config/routing_v2"),
+            "settings.routing.weightedConfigDir",
             errors,
         ),
         max_routing_summary_chars=_int(
@@ -425,6 +436,11 @@ def _parse_settings(raw: dict[str, Any], errors: list[str]) -> Settings:
             errors,
             min_value=200,
             max_value=8000,
+        ),
+        teach_changelog_channel_id=_optional_snowflake(
+            routing_raw.get("teachChangelogChannelId"),
+            "settings.routing.teachChangelogChannelId",
+            errors,
         ),
     )
     maintenance = MaintenanceSettings(
@@ -927,6 +943,19 @@ def _snowflake_tuple(value: Any, path: str, errors: list[str]) -> tuple[str, ...
         if not SNOWFLAKE_RE.match(item):
             errors.append(f"{path} values must be valid Discord channel IDs.")
     return tuple(values)
+
+
+def _optional_snowflake(value: Any, path: str, errors: list[str]) -> str | None:
+    if value is None or value == "":
+        return None
+    if not isinstance(value, str):
+        errors.append(f"{path} must be a valid Discord channel ID.")
+        return None
+    parsed = value.strip()
+    if not SNOWFLAKE_RE.match(parsed):
+        errors.append(f"{path} must be a valid Discord channel ID.")
+        return None
+    return parsed
 
 
 def _object(value: Any, path: str, errors: list[str]) -> dict[str, Any]:

@@ -1,0 +1,105 @@
+{
+  "version": 1,
+  "sources": [
+    {
+      "id": "source-usni",
+      "source_ids": ["usni"],
+      "scores": { "sea": 24, "industrial-base": 6, "training-and-doctrine": 5 }
+    },
+    {
+      "id": "source-us-navy",
+      "source_ids": ["us-navy", "royal-navy"],
+      "scores": { "sea": 22, "industrial-base": 5, "training-and-doctrine": 5 }
+    },
+    {
+      "id": "source-dvids",
+      "source_ids": ["dvids"],
+      "scores": { "sea": 8, "air": 8, "land": 8, "training-and-doctrine": 8 }
+    },
+    {
+      "id": "source-us-air-force",
+      "source_ids": ["us-air-force", "air-force-magazine"],
+      "scores": { "air": 22, "space": 8, "training-and-doctrine": 5 }
+    },
+    {
+      "id": "source-us-army",
+      "source_ids": ["us-army"],
+      "scores": { "land": 22, "training-and-doctrine": 8, "industrial-base": 4 }
+    },
+    {
+      "id": "source-us-marine-corps",
+      "source_ids": ["us-marine-corps"],
+      "scores": { "land": 16, "sea": 12, "training-and-doctrine": 8 }
+    },
+    {
+      "id": "source-space-force",
+      "source_ids": ["space-force", "spacecom"],
+      "scores": { "space": 24, "strategic-weapons": 6 }
+    },
+    {
+      "id": "source-white-house",
+      "source_ids": ["white-house-news", "factbase-white-house-calendar"],
+      "scores": { "the-white-house": 55, "the-hill": 10 }
+    },
+    {
+      "id": "source-natsec-news",
+      "source_ids": ["x-natsec-news"],
+      "scores": { "natsec-news": 55, "review": 5 }
+    },
+    {
+      "id": "source-defense-media",
+      "source_classes": ["defense_media"],
+      "scores": {
+        "sea": 5,
+        "air": 5,
+        "land": 5,
+        "space": 4,
+        "industrial-base": 7,
+        "training-and-doctrine": 4,
+        "strategic-weapons": 4
+      }
+    },
+    {
+      "id": "source-official-us-defense",
+      "source_classes": ["official_us_defense"],
+      "scores": {
+        "sea": 6,
+        "air": 6,
+        "land": 6,
+        "space": 5,
+        "training-and-doctrine": 5,
+        "industrial-base": 4
+      }
+    },
+    {
+      "id": "source-think-tank",
+      "source_classes": ["think_tank"],
+      "scores": {
+        "industrial-base": 5,
+        "training-and-doctrine": 5,
+        "the-hill": 4,
+        "natsec-news": 4
+      }
+    },
+    {
+      "id": "source-osint",
+      "source_classes": ["osint"],
+      "scores": {
+        "middle-east": 5,
+        "europe": 5,
+        "indo-pacific": 5,
+        "natsec-news": 5
+      }
+    },
+    {
+      "id": "source-arctic-media",
+      "source_classes": ["arctic_media"],
+      "scores": { "arctic": 25, "sea": 5, "air": 3 }
+    },
+    {
+      "id": "source-broad-media-noise-risk",
+      "source_classes": ["major_media"],
+      "scores": { "noise": 3, "review": 2 }
+    }
+  ]
+}

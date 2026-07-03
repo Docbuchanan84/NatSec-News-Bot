@@ -1,0 +1,68 @@
+{
+  "version": 1,
+  "mirrors": [
+    {
+      "channel_key": "reuters",
+      "required_source_ids": ["reuters"],
+      "required_source_classes": ["wire_service"],
+      "priority": 20
+    },
+    {
+      "channel_key": "associated-press",
+      "required_source_ids": ["associated-press"],
+      "required_source_classes": ["wire_service"],
+      "priority": 20
+    },
+    {
+      "channel_key": "nyt",
+      "required_source_ids": ["nyt"],
+      "required_source_classes": ["major_media"],
+      "priority": 20
+    },
+    {
+      "channel_key": "wapo",
+      "required_source_ids": ["wapo"],
+      "required_source_classes": ["major_media"],
+      "priority": 20
+    },
+    {
+      "channel_key": "abc-cbs-fox-nbc",
+      "required_source_ids": ["abc", "cbs", "fox", "nbc"],
+      "required_source_classes": ["major_media"],
+      "priority": 20
+    },
+    {
+      "channel_key": "newsweek",
+      "required_source_ids": ["newsweek"],
+      "required_source_classes": ["major_media"],
+      "priority": 20
+    },
+    {
+      "channel_key": "npr",
+      "required_source_ids": ["npr"],
+      "required_source_classes": ["major_media"],
+      "priority": 20
+    },
+    {
+      "channel_key": "dept-of-war",
+      "required_source_classes": ["official_us_defense"],
+      "excluded_source_ids": ["dvids"],
+      "priority": 80
+    },
+    {
+      "channel_key": "defense-media",
+      "required_source_classes": ["defense_media", "osint"],
+      "priority": 70
+    },
+    {
+      "channel_key": "dvids",
+      "required_source_ids": ["dvids"],
+      "priority": 70
+    },
+    {
+      "channel_key": "think-tanks",
+      "required_source_classes": ["think_tank"],
+      "priority": 60
+    }
+  ]
+}
