@@ -61,6 +61,15 @@
       "optimizeOnMaintenance": true,
       "vacuumOnStartup": false
     },
+    "importance": {
+      "enabled": true,
+      "codexReviewEnabled": true,
+      "codexReviewIntervalHours": 6,
+      "codexReviewLookbackHours": 6,
+      "codexWorkerUrl": "http://host.docker.internal:8765/importance-review",
+      "autoApplyMaxAbsWeight": 25,
+      "autoApplyMaxExpirationHours": 72
+    },
     "routing": {
       "enabled": true,
       "mode": "enforced",

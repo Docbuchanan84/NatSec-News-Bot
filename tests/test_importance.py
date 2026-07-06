@@ -43,8 +43,8 @@ def test_low_signal_no_match_caps_at_two() -> None:
         RoutingArticle(title="Weekly briefing released", source_class="wire_service"),
     )
 
-    assert score <= 2
-    assert "low_signal_cap 2" in reasons
+    assert score <= 20
+    assert "low_signal_cap 20" in reasons
 
 
 def test_active_conflict_scores_high_importance() -> None:
@@ -57,9 +57,9 @@ def test_active_conflict_scores_high_importance() -> None:
         RoutingArticle(title="Breaking missile strike hits Kyiv", source_class="wire_service"),
     )
 
-    assert score == 10
-    assert "concept +3: ukraine_war" in reasons
-    assert "tag +3: active_conflict" in reasons
+    assert score == 100
+    assert "concept +18: ukraine_war" in reasons
+    assert "tag +18: active_conflict" in reasons
 
 
 def test_medium_regional_security_story_scores_below_hot_conflict() -> None:
@@ -68,8 +68,8 @@ def test_medium_regional_security_story_scores_below_hot_conflict() -> None:
         RoutingArticle(title="Allies expand sanctions after talks", source_class="think_tank"),
     )
 
-    assert score == 4
-    assert "source_class +1: think_tank" in reasons
+    assert 10 <= score < 50
+    assert "source_class +3: think_tank" in reasons
 
 
 def test_apply_importance_returns_decision_with_score() -> None:
@@ -86,11 +86,11 @@ def test_custom_watch_term_can_raise_importance() -> None:
     score, reasons = score_importance(
         make_decision(),
         RoutingArticle(title="Coup alert prompts emergency meeting", source_class="wire_service"),
-        build_importance_config([ImportanceTerm("coup alert", 5, "watch")]),
+        build_importance_config([ImportanceTerm("coup alert", 25, "watch")]),
     )
 
-    assert score >= 8
-    assert "watch +5: coup alert" in reasons
+    assert score >= 35
+    assert "watch +25: coup alert" in reasons
 
 
 def test_disabled_watch_term_overrides_default() -> None:
@@ -105,8 +105,8 @@ def test_disabled_watch_term_overrides_default() -> None:
     )
 
     assert enabled_score > disabled_score
-    assert "watch +4: sunk" in enabled_reasons
-    assert "watch +4: sunk" not in disabled_reasons
+    assert "watch +28: sunk" in enabled_reasons
+    assert "watch +28: sunk" not in disabled_reasons
 
 
 def test_fresh_valid_timestamp_adds_recency_signal() -> None:
@@ -132,9 +132,9 @@ def test_fresh_valid_timestamp_adds_recency_signal() -> None:
         ),
     )
 
-    assert fresh_score == stale_score + 2
-    assert "recency +2" in fresh_reasons
-    assert "recency +2" not in stale_reasons
+    assert fresh_score >= stale_score + 12
+    assert "recency +18" in fresh_reasons
+    assert "recency +18" not in stale_reasons
 
 
 def test_routine_analysis_gets_dampened() -> None:
@@ -143,8 +143,8 @@ def test_routine_analysis_gets_dampened() -> None:
         RoutingArticle(title="Analysis: weekly briefing reviews procurement plans", source_class="think_tank"),
     )
 
-    assert score <= 2
-    assert "dampener -2: roundup" in reasons or "dampener -2: opinion" in reasons
+    assert score <= 5
+    assert "dampener -12: roundup" in reasons or "dampener -12: opinion" in reasons
 
 
 def test_unrouted_critical_story_is_not_forced_to_low_signal_floor() -> None:
@@ -153,5 +153,67 @@ def test_unrouted_critical_story_is_not_forced_to_low_signal_floor() -> None:
         RoutingArticle(title="Breaking news: tanker sunk after missile strike"),
     )
 
-    assert score >= 5
-    assert "unrouted_critical_cap 6" in reasons
+    assert score >= 50
+    assert "unrouted_critical_cap 60" in reasons
+
+
+def test_negative_watch_term_lowers_importance() -> None:
+    base_score, _base_reasons = score_importance(
+        make_decision(),
+        RoutingArticle(title="Defense contract awarded for patrol aircraft"),
+    )
+    score, reasons = score_importance(
+        make_decision(),
+        RoutingArticle(title="Defense contract awarded for patrol aircraft"),
+        build_importance_config([ImportanceTerm("contract awarded", -20, "noise")]),
+    )
+
+    assert score <= max(0, base_score - 15)
+    assert "watch -20: contract awarded" in reasons
+
+
+def test_expired_watch_term_is_ignored() -> None:
+    now = datetime(2026, 6, 30, 12, tzinfo=UTC)
+    score, reasons = score_importance(
+        make_decision(),
+        RoutingArticle(title="Crimea bridge alert"),
+        build_importance_config(
+            [ImportanceTerm("crimea bridge", 25, "trend", expires_at=now - timedelta(hours=1))],
+            now=now,
+        ),
+    )
+
+    assert score < 30
+    assert all("crimea bridge" not in reason for reason in reasons)
+
+
+def test_similar_recent_story_gets_minor_penalty() -> None:
+    now = datetime(2026, 6, 30, 12, tzinfo=UTC)
+    article = RoutingArticle(
+        article_id=2,
+        title="Navy destroyer enters Red Sea after Houthi missile attack",
+        normalized_title="navy destroyer enters red sea after houthi missile attack",
+        title_signature="navy destroyer enters red sea houthi missile attack",
+        story_cluster_key="cluster-1",
+    )
+    base_score, _base_reasons = score_importance(make_decision(), article, build_importance_config(now=now))
+    score, reasons = score_importance(
+        make_decision(),
+        article,
+        build_importance_config(
+            now=now,
+            recent_articles=[
+                {
+                    "id": 1,
+                    "title": "Navy destroyer enters Red Sea after Houthi missile attack",
+                    "normalized_title": "navy destroyer enters red sea after houthi missile attack",
+                    "title_signature": "navy destroyer enters red sea houthi missile attack",
+                    "story_cluster_key": "cluster-1",
+                    "normalized_published_at": now.isoformat(),
+                }
+            ],
+        ),
+    )
+
+    assert score < base_score
+    assert any(reason.startswith("similarity -") for reason in reasons)

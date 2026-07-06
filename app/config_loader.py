@@ -17,6 +17,7 @@ from app.models import (
     EmailSourceConfig,
     FailureBackoffSettings,
     FeedConfig,
+    ImportanceSettings,
     LoggingSettings,
     MaintenanceSettings,
     PollingSettings,
@@ -193,6 +194,7 @@ def _parse_settings(raw: dict[str, Any], errors: list[str]) -> Settings:
         "settings.socialLinkEmbeds",
         errors,
     )
+    importance_raw = _object(raw.get("importance", {}), "settings.importance", errors)
 
     polling = PollingSettings(
         default_interval_seconds=_int(
@@ -532,6 +534,47 @@ def _parse_settings(raw: dict[str, Any], errors: list[str]) -> Settings:
             errors,
         ),
     )
+    importance = ImportanceSettings(
+        enabled=_bool(importance_raw.get("enabled", True), "settings.importance.enabled", errors),
+        codex_review_enabled=_bool(
+            importance_raw.get("codexReviewEnabled", True),
+            "settings.importance.codexReviewEnabled",
+            errors,
+        ),
+        codex_review_interval_hours=_int(
+            importance_raw.get("codexReviewIntervalHours", 6),
+            "settings.importance.codexReviewIntervalHours",
+            errors,
+            min_value=1,
+            max_value=168,
+        ),
+        codex_review_lookback_hours=_int(
+            importance_raw.get("codexReviewLookbackHours", 6),
+            "settings.importance.codexReviewLookbackHours",
+            errors,
+            min_value=1,
+            max_value=168,
+        ),
+        codex_worker_url=_string(
+            importance_raw.get("codexWorkerUrl", "http://host.docker.internal:8765/importance-review"),
+            "settings.importance.codexWorkerUrl",
+            errors,
+        ),
+        auto_apply_max_abs_weight=_int(
+            importance_raw.get("autoApplyMaxAbsWeight", 25),
+            "settings.importance.autoApplyMaxAbsWeight",
+            errors,
+            min_value=1,
+            max_value=50,
+        ),
+        auto_apply_max_expiration_hours=_int(
+            importance_raw.get("autoApplyMaxExpirationHours", 72),
+            "settings.importance.autoApplyMaxExpirationHours",
+            errors,
+            min_value=1,
+            max_value=720,
+        ),
+    )
     return Settings(
         polling=polling,
         failure_backoff=failure_backoff,
@@ -542,6 +585,7 @@ def _parse_settings(raw: dict[str, Any], errors: list[str]) -> Settings:
         routing=routing,
         maintenance=maintenance,
         social_link_embeds=social_link_embeds,
+        importance=importance,
     )
 
 

@@ -7,13 +7,15 @@ import re
 import time
 from dataclasses import replace
 from datetime import UTC
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any
 from urllib.parse import unquote, urlparse
 
+import aiohttp
 import discord
 from discord import app_commands
 
+from app.codex_draft import build_codex_draft_payload, discord_message_url, json_row_value, related_article_candidates
 from app.config_loader import ConfigError, ConfigService
 from app.database import Database
 from app.feed_fetcher import clean_html_text
@@ -78,11 +80,12 @@ MARKETING_CONTINUATION_URL_RE = re.compile(
     re.IGNORECASE,
 )
 REVIEW_CHANNEL_ID = "1511541774642843789"
+DEFAULT_CODEX_DRAFT_WORKER_URL = "http://host.docker.internal:8765/draft"
 IMPORTANCE_COLOR_STOPS = (
     (0, 0x808080),
-    (3, 0x2ECC71),
-    (7, 0xF1C40F),
-    (10, 0xE74C3C),
+    (30, 0x2ECC71),
+    (70, 0xF1C40F),
+    (100, 0xE74C3C),
 )
 TRACKING_TITLE_HOST_FRAGMENTS = (
     "hubspotlinks.com",
@@ -426,16 +429,14 @@ class RSSDiscordClient(discord.Client):
 
         @group.command(name="importance-list", description="Show active importance watch terms")
         async def importance_list(interaction: discord.Interaction) -> None:
-            terms = build_importance_config(
-                self.db.list_importance_watch_terms(include_disabled=True)
-            ).watch_terms
-            await interaction.response.send_message(_format_importance_terms(terms), ephemeral=True)
+            await interaction.response.send_message(self._importance_watchlist_text(), ephemeral=True)
 
         @group.command(name="importance-add", description="Add or update an importance watch term")
         @app_commands.describe(
             term="Word or phrase to boost",
-            weight="Importance boost, 1 to 10",
+            weight="Importance adjustment, -50 to +50",
             category="Short category label",
+            expires_at="Optional ISO timestamp or YYYY-MM-DD expiration",
             notes="Optional note for why this term matters",
         )
         async def importance_add(
@@ -443,6 +444,7 @@ class RSSDiscordClient(discord.Client):
             term: str,
             weight: int,
             category: str = "watch",
+            expires_at: str | None = None,
             notes: str | None = None,
         ) -> None:
             try:
@@ -452,12 +454,14 @@ class RSSDiscordClient(discord.Client):
                     category=category,
                     notes=notes,
                     enabled=True,
+                    expires_at=_parse_importance_expiration(expires_at),
+                    source="human",
                 )
             except ValueError as exc:
                 await interaction.response.send_message(str(exc), ephemeral=True)
                 return
             await interaction.response.send_message(
-                f"Importance term active: {row['term']} +{row['weight']} ({row['category']}).",
+                f"Importance term active: {row['term']} {_signed_int(int(row['weight']))} ({row['category']}).",
                 ephemeral=True,
             )
 
@@ -497,6 +501,41 @@ class RSSDiscordClient(discord.Client):
             state = "enabled" if enabled else "disabled"
             await interaction.response.send_message(
                 f"Importance term {state}: {normalize_watch_term(term)}.",
+                ephemeral=True,
+            )
+
+        @group.command(name="importance-proposals", description="Show pending Codex importance suggestions")
+        async def importance_proposals(interaction: discord.Interaction) -> None:
+            proposals = self.db.list_importance_watch_term_proposals(status="pending")
+            await interaction.response.send_message(
+                _format_importance_proposals(proposals),
+                ephemeral=True,
+                view=ImportanceProposalActionView(self, proposals),
+            )
+
+        @group.command(name="importance-approve", description="Approve a pending Codex importance suggestion")
+        @app_commands.describe(proposal_id="Proposal ID from the importance proposal list")
+        async def importance_approve(interaction: discord.Interaction, proposal_id: int) -> None:
+            try:
+                proposal = self.db.apply_importance_watch_term_proposal(proposal_id)
+            except (KeyError, ValueError) as exc:
+                await interaction.response.send_message(str(exc), ephemeral=True)
+                return
+            await interaction.response.send_message(
+                f"Applied proposal #{proposal['id']}: {proposal['action']} {proposal['term']}.",
+                ephemeral=True,
+            )
+
+        @group.command(name="importance-reject", description="Reject a pending Codex importance suggestion")
+        @app_commands.describe(proposal_id="Proposal ID from the importance proposal list")
+        async def importance_reject(interaction: discord.Interaction, proposal_id: int) -> None:
+            try:
+                proposal = self.db.reject_importance_watch_term_proposal(proposal_id)
+            except (KeyError, ValueError) as exc:
+                await interaction.response.send_message(str(exc), ephemeral=True)
+                return
+            await interaction.response.send_message(
+                f"Rejected proposal #{proposal['id']}: {proposal['action']} {proposal['term']}.",
                 ephemeral=True,
             )
 
@@ -708,6 +747,37 @@ class RSSDiscordClient(discord.Client):
         async def rule_help(interaction: discord.Interaction) -> None:
             await interaction.response.send_message(_routing_teach_help(), ephemeral=True)
 
+        @group.command(name="draft-post", description="Draft a NatSec News X post from an article or bot message")
+        @app_commands.describe(
+            article_id="Article ID from the RSS bot",
+            message_id="Discord message ID for a bot article post",
+            tweet_only="Return only the tweet text instead of a full draft pack",
+        )
+        async def draft_post(
+            interaction: discord.Interaction,
+            article_id: int | None = None,
+            message_id: str | None = None,
+            tweet_only: bool = False,
+        ) -> None:
+            await interaction.response.defer(ephemeral=False, thinking=True)
+            try:
+                resolved_article_id = self._resolve_teach_article_id(
+                    article_id=article_id,
+                    message_id=message_id,
+                    channel_id=str(interaction.channel_id) if interaction.channel_id else None,
+                )
+                result = await self._draft_natsec_x_post(
+                    article_id=resolved_article_id,
+                    source_message_id=message_id,
+                    source_channel_id=str(interaction.channel_id) if interaction.channel_id else None,
+                    guild_id=str(interaction.guild_id) if interaction.guild_id else None,
+                    tweet_only=tweet_only,
+                )
+            except Exception as exc:
+                await interaction.followup.send("Draft failed: " + truncate(str(exc), 1800), ephemeral=False)
+                return
+            await _send_long_followup(interaction, result)
+
         self.tree.add_command(group)
 
         async def teach_routing_term_context(interaction: discord.Interaction, message: discord.Message) -> None:
@@ -753,6 +823,48 @@ class RSSDiscordClient(discord.Client):
             )
 
         self.tree.add_command(app_commands.ContextMenu(name="Teach feed URL", callback=teach_feed_url_context))
+
+        async def importance_watchlist_context(interaction: discord.Interaction, message: discord.Message) -> None:
+            await interaction.response.send_message(self._importance_watchlist_text(), ephemeral=True)
+
+        self.tree.add_command(app_commands.ContextMenu(name="Importance watchlist", callback=importance_watchlist_context))
+
+        async def manage_importance_context(interaction: discord.Interaction, message: discord.Message) -> None:
+            resolved = self._article_id_for_context_teach_message(message)
+            article_id = resolved[0] if resolved is not None else None
+            suggested_term = _suggest_importance_term_from_message(message)
+            await interaction.response.send_message(
+                _importance_manage_text(article_id=article_id, suggested_term=suggested_term),
+                ephemeral=True,
+                view=ImportanceManageView(self, article_id=article_id, suggested_term=suggested_term),
+            )
+
+        self.tree.add_command(app_commands.ContextMenu(name="Manage importance", callback=manage_importance_context))
+
+        async def draft_natsec_x_context(interaction: discord.Interaction, message: discord.Message) -> None:
+            resolved = self._article_id_for_context_teach_message(message)
+            if resolved is None:
+                await interaction.response.send_message(
+                    "I could not connect that Discord message or its replied-to message to a posted article.",
+                    ephemeral=True,
+                )
+                return
+            article_id, matched_message_id, matched_channel_id = resolved
+            await interaction.response.defer(ephemeral=False, thinking=True)
+            try:
+                result = await self._draft_natsec_x_post(
+                    article_id=article_id,
+                    source_message_id=matched_message_id,
+                    source_channel_id=matched_channel_id,
+                    guild_id=str(interaction.guild_id) if interaction.guild_id else None,
+                    tweet_only=False,
+                )
+            except Exception as exc:
+                await interaction.followup.send("Draft failed: " + truncate(str(exc), 1800), ephemeral=False)
+                return
+            await _send_long_followup(interaction, result)
+
+        self.tree.add_command(app_commands.ContextMenu(name="Draft NatSec X post", callback=draft_natsec_x_context))
 
         @self.tree.command(name="debugmode", description="Toggle routing score details on RSS embeds")
         @app_commands.describe(enabled="Show routing score details on future RSS embeds")
@@ -1429,6 +1541,61 @@ class RSSDiscordClient(discord.Client):
             return None
         return getattr(source, "normalized_url", None) or getattr(source, "url", None)
 
+    async def _draft_natsec_x_post(
+        self,
+        *,
+        article_id: int,
+        source_message_id: str | None,
+        source_channel_id: str | None,
+        guild_id: str | None,
+        tweet_only: bool,
+    ) -> str:
+        worker_url = os.environ.get("CODEX_DRAFT_WORKER_URL", DEFAULT_CODEX_DRAFT_WORKER_URL).strip()
+        if not worker_url:
+            raise RuntimeError("CODEX_DRAFT_WORKER_URL is not configured.")
+        timeout_seconds = _env_int("CODEX_DRAFT_TIMEOUT_SECONDS", 900)
+        job = self.db.get_post_job(article_id, source_channel_id or REVIEW_CHANNEL_ID, is_new_article=False)
+        routing_row = self.db.latest_routing_decision_for_article(article_id)
+        routing = _routing_row_to_payload(routing_row)
+        related_rows = [
+            _article_row_to_payload(row)
+            for row in self.db.recent_articles_for_routing(limit=700, days=3)
+        ]
+        payload = build_codex_draft_payload(
+            job=job,
+            routing=routing,
+            related_articles=related_article_candidates(job, related_rows, limit=8),
+            request={
+                "tweet_only": tweet_only,
+                "source_message_id": source_message_id,
+                "source_channel_id": source_channel_id,
+                "source_message_url": discord_message_url(guild_id, source_channel_id, source_message_id),
+            },
+        )
+        client_timeout = aiohttp.ClientTimeout(total=timeout_seconds)
+        async with aiohttp.ClientSession(timeout=client_timeout) as session:
+            async with session.post(worker_url, json=payload) as response:
+                body = await response.text()
+                if response.status >= 400:
+                    raise RuntimeError(f"worker HTTP {response.status}: {body[:1200]}")
+                try:
+                    data = await response.json(content_type=None)
+                except Exception:
+                    raise RuntimeError("worker returned non-JSON response: " + body[:1200])
+        if not data.get("ok"):
+            raise RuntimeError(str(data.get("error") or "worker failed"))
+        result = str(data.get("result") or "").strip()
+        if not result:
+            raise RuntimeError("worker returned an empty draft")
+        audit_logger.info(
+            "codex_draft_completed article_id=%s channel_id=%s message_id=%s worker_url=%s",
+            article_id,
+            source_channel_id,
+            source_message_id,
+            worker_url,
+        )
+        return result
+
     def _weighted_teach_config(self):
         config = self.config_service.active_config
         if config is None:
@@ -1448,11 +1615,30 @@ class RSSDiscordClient(discord.Client):
         return [app_commands.Choice(name=name, value=value) for name, value in suggestions]
 
     def _apply_importance_for_command(self, decision, article: RoutingArticle):
+        recent_articles = (
+            self.db.recent_articles_for_importance_similarity(article.article_id)
+            if article.article_id is not None and hasattr(self.db, "recent_articles_for_importance_similarity")
+            else ()
+        )
         return apply_importance(
             decision,
             article,
-            build_importance_config(self.db.list_importance_watch_terms(include_disabled=True)),
+            build_importance_config(
+                self.db.list_importance_watch_terms(include_disabled=True),
+                recent_articles=recent_articles,
+            ),
         )
+
+    def _importance_watchlist_text(self) -> str:
+        terms = build_importance_config(
+            self.db.list_importance_watch_terms(include_disabled=True)
+        ).watch_terms
+        proposals = (
+            self.db.list_importance_watch_term_proposals(status="pending", limit=10)
+            if hasattr(self.db, "list_importance_watch_term_proposals")
+            else []
+        )
+        return _format_importance_terms(terms, pending_proposals=proposals)
 
     async def _send_routing_config_error(
         self,
@@ -1465,6 +1651,183 @@ class RSSDiscordClient(discord.Client):
             await interaction.followup.send(message, ephemeral=True)
             return
         await interaction.response.send_message(message, ephemeral=True)
+
+
+class ImportanceManageView(discord.ui.View):
+    def __init__(self, client: RSSDiscordClient, *, article_id: int | None, suggested_term: str | None) -> None:
+        super().__init__(timeout=300)
+        self.client = client
+        self.article_id = article_id
+        self.suggested_term = suggested_term
+
+    @discord.ui.button(label="Score Article", style=discord.ButtonStyle.secondary)
+    async def score_article(self, interaction: discord.Interaction, _button: discord.ui.Button) -> None:
+        if self.article_id is None:
+            await interaction.response.send_message("No RSS article was found for that message.", ephemeral=True)
+            return
+        try:
+            engine = self.client._routing_engine_for_command()
+            row = self.client.db.get_article_for_routing(self.article_id)
+            if row is None:
+                await interaction.response.send_message(f"Article not found: {self.article_id}", ephemeral=True)
+                return
+            article = _routing_article_from_row(row)
+            decision = self.client._apply_importance_for_command(engine.route(article), article)
+        except RoutingConfigError as exc:
+            await self.client._send_routing_config_error(interaction, exc)
+            return
+        await interaction.response.send_message(format_decision(decision), ephemeral=True)
+
+    @discord.ui.button(label="Add Term", style=discord.ButtonStyle.primary)
+    async def add_term(self, interaction: discord.Interaction, _button: discord.ui.Button) -> None:
+        await interaction.response.send_modal(
+            ImportanceWatchTermModal(self.client, default_term=self.suggested_term or "")
+        )
+
+    @discord.ui.button(label="Disable Term", style=discord.ButtonStyle.danger)
+    async def disable_term(self, interaction: discord.Interaction, _button: discord.ui.Button) -> None:
+        await interaction.response.send_modal(ImportanceDisableTermModal(self.client))
+
+    @discord.ui.button(label="Review Proposals", style=discord.ButtonStyle.secondary)
+    async def review_proposals(self, interaction: discord.Interaction, _button: discord.ui.Button) -> None:
+        proposals = self.client.db.list_importance_watch_term_proposals(status="pending")
+        await interaction.response.send_message(
+            _format_importance_proposals(proposals),
+            ephemeral=True,
+            view=ImportanceProposalActionView(self.client, proposals),
+        )
+
+
+class ImportanceProposalActionView(discord.ui.View):
+    def __init__(self, client: RSSDiscordClient, proposals: list[dict[str, object]]) -> None:
+        super().__init__(timeout=300)
+        self.client = client
+        for proposal in proposals[:5]:
+            proposal_id = int(proposal["id"])
+            approve = discord.ui.Button(
+                label=f"Approve #{proposal_id}",
+                style=discord.ButtonStyle.primary,
+                custom_id=f"importance_approve_{proposal_id}",
+            )
+            reject = discord.ui.Button(
+                label=f"Reject #{proposal_id}",
+                style=discord.ButtonStyle.secondary,
+                custom_id=f"importance_reject_{proposal_id}",
+            )
+            approve.callback = self._approve_callback(proposal_id)
+            reject.callback = self._reject_callback(proposal_id)
+            self.add_item(approve)
+            self.add_item(reject)
+
+    def _approve_callback(self, proposal_id: int):
+        async def callback(interaction: discord.Interaction) -> None:
+            try:
+                proposal = self.client.db.apply_importance_watch_term_proposal(proposal_id)
+            except (KeyError, ValueError) as exc:
+                await interaction.response.send_message(str(exc), ephemeral=True)
+                return
+            await interaction.response.send_message(
+                f"Applied proposal #{proposal['id']}: {proposal['action']} {proposal['term']}.",
+                ephemeral=True,
+            )
+
+        return callback
+
+    def _reject_callback(self, proposal_id: int):
+        async def callback(interaction: discord.Interaction) -> None:
+            try:
+                proposal = self.client.db.reject_importance_watch_term_proposal(proposal_id)
+            except (KeyError, ValueError) as exc:
+                await interaction.response.send_message(str(exc), ephemeral=True)
+                return
+            await interaction.response.send_message(
+                f"Rejected proposal #{proposal['id']}: {proposal['action']} {proposal['term']}.",
+                ephemeral=True,
+            )
+
+        return callback
+
+
+class ImportanceWatchTermModal(discord.ui.Modal):
+    def __init__(self, client: RSSDiscordClient, *, default_term: str = "") -> None:
+        super().__init__(title="Add importance term")
+        self.client = client
+        self.term = discord.ui.TextInput(
+            label="Term",
+            default=default_term[:100],
+            max_length=100,
+            required=True,
+        )
+        self.weight = discord.ui.TextInput(
+            label="Weight (-50 to +50)",
+            default="15",
+            max_length=4,
+            required=True,
+        )
+        self.category = discord.ui.TextInput(
+            label="Category",
+            default="watch",
+            max_length=40,
+            required=True,
+        )
+        self.expires_at = discord.ui.TextInput(
+            label="Expiration (optional)",
+            placeholder="2026-07-09 or 2026-07-09T18:00:00Z",
+            max_length=40,
+            required=False,
+        )
+        self.notes = discord.ui.TextInput(
+            label="Notes",
+            style=discord.TextStyle.paragraph,
+            max_length=300,
+            required=False,
+        )
+        for item in (self.term, self.weight, self.category, self.expires_at, self.notes):
+            self.add_item(item)
+
+    async def on_submit(self, interaction: discord.Interaction) -> None:
+        try:
+            row = self.client.db.upsert_importance_watch_term(
+                str(self.term.value),
+                weight=int(str(self.weight.value).strip()),
+                category=str(self.category.value),
+                expires_at=_parse_importance_expiration(str(self.expires_at.value)),
+                notes=str(self.notes.value).strip() or None,
+                enabled=True,
+                source="human",
+            )
+        except (TypeError, ValueError) as exc:
+            await interaction.response.send_message("Importance term update failed: " + str(exc), ephemeral=True)
+            return
+        await interaction.response.send_message(
+            f"Importance term active: {row['term']} {_signed_int(int(row['weight']))} ({row['category']}).",
+            ephemeral=True,
+        )
+
+
+class ImportanceDisableTermModal(discord.ui.Modal):
+    def __init__(self, client: RSSDiscordClient) -> None:
+        super().__init__(title="Disable importance term")
+        self.client = client
+        self.term = discord.ui.TextInput(label="Term", max_length=100, required=True)
+        self.add_item(self.term)
+
+    async def on_submit(self, interaction: discord.Interaction) -> None:
+        try:
+            default = _default_importance_term(str(self.term.value))
+            self.client.db.set_importance_watch_term_enabled(
+                str(self.term.value),
+                enabled=False,
+                default_weight=default.weight if default else 1,
+                default_category=default.category if default else "watch",
+            )
+        except ValueError as exc:
+            await interaction.response.send_message(str(exc), ephemeral=True)
+            return
+        await interaction.response.send_message(
+            f"Importance term disabled: {normalize_watch_term(str(self.term.value))}.",
+            ephemeral=True,
+        )
 
 
 class RoutingTeachModal(discord.ui.Modal):
@@ -1786,6 +2149,8 @@ def _routing_article_from_row(row) -> RoutingArticle:
         source_class=row["source_class"],
         url=row["url"],
         normalized_title=row["normalized_title"],
+        title_signature=row["title_signature"],
+        story_cluster_key=row["story_cluster_key"],
         published_at=_parse_datetime(row["normalized_published_at"]),
         ingested_at=_parse_datetime(row["ingested_at"]),
         timestamp_status=row["timestamp_status"] or "valid",
@@ -1901,16 +2266,106 @@ def _article_id_from_message_embeds(message: Any) -> int | None:
     return None
 
 
-def _format_importance_terms(terms: tuple[ImportanceTerm, ...], limit: int = 1900) -> str:
+def _format_importance_terms(
+    terms: tuple[ImportanceTerm, ...],
+    limit: int = 1900,
+    *,
+    pending_proposals: list[dict[str, object]] | None = None,
+) -> str:
     if not terms:
-        return "No active importance watch terms."
+        base = "No active importance watch terms."
+        if pending_proposals:
+            return truncate(base + "\n\n" + _format_importance_proposals(pending_proposals), limit)
+        return base
     sorted_terms = sorted(terms, key=lambda item: (item.category, -item.weight, item.term))
     lines = ["Active importance watch terms:"]
     for term in sorted_terms[:60]:
-        lines.append(f"- {term.term}: +{term.weight} ({term.category})")
+        meta = [term.category, term.source]
+        if term.expires_at:
+            meta.append("expires " + _format_datetime_short(term.expires_at))
+        if term.notes:
+            meta.append(truncate(term.notes, 80))
+        lines.append(f"- {term.term}: {_signed_int(term.weight)} ({'; '.join(meta)})")
     if len(sorted_terms) > 60:
         lines.append(f"... +{len(sorted_terms) - 60} more")
+    if pending_proposals:
+        lines.append("")
+        lines.append(_format_importance_proposals(pending_proposals, title="Pending Codex proposals:"))
     return truncate("\n".join(lines), limit)
+
+
+def _format_importance_proposals(
+    proposals: list[dict[str, object]],
+    *,
+    title: str = "Pending Codex importance proposals:",
+    limit: int = 1900,
+) -> str:
+    if not proposals:
+        return "No pending Codex importance proposals."
+    lines = [title]
+    for proposal in proposals[:20]:
+        weight = proposal.get("weight")
+        weight_text = "" if weight is None else f" {_signed_int(int(weight))}"
+        expires = str(proposal.get("expires_at") or "")
+        expires_text = f", expires {expires[:16]}" if expires else ""
+        rationale = str(proposal.get("rationale") or proposal.get("notes") or "").strip()
+        lines.append(
+            f"- #{proposal['id']} {proposal['action']} {proposal['term']}{weight_text}"
+            f" ({proposal.get('category') or 'watch'}{expires_text})"
+        )
+        if rationale:
+            lines.append("  " + truncate(rationale, 160))
+    if len(proposals) > 20:
+        lines.append(f"... +{len(proposals) - 20} more")
+    return truncate("\n".join(lines), limit)
+
+
+def _importance_manage_text(*, article_id: int | None, suggested_term: str | None) -> str:
+    lines = ["Importance management"]
+    if article_id is not None:
+        lines.append(f"Article ID: {article_id}")
+    if suggested_term:
+        lines.append(f"Suggested term seed: {truncate(suggested_term, 120)}")
+    lines.append("Use the buttons below to score this article, add a watch term, disable a term, or review Codex proposals.")
+    return "\n".join(lines)
+
+
+def _suggest_importance_term_from_message(message: discord.Message) -> str | None:
+    for embed in getattr(message, "embeds", None) or []:
+        title = str(getattr(embed, "title", "") or "").strip()
+        if title:
+            return _compact_term_seed(title)
+    content = str(getattr(message, "content", "") or "").strip()
+    return _compact_term_seed(content) if content else None
+
+
+def _compact_term_seed(value: str) -> str:
+    cleaned = re.sub(r"https?://\S+", "", value)
+    cleaned = re.sub(r"\s+", " ", cleaned).strip()
+    return cleaned[:100]
+
+
+def _parse_importance_expiration(value: str | None) -> datetime | None:
+    text = str(value or "").strip()
+    if not text:
+        return None
+    if re.fullmatch(r"\d{4}-\d{2}-\d{2}", text):
+        return datetime.fromisoformat(text).replace(tzinfo=UTC) + timedelta(days=1)
+    try:
+        parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
+    except ValueError as exc:
+        raise ValueError("Expiration must be YYYY-MM-DD or ISO datetime.") from exc
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=UTC)
+    return parsed.astimezone(UTC)
+
+
+def _format_datetime_short(value: datetime) -> str:
+    return value.astimezone(UTC).strftime("%Y-%m-%d %H:%MZ")
+
+
+def _signed_int(value: int) -> str:
+    return f"+{value}" if value >= 0 else str(value)
 
 
 def _default_importance_term(term: str) -> ImportanceTerm | None:
@@ -1949,7 +2404,7 @@ def _format_routing_debug_field(db: Database, article_id: int) -> str | None:
         f"Decision: {str(row['decision_status']).upper()} -> {', '.join(selected) or 'none'}",
         f"Reason: {row['reason'] or 'none'}",
         f"Top score: {row['top_score']}",
-        f"Importance: {int(row['importance_score'] or 0)}/10",
+        f"Importance: {int(row['importance_score'] or 0)}/100",
     ]
     if importance_reasons:
         lines.append("Importance reasons: " + "; ".join(str(reason) for reason in importance_reasons[:4]))
@@ -1998,7 +2453,7 @@ def _format_persisted_routing_explanation(row) -> str:
     lines = [
         f"Decision: {row['decision_status']}",
         f"Reason: {row['reason'] or 'none'}",
-        f"Importance: {int(row['importance_score'] or 0)}/10",
+        f"Importance: {int(row['importance_score'] or 0)}/100",
         "Importance reasons: " + ("; ".join(str(reason) for reason in importance_reasons[:8]) or "none"),
         f"Final: {', '.join(final) or 'none'}",
         f"Primary: {', '.join(primary) or 'none'}",
@@ -2155,6 +2610,185 @@ def _format_routing_teach_history(rows) -> str:
     return truncate("\n".join(lines), 1900)
 
 
+def _routing_row_to_payload(row: Any) -> dict[str, Any]:
+    if row is None:
+        return {}
+    output = dict(row)
+    for key in (
+        "selected_channel_keys",
+        "primary_channel_keys",
+        "mirror_channel_keys",
+        "review_channel_keys",
+        "final_channel_keys",
+        "score_details",
+        "matched_entries",
+        "emitted_tags",
+        "expanded_tags",
+        "importance_reasons",
+    ):
+        if key in output:
+            output[key] = json_row_value(output[key])
+    return output
+
+
+def _article_row_to_payload(row: Any) -> dict[str, Any]:
+    output = dict(row)
+    return {
+        "id": output.get("id"),
+        "title": output.get("title"),
+        "url": output.get("url"),
+        "summary": output.get("summary"),
+        "source_name": output.get("source_name"),
+        "source_id": output.get("source_id"),
+        "source_class": output.get("source_class"),
+        "normalized_published_at": output.get("normalized_published_at"),
+        "timestamp_status": output.get("timestamp_status"),
+    }
+
+
+async def _send_long_followup(interaction: discord.Interaction, content: str) -> None:
+    draft_sections = _draft_pack_sections(content)
+    if draft_sections:
+        tweet = draft_sections.get("tweet")
+        context_messages: list[str] = []
+        for key, label in (("evidence", "Evidence"), ("media", "Media"), ("notes", "Notes")):
+            value = draft_sections.get(key)
+            if not value:
+                continue
+            for chunk in _discord_chunks(value, limit=1850):
+                context_messages.append(f"{label}:\n{chunk}")
+
+        thread: discord.Thread | None = None
+        thread_name = _draft_thread_name(tweet or content)
+        if tweet:
+            tweet_chunks = _discord_chunks(tweet, limit=1900)
+            for index, chunk in enumerate(tweet_chunks):
+                message = await interaction.followup.send(chunk, ephemeral=False, wait=True)
+                if index == 0 and context_messages:
+                    thread = await _try_create_draft_thread(message, interaction.channel, name=thread_name)
+        if thread:
+            sent_to_thread = 0
+            try:
+                for message in context_messages:
+                    await thread.send(message)
+                    sent_to_thread += 1
+            except (discord.Forbidden, discord.HTTPException, AttributeError, ValueError):
+                logger.warning("draft_thread_send_failed; falling back to channel followups", exc_info=True)
+                for message in context_messages[sent_to_thread:]:
+                    await interaction.followup.send(message, ephemeral=False)
+        else:
+            for message in context_messages:
+                await interaction.followup.send(message, ephemeral=False)
+        return
+
+    chunks = _discord_chunks(content, limit=1900)
+    if not chunks:
+        await interaction.followup.send("Draft worker returned no content.", ephemeral=False)
+        return
+    capped = chunks[:4]
+    for index, chunk in enumerate(capped, start=1):
+        prefix = "" if len(chunks) == 1 else f"Part {index}/{len(capped)}\n"
+        await interaction.followup.send(prefix + chunk, ephemeral=False)
+    if len(chunks) > len(capped):
+        await interaction.followup.send(
+            "Draft output was longer than Discord can reasonably post; truncated after 4 messages.",
+            ephemeral=False,
+        )
+
+
+async def _try_create_draft_thread(
+    message: discord.Message | None,
+    channel: Any = None,
+    *,
+    name: str = "NatSec draft context",
+) -> discord.Thread | None:
+    if message is None:
+        return None
+    try:
+        return await message.create_thread(name=name, auto_archive_duration=60)
+    except ValueError:
+        fetched = await _fetch_message_for_thread(channel, getattr(message, "id", None))
+        if fetched is None:
+            logger.warning("draft_thread_create_failed; followup message had no guild info and could not be refetched")
+            return None
+        try:
+            return await fetched.create_thread(name=name, auto_archive_duration=60)
+        except (discord.Forbidden, discord.HTTPException, AttributeError, ValueError):
+            logger.warning("draft_thread_create_failed_after_refetch", exc_info=True)
+            return None
+    except (discord.Forbidden, discord.HTTPException, AttributeError):
+        logger.warning("draft_thread_create_failed", exc_info=True)
+        return None
+
+
+async def _fetch_message_for_thread(channel: Any, message_id: Any) -> discord.Message | None:
+    if channel is None or message_id is None or not hasattr(channel, "fetch_message"):
+        return None
+    try:
+        return await channel.fetch_message(int(message_id))
+    except (discord.Forbidden, discord.HTTPException, AttributeError, TypeError, ValueError):
+        logger.warning("draft_thread_message_refetch_failed", exc_info=True)
+        return None
+
+
+def _draft_thread_name(text: str) -> str:
+    cleaned = re.sub(r"https?://\S+", "", str(text or ""))
+    cleaned = re.sub(r"[\r\n\t]+", " ", cleaned)
+    cleaned = re.sub(r"[`*_~>|#@\[\]():;]+", " ", cleaned)
+    cleaned = re.sub(r"\s+", " ", cleaned).strip()
+    cleaned = "".join(char for char in cleaned if char.isprintable())
+    cleaned = cleaned.strip(" -.,")
+    if not cleaned:
+        return "NatSec draft context"
+    name = f"Draft: {cleaned}"
+    return name[:97].rstrip(" -.,") + "..." if len(name) > 100 else name
+
+
+def _discord_chunks(content: str, *, limit: int) -> list[str]:
+    text = str(content or "").strip()
+    if not text:
+        return []
+    chunks: list[str] = []
+    current = ""
+    for paragraph in text.split("\n\n"):
+        piece = paragraph.strip()
+        if not piece:
+            continue
+        candidate = f"{current}\n\n{piece}" if current else piece
+        if len(candidate) <= limit:
+            current = candidate
+            continue
+        if current:
+            chunks.append(current)
+            current = ""
+        while len(piece) > limit:
+            chunks.append(piece[:limit])
+            piece = piece[limit:]
+        current = piece
+    if current:
+        chunks.append(current)
+    return chunks
+
+
+def _draft_pack_sections(content: str) -> dict[str, str]:
+    text = str(content or "").strip()
+    if not text:
+        return {}
+    heading_re = re.compile(r"(?im)^(Tweet|Evidence|Media|Notes):\s*$")
+    matches = list(heading_re.finditer(text))
+    if not matches:
+        return {}
+    sections: dict[str, str] = {}
+    for index, match in enumerate(matches):
+        key = match.group(1).casefold()
+        start = match.end()
+        end = matches[index + 1].start() if index + 1 < len(matches) else len(text)
+        value = text[start:end].strip()
+        if value:
+            sections[key] = value
+    return sections if "tweet" in sections else {}
+
+
 def _routing_teach_help() -> str:
     return "\n".join(
         [
@@ -2252,7 +2886,7 @@ def _interpolate_rgb(start_color: int, end_color: int, ratio: float) -> int:
 
 
 def _clamp_importance(score: int) -> int:
-    return max(0, min(10, int(score)))
+    return max(0, min(100, int(score)))
 
 
 def _clean_embed_title(title: str, url: str | None, source_name: str | None) -> str:
@@ -2554,3 +3188,10 @@ def _env_bool(name: str, default: bool = False) -> bool:
     if value is None:
         return default
     return value.strip().casefold() in {"1", "true", "yes", "on"}
+
+
+def _env_int(name: str, default: int) -> int:
+    try:
+        return int(os.environ.get(name, str(default)))
+    except ValueError:
+        return default

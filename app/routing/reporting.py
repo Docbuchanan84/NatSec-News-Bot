@@ -10,7 +10,7 @@ def format_decision(decision: RoutingDecision, limit: int = 1900) -> str:
     lines = [
         f"Decision: {decision.decision_status}",
         f"Reason: {decision.reason or 'none'}",
-        f"Importance: {decision.importance_score}/10 ({'; '.join(decision.importance_reasons[:4]) or 'not scored'})",
+        f"Importance: {decision.importance_score}/100 ({'; '.join(decision.importance_reasons[:4]) or 'not scored'})",
         f"Content mode: {decision.content_mode}",
         "Matched concepts: " + _format_concepts(decision),
         "Matched aliases: " + _format_aliases(decision),

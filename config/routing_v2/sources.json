@@ -47,6 +47,20 @@
       "scores": { "natsec-news": 55, "review": 5 }
     },
     {
+      "id": "source-noelreports-ukraine-war",
+      "source_ids": ["bluesky-noelreports"],
+      "scores": {
+        "europe": 80,
+        "sea": -12,
+        "air": -12,
+        "land": -12,
+        "industrial-base": -8,
+        "training-and-doctrine": -8
+      },
+      "priority": 90,
+      "notes": "NOELREPORTS is a Ukraine-war specialist; keep its operational updates in Europe instead of service/domain buckets."
+    },
+    {
       "id": "source-defense-media",
       "source_classes": ["defense_media"],
       "scores": {

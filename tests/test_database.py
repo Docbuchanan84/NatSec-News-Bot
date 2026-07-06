@@ -446,7 +446,47 @@ def test_initialize_creates_importance_watch_terms_table(tmp_path: Path) -> None
         for row in db._conn.execute("PRAGMA table_info(importance_watch_terms)").fetchall()
     }
 
-    assert {"normalized_term", "term", "weight", "category", "enabled", "notes"}.issubset(columns)
+    assert {
+        "normalized_term",
+        "term",
+        "weight",
+        "category",
+        "enabled",
+        "notes",
+        "expires_at",
+        "source",
+        "last_reviewed_at",
+    }.issubset(columns)
+
+
+def test_initialize_migrates_existing_importance_watch_terms_columns(tmp_path: Path) -> None:
+    path = tmp_path / "rss.sqlite"
+    db = Database(path)
+    db._conn.execute(
+        """
+        CREATE TABLE importance_watch_terms (
+            normalized_term TEXT PRIMARY KEY,
+            term TEXT NOT NULL,
+            weight INTEGER NOT NULL,
+            category TEXT NOT NULL DEFAULT 'watch',
+            enabled INTEGER NOT NULL DEFAULT 1,
+            notes TEXT,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        )
+        """
+    )
+    db._conn.commit()
+    db.close()
+
+    migrated = Database(path)
+    migrated.initialize()
+    columns = {
+        row["name"]
+        for row in migrated._conn.execute("PRAGMA table_info(importance_watch_terms)").fetchall()
+    }
+
+    assert {"expires_at", "source", "last_reviewed_at"}.issubset(columns)
 
 
 def test_importance_watch_terms_can_be_added_listed_and_disabled(tmp_path: Path) -> None:
@@ -455,15 +495,19 @@ def test_importance_watch_terms_can_be_added_listed_and_disabled(tmp_path: Path)
 
     row = db.upsert_importance_watch_term(
         "Sinks",
-        weight=4,
+        weight=-12,
         category="major event",
         notes="naval loss",
+        expires_at="2026-07-09",
+        source="codex",
     )
 
     assert row["normalized_term"] == "sinks"
-    assert row["weight"] == 4
+    assert row["weight"] == -12
     assert row["category"] == "major_event"
     assert row["enabled"] is True
+    assert row["expires_at"].startswith("2026-07-09")
+    assert row["source"] == "codex"
     assert db.list_importance_watch_terms() == [row]
 
     db.set_importance_watch_term_enabled("sinks", enabled=False, default_weight=4, default_category="major_event")
@@ -472,6 +516,33 @@ def test_importance_watch_terms_can_be_added_listed_and_disabled(tmp_path: Path)
     disabled = db.list_importance_watch_terms(include_disabled=True)
     assert len(disabled) == 1
     assert disabled[0]["enabled"] is False
+
+
+def test_importance_watch_term_proposals_can_be_applied_and_rejected(tmp_path: Path) -> None:
+    db = Database(tmp_path / "rss.sqlite")
+    db.initialize()
+
+    proposal = db.create_importance_watch_term_proposal(
+        action="add",
+        term="Crimea",
+        weight=20,
+        category="trend",
+        expires_at="2026-07-09T00:00:00Z",
+        rationale="Trending conflict location",
+    )
+    reject = db.create_importance_watch_term_proposal(action="disable", term="Old trend", rationale="stale")
+
+    assert proposal["status"] == "pending"
+    assert db.list_importance_watch_term_proposals(status="pending")[0]["id"] == reject["id"]
+
+    applied = db.apply_importance_watch_term_proposal(int(proposal["id"]))
+    rejected = db.reject_importance_watch_term_proposal(int(reject["id"]))
+
+    assert applied["status"] == "applied"
+    assert rejected["status"] == "rejected"
+    terms = db.list_importance_watch_terms()
+    assert terms[0]["normalized_term"] == "crimea"
+    assert terms[0]["weight"] == 20
 
 
 def test_feed_status_success_and_failure_upsert_once_per_completion(tmp_path: Path) -> None:

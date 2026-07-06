@@ -341,6 +341,27 @@ def test_source_mirrors_remain_post_primary() -> None:
     assert decision.final_channel_keys == ("sea", "defense-media")
 
 
+def test_noelreports_source_score_keeps_operational_updates_in_europe_only() -> None:
+    decision = production_v2_engine().route(
+        RoutingArticle(
+            title="Operational update",
+            summary="Ukrainian infantry and air defense units struck Russian positions overnight.",
+            source_name="Bluesky: NOELREPORTS",
+            source_id="bluesky-noelreports",
+            source_class="defense_media",
+            source_url="https://bsky.app/profile/noelreports.com/rss",
+            routing_tags=("ukraine", "europe", "active_conflict"),
+        )
+    )
+
+    assert decision.primary_channel_keys == ("europe",)
+    assert decision.mirror_channel_keys == ()
+    assert decision.final_channel_keys == ("europe",)
+    assert channel_score(decision, "europe") >= 80
+    assert "land" not in decision.final_channel_keys
+    assert "defense-media" not in decision.final_channel_keys
+
+
 def test_natsec_news_route_is_hard_gated_to_nsn_x_account() -> None:
     decision = production_v2_engine().route(
         RoutingArticle(

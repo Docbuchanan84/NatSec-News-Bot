@@ -80,6 +80,8 @@ class RoutingArticle:
     source_url: str | None = None
     article_id: int | None = None
     normalized_title: str | None = None
+    title_signature: str | None = None
+    story_cluster_key: str | None = None
     routing_tags: tuple[str, ...] = ()
     published_at: datetime | None = None
     ingested_at: datetime | None = None

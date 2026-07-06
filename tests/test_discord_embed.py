@@ -98,6 +98,147 @@ def test_routing_teach_help_mentions_feed_url_menu_and_command() -> None:
     assert "teach-source-url" not in text
 
 
+def test_draft_pack_sections_parse_expected_headings() -> None:
+    sections = discord_bot._draft_pack_sections(
+        "Tweet:\nCopy-ready tweet.\n\nEvidence:\n- Source\n\nMedia:\n- Image\n\nNotes:\n- Caveat"
+    )
+
+    assert sections == {
+        "tweet": "Copy-ready tweet.",
+        "evidence": "- Source",
+        "media": "- Image",
+        "notes": "- Caveat",
+    }
+
+
+def test_draft_thread_name_uses_sanitized_tweet_context() -> None:
+    assert (
+        discord_bot._draft_thread_name("🇺🇸 U.S. Navy says https://example.com ship deployment expanded near Guam.")
+        == "Draft: 🇺🇸 U.S. Navy says ship deployment expanded near Guam"
+    )
+
+
+def test_draft_thread_name_truncates_for_discord_limit() -> None:
+    name = discord_bot._draft_thread_name(" ".join(["AUKUS"] * 40))
+
+    assert name.startswith("Draft: AUKUS")
+    assert name.endswith("...")
+    assert len(name) <= 100
+
+
+@pytest.mark.asyncio
+async def test_send_long_followup_posts_draft_pack_context_in_thread() -> None:
+    channel_sent: list[str] = []
+    thread_sent: list[str] = []
+    interaction = SimpleNamespace(
+        followup=_DraftFollowup(channel_sent, thread=_DraftThread(thread_sent)),
+        channel=None,
+    )
+
+    await discord_bot._send_long_followup(
+        interaction,
+        "Tweet:\nCopy-ready tweet.\n\nEvidence:\n- Source\n\nMedia:\n- Image\n\nNotes:\n- Caveat",
+    )
+
+    assert channel_sent == ["Copy-ready tweet."]
+    assert thread_sent == [
+        "Evidence:\n- Source",
+        "Media:\n- Image",
+        "Notes:\n- Caveat",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_send_long_followup_refetches_followup_message_before_thread_create() -> None:
+    channel_sent: list[str] = []
+    thread_sent: list[str] = []
+    thread = _DraftThread(thread_sent)
+    interaction = SimpleNamespace(
+        followup=_DraftFollowup(channel_sent, thread=thread, message_has_guild=False),
+        channel=_DraftChannel(thread),
+    )
+
+    await discord_bot._send_long_followup(
+        interaction,
+        "Tweet:\nCopy-ready tweet.\n\nEvidence:\n- Source\n\nMedia:\n- Image\n\nNotes:\n- Caveat",
+    )
+
+    assert channel_sent == ["Copy-ready tweet."]
+    assert thread_sent == [
+        "Evidence:\n- Source",
+        "Media:\n- Image",
+        "Notes:\n- Caveat",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_send_long_followup_posts_draft_pack_as_separate_messages_without_thread() -> None:
+    channel_sent: list[str] = []
+    interaction = SimpleNamespace(
+        followup=_DraftFollowup(channel_sent, thread=None),
+        channel=None,
+    )
+
+    await discord_bot._send_long_followup(
+        interaction,
+        "Tweet:\nCopy-ready tweet.\n\nEvidence:\n- Source\n\nMedia:\n- Image\n\nNotes:\n- Caveat",
+    )
+
+    assert channel_sent == [
+        "Copy-ready tweet.",
+        "Evidence:\n- Source",
+        "Media:\n- Image",
+        "Notes:\n- Caveat",
+    ]
+
+
+class _DraftFollowup:
+    def __init__(self, sent: list[str], *, thread: "_DraftThread | None", message_has_guild: bool = True) -> None:
+        self.sent = sent
+        self.thread = thread
+        self.message_has_guild = message_has_guild
+
+    async def send(self, content: str, ephemeral: bool = False, wait: bool = False):
+        assert ephemeral is False
+        self.sent.append(content)
+        if wait:
+            return _DraftMessage(self.thread, has_guild=self.message_has_guild)
+        return None
+
+
+class _DraftMessage:
+    id = 123456
+
+    def __init__(self, thread: "_DraftThread | None", *, has_guild: bool = True) -> None:
+        self.thread = thread
+        self.has_guild = has_guild
+
+    async def create_thread(self, name: str, auto_archive_duration: int):
+        assert name == "Draft: Copy-ready tweet"
+        assert auto_archive_duration == 60
+        if not self.has_guild:
+            raise ValueError("This message does not have guild info attached.")
+        return self.thread
+
+
+class _DraftChannel:
+    def __init__(self, thread: "_DraftThread | None") -> None:
+        self.thread = thread
+        self.fetched_message_id: int | None = None
+
+    async def fetch_message(self, message_id: int):
+        self.fetched_message_id = message_id
+        return _DraftMessage(self.thread, has_guild=True)
+
+
+class _DraftThread:
+    def __init__(self, sent: list[str]) -> None:
+        self.sent = sent
+
+    async def send(self, content: str) -> None:
+        self.sent.append(content)
+
+
 def test_build_teach_changelog_embed_includes_rule_details() -> None:
     before = RoutingDecision(
         content_mode="title_only",
@@ -228,12 +369,12 @@ async def test_discord_embed_footer_uses_local_timestamp_and_new_article_state()
         image_source=None,
         source_name="Example",
         normalized_published_at=published_at,
-        importance_score=7,
+        importance_score=70,
     )
 
     await adapter.send(job)
 
-    assert channel.embed.footer.text == "Example · New · Imp 7"
+    assert channel.embed.footer.text == "Example · New · Imp 70"
     assert channel.embed.timestamp == published_at
     assert channel.embed.color.value == 0xF1C40F
 
@@ -254,21 +395,21 @@ async def test_discord_embed_footer_marks_update_posts() -> None:
         source_name="Example",
         normalized_published_at=updated_at,
         is_new_article=False,
-        importance_score=3,
+        importance_score=30,
     )
 
     await adapter.send(job)
 
-    assert channel.embed.footer.text == "Example · Update · Imp 3"
+    assert channel.embed.footer.text == "Example · Update · Imp 30"
     assert channel.embed.timestamp == updated_at
     assert channel.embed.color.value == 0x2ECC71
 
 
 def test_importance_color_stop_points() -> None:
     assert _importance_color(0) == 0x808080
-    assert _importance_color(3) == 0x2ECC71
-    assert _importance_color(7) == 0xF1C40F
-    assert _importance_color(10) == 0xE74C3C
+    assert _importance_color(30) == 0x2ECC71
+    assert _importance_color(70) == 0xF1C40F
+    assert _importance_color(100) == 0xE74C3C
 
 
 def test_format_importance_terms_lists_active_terms() -> None:
@@ -280,8 +421,8 @@ def test_format_importance_terms_lists_active_terms() -> None:
     )
 
     assert "Active importance watch terms:" in text
-    assert "- sunk: +4 (major_event)" in text
-    assert "- urgent: +1 (urgency)" in text
+    assert "- sunk: +4 (major_event; human)" in text
+    assert "- urgent: +1 (urgency; human)" in text
 
 
 @pytest.mark.asyncio

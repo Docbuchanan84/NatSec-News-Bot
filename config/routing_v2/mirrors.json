@@ -52,6 +52,7 @@
     {
       "channel_key": "defense-media",
       "required_source_classes": ["defense_media", "osint"],
+      "excluded_source_ids": ["bluesky-noelreports"],
       "priority": 70
     },
     {

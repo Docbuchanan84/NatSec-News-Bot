@@ -8,7 +8,7 @@ from typing import Any
 
 from app.routing.models import RoutingArticle, RoutingDecision
 
-MAX_IMPORTANCE = 10
+MAX_IMPORTANCE = 100
 MAX_REASONS = 12
 
 
@@ -19,110 +19,114 @@ class ImportanceTerm:
     category: str = "watch"
     enabled: bool = True
     notes: str | None = None
+    expires_at: datetime | None = None
+    source: str = "human"
+    last_reviewed_at: datetime | None = None
 
 
 @dataclass(frozen=True)
 class ImportanceConfig:
     watch_terms: tuple[ImportanceTerm, ...] = ()
     now: datetime | None = None
+    recent_articles: tuple[Mapping[str, Any], ...] = ()
 
 
 HIGH_IMPACT_CONCEPTS = {
-    "ukraine_war": 3,
-    "iran_war": 3,
-    "gaza_war": 3,
-    "lebanon_conflict": 3,
-    "taiwan_strait": 3,
-    "south_china_sea": 2,
-    "strait_of_hormuz": 3,
-    "bab_el_mandeb": 2,
-    "india_security_crisis": 3,
+    "ukraine_war": 18,
+    "iran_war": 18,
+    "gaza_war": 16,
+    "lebanon_conflict": 15,
+    "taiwan_strait": 20,
+    "south_china_sea": 14,
+    "strait_of_hormuz": 18,
+    "bab_el_mandeb": 14,
+    "india_security_crisis": 18,
 }
 
 TAG_WEIGHTS = {
-    "active_conflict": 3,
-    "attack": 2,
-    "missile": 2,
-    "drone": 2,
-    "disaster": 2,
-    "weather_alert": 2,
-    "earthquake": 2,
-    "wildfire": 2,
-    "cyber": 2,
-    "nuclear_weapon": 3,
-    "strategic_weapon": 2,
-    "nuclear_deterrence": 2,
-    "icbm": 2,
-    "slbm": 2,
-    "intelligence": 1,
-    "national_security": 1,
-    "sanctions": 1,
-    "diplomacy": 1,
-    "humanitarian": 1,
-    "government": 1,
-    "legislation": 1,
-    "election": 1,
+    "active_conflict": 18,
+    "attack": 12,
+    "missile": 10,
+    "drone": 8,
+    "disaster": 10,
+    "weather_alert": 8,
+    "earthquake": 10,
+    "wildfire": 8,
+    "cyber": 9,
+    "nuclear_weapon": 18,
+    "strategic_weapon": 12,
+    "nuclear_deterrence": 10,
+    "icbm": 12,
+    "slbm": 12,
+    "intelligence": 5,
+    "national_security": 5,
+    "sanctions": 5,
+    "diplomacy": 4,
+    "humanitarian": 4,
+    "government": 3,
+    "legislation": 3,
+    "election": 4,
 }
 
 SOURCE_CLASS_WEIGHTS = {
-    "wire_service": 2,
-    "official_us_defense": 2,
-    "official_allied_defense": 2,
-    "official_us_gov": 1,
-    "official_allied_gov": 1,
-    "think_tank": 1,
-    "defense_media": 1,
-    "osint": 1,
-    "social_core": 1,
-    "social_breaking_news": 2,
-    "newsletter": 1,
+    "wire_service": 8,
+    "official_us_defense": 7,
+    "official_allied_defense": 7,
+    "official_us_gov": 4,
+    "official_allied_gov": 4,
+    "think_tank": 3,
+    "defense_media": 4,
+    "osint": 5,
+    "social_core": 4,
+    "social_breaking_news": 8,
+    "newsletter": 3,
 }
 
 DEFAULT_WATCH_TERMS = (
-    ImportanceTerm("breaking news", 2, "urgency"),
-    ImportanceTerm("breaking", 1, "urgency"),
-    ImportanceTerm("urgent", 1, "urgency"),
-    ImportanceTerm("developing", 1, "urgency"),
-    ImportanceTerm("live updates", 1, "urgency"),
-    ImportanceTerm("sunk", 4, "major_event"),
-    ImportanceTerm("sinks", 4, "major_event"),
-    ImportanceTerm("sank", 4, "major_event"),
-    ImportanceTerm("shoots down", 3, "major_event"),
-    ImportanceTerm("shot down", 3, "major_event"),
-    ImportanceTerm("downed", 2, "major_event"),
-    ImportanceTerm("killed", 3, "casualties"),
-    ImportanceTerm("dead", 2, "casualties"),
-    ImportanceTerm("deaths", 2, "casualties"),
-    ImportanceTerm("wounded", 2, "casualties"),
-    ImportanceTerm("injured", 2, "casualties"),
-    ImportanceTerm("mass casualty", 4, "casualties"),
-    ImportanceTerm("casualties", 2, "casualties"),
-    ImportanceTerm("fatalities", 2, "casualties"),
-    ImportanceTerm("invasion", 4, "escalation"),
-    ImportanceTerm("invades", 4, "escalation"),
-    ImportanceTerm("incursion", 2, "escalation"),
-    ImportanceTerm("escalates", 2, "escalation"),
-    ImportanceTerm("ceasefire", 2, "escalation"),
-    ImportanceTerm("missile strike", 3, "attack"),
-    ImportanceTerm("airstrike", 3, "attack"),
-    ImportanceTerm("air strike", 3, "attack"),
-    ImportanceTerm("drone attack", 3, "attack"),
-    ImportanceTerm("attack", 1, "attack"),
-    ImportanceTerm("strike", 1, "attack"),
-    ImportanceTerm("strikes", 1, "attack"),
-    ImportanceTerm("missile", 1, "weapons"),
-    ImportanceTerm("drone", 1, "weapons"),
-    ImportanceTerm("hypersonic", 2, "weapons"),
-    ImportanceTerm("ballistic missile", 3, "weapons"),
-    ImportanceTerm("nuclear", 3, "strategic"),
-    ImportanceTerm("icbm", 3, "strategic"),
-    ImportanceTerm("chemical weapon", 4, "strategic"),
-    ImportanceTerm("evacuate", 2, "civilian_impact"),
-    ImportanceTerm("evacuation", 2, "civilian_impact"),
-    ImportanceTerm("blackout", 2, "civilian_impact"),
-    ImportanceTerm("ransomware", 2, "cyber"),
-    ImportanceTerm("zero-day", 3, "cyber"),
-    ImportanceTerm("critical infrastructure", 2, "cyber"),
+    ImportanceTerm("breaking news", 16, "urgency", source="default"),
+    ImportanceTerm("breaking", 10, "urgency", source="default"),
+    ImportanceTerm("urgent", 10, "urgency", source="default"),
+    ImportanceTerm("developing", 7, "urgency", source="default"),
+    ImportanceTerm("live updates", 6, "urgency", source="default"),
+    ImportanceTerm("sunk", 28, "major_event", source="default"),
+    ImportanceTerm("sinks", 28, "major_event", source="default"),
+    ImportanceTerm("sank", 28, "major_event", source="default"),
+    ImportanceTerm("shoots down", 20, "major_event", source="default"),
+    ImportanceTerm("shot down", 20, "major_event", source="default"),
+    ImportanceTerm("downed", 14, "major_event", source="default"),
+    ImportanceTerm("killed", 16, "casualties", source="default"),
+    ImportanceTerm("dead", 10, "casualties", source="default"),
+    ImportanceTerm("deaths", 10, "casualties", source="default"),
+    ImportanceTerm("wounded", 8, "casualties", source="default"),
+    ImportanceTerm("injured", 8, "casualties", source="default"),
+    ImportanceTerm("mass casualty", 28, "casualties", source="default"),
+    ImportanceTerm("casualties", 10, "casualties", source="default"),
+    ImportanceTerm("fatalities", 10, "casualties", source="default"),
+    ImportanceTerm("invasion", 30, "escalation", source="default"),
+    ImportanceTerm("invades", 30, "escalation", source="default"),
+    ImportanceTerm("incursion", 12, "escalation", source="default"),
+    ImportanceTerm("escalates", 10, "escalation", source="default"),
+    ImportanceTerm("ceasefire", 10, "escalation", source="default"),
+    ImportanceTerm("missile strike", 20, "attack", source="default"),
+    ImportanceTerm("airstrike", 18, "attack", source="default"),
+    ImportanceTerm("air strike", 18, "attack", source="default"),
+    ImportanceTerm("drone attack", 16, "attack", source="default"),
+    ImportanceTerm("attack", 5, "attack", source="default"),
+    ImportanceTerm("strike", 5, "attack", source="default"),
+    ImportanceTerm("strikes", 5, "attack", source="default"),
+    ImportanceTerm("missile", 6, "weapons", source="default"),
+    ImportanceTerm("drone", 5, "weapons", source="default"),
+    ImportanceTerm("hypersonic", 12, "weapons", source="default"),
+    ImportanceTerm("ballistic missile", 18, "weapons", source="default"),
+    ImportanceTerm("nuclear", 20, "strategic", source="default"),
+    ImportanceTerm("icbm", 18, "strategic", source="default"),
+    ImportanceTerm("chemical weapon", 28, "strategic", source="default"),
+    ImportanceTerm("evacuate", 10, "civilian_impact", source="default"),
+    ImportanceTerm("evacuation", 10, "civilian_impact", source="default"),
+    ImportanceTerm("blackout", 10, "civilian_impact", source="default"),
+    ImportanceTerm("ransomware", 10, "cyber", source="default"),
+    ImportanceTerm("zero-day", 16, "cyber", source="default"),
+    ImportanceTerm("critical infrastructure", 12, "cyber", source="default"),
 )
 
 LOW_SIGNAL_CAP_EXEMPT_TAGS = {
@@ -219,6 +223,7 @@ def score_importance(
     config: ImportanceConfig | None = None,
 ) -> tuple[int, tuple[str, ...]]:
     config = config or build_importance_config()
+    now = _ensure_utc(config.now or datetime.now(UTC))
     score = 0
     reasons: list[str] = []
     text_score = 0
@@ -256,7 +261,7 @@ def score_importance(
     for term in _matched_watch_terms(text, config.watch_terms)[:8]:
         score += term.weight
         text_score += term.weight
-        reasons.append(f"watch +{term.weight}: {term.term}")
+        reasons.append(f"watch {_signed(term.weight)}: {term.term}")
 
     context_value = _context_score(text, words, tags)
     if context_value:
@@ -275,6 +280,11 @@ def score_importance(
         score += recency_value
         reasons.append(f"recency +{recency_value}")
 
+    similarity_value, similarity_reason = _similarity_penalty(article, config.recent_articles, now=now)
+    if similarity_value:
+        score -= similarity_value
+        reasons.append(f"similarity -{similarity_value}: {similarity_reason}")
+
     dampener_value, dampener_name = _routine_dampener(text, tags)
     if dampener_value:
         score -= dampener_value
@@ -285,11 +295,11 @@ def score_importance(
         reasons.append("review +1")
     elif decision.decision_status not in {"routed", "review"}:
         if _has_critical_signal(text_score, tags):
-            score = min(score, 6)
-            reasons.append("unrouted_critical_cap 6")
+            score = min(score, 60)
+            reasons.append("unrouted_critical_cap 60")
         elif not (tags & LOW_SIGNAL_CAP_EXEMPT_TAGS):
-            score = min(score, 2)
-            reasons.append("low_signal_cap 2")
+            score = min(score, 20)
+            reasons.append("low_signal_cap 20")
 
     return max(0, min(MAX_IMPORTANCE, score)), _limit_reasons(reasons)
 
@@ -298,20 +308,33 @@ def build_importance_config(
     watch_terms: Iterable[ImportanceTerm | Mapping[str, Any]] | None = None,
     *,
     now: datetime | None = None,
+    recent_articles: Iterable[Mapping[str, Any]] | None = None,
     include_defaults: bool = True,
 ) -> ImportanceConfig:
     merged: dict[str, ImportanceTerm] = {}
+    normalized_now = _ensure_utc(now or datetime.now(UTC))
     if include_defaults:
         for term in DEFAULT_WATCH_TERMS:
             merged[normalize_watch_term(term.term)] = term
     for raw_term in watch_terms or ():
         term = _coerce_term(raw_term)
         normalized = normalize_watch_term(term.term)
+        if not normalized:
+            continue
+        if term.expires_at is not None and _ensure_utc(term.expires_at) <= normalized_now and normalized in merged:
+            continue
         if normalized:
             merged[normalized] = replace(term, term=normalized)
     return ImportanceConfig(
-        watch_terms=tuple(term for term in merged.values() if term.enabled and term.weight > 0),
+        watch_terms=tuple(
+            term
+            for term in merged.values()
+            if term.enabled
+            and term.weight != 0
+            and (term.expires_at is None or _ensure_utc(term.expires_at) > normalized_now)
+        ),
         now=now,
+        recent_articles=tuple(recent_articles or ()),
     )
 
 
@@ -332,7 +355,19 @@ def _coerce_term(raw_term: ImportanceTerm | Mapping[str, Any]) -> ImportanceTerm
     enabled = bool(raw_term.get("enabled", True))
     notes_raw = raw_term.get("notes")
     notes = str(notes_raw).strip() if notes_raw is not None else None
-    return ImportanceTerm(term=term, weight=weight, category=category, enabled=enabled, notes=notes or None)
+    expires_at = _parse_datetime_value(raw_term.get("expires_at"))
+    last_reviewed_at = _parse_datetime_value(raw_term.get("last_reviewed_at"))
+    source = str(raw_term.get("source") or "human").strip() or "human"
+    return ImportanceTerm(
+        term=term,
+        weight=weight,
+        category=category,
+        enabled=enabled,
+        notes=notes or None,
+        expires_at=expires_at,
+        source=source,
+        last_reviewed_at=last_reviewed_at,
+    )
 
 
 def _article_text(article: RoutingArticle) -> str:
@@ -371,12 +406,12 @@ def _route_strength(decision: RoutingDecision) -> int:
     if decision.decision_status not in {"routed", "review"}:
         return 0
     if decision.top_score >= 14:
-        return 2
+        return 10
     if decision.top_score >= 8:
-        return 1
+        return 5
     selected = [score for score in decision.channel_scores if score.selected]
     if any(score.score >= score.minimum_score + 3 for score in selected):
-        return 1
+        return 5
     return 0
 
 
@@ -387,12 +422,12 @@ def _match_strength(decision: RoutingDecision) -> int:
     total_score = sum(max(0, match.score) for match in decision.matched_entries)
     value = 0
     if best_priority >= 20:
-        value += 2
+        value += 8
     elif best_priority >= 10:
-        value += 1
+        value += 4
     if total_score >= 5:
-        value += 1
-    return min(value, 3)
+        value += 4
+    return min(value, 12)
 
 
 def _context_score(text: str, words: set[str], tags: set[str]) -> int:
@@ -402,19 +437,19 @@ def _context_score(text: str, words: set[str], tags: set[str]) -> int:
     has_actor = any(_term_matches(lowered, actor) for actor in MAJOR_ACTOR_TERMS)
     value = 0
     if has_action and has_target:
-        value += 2
+        value += 10
     if has_action and has_actor:
-        value += 1
+        value += 6
     if has_action and tags & {"active_conflict", "national_security", "military", "attack"}:
-        value += 1
-    return min(value, 3)
+        value += 5
+    return min(value, 15)
 
 
 def _casualty_scale_score(text: str) -> int:
     if not CASUALTY_RE.search(text):
         return 0
     if NUMBER_WORD_RE.search(text):
-        return 2
+        return 10
     return 0
 
 
@@ -428,11 +463,59 @@ def _recency_score(article: RoutingArticle) -> int:
     age_hours = (ingested_at - published_at).total_seconds() / 3600
     if age_hours < 0:
         return 0
-    if age_hours <= 1:
-        return 2
+    if age_hours <= 0.5:
+        return 18
+    if age_hours <= 1.5:
+        return 14
+    if age_hours <= 3:
+        return 8
     if age_hours <= 6:
+        return 4
+    if age_hours <= 24:
         return 1
     return 0
+
+
+def _similarity_penalty(
+    article: RoutingArticle,
+    recent_articles: tuple[Mapping[str, Any], ...],
+    *,
+    now: datetime,
+) -> tuple[int, str | None]:
+    if not recent_articles:
+        return 0, None
+    current_title = normalize_watch_term(article.normalized_title or article.title)
+    current_signature = normalize_watch_term(getattr(article, "title_signature", None) or _title_signature(article.title))
+    current_cluster = str(getattr(article, "story_cluster_key", None) or "").strip()
+    current_terms = _similarity_terms(article.title)
+    best = 0
+    reason: str | None = None
+    for row in recent_articles:
+        try:
+            if article.article_id is not None and int(row.get("id") or 0) == int(article.article_id):
+                continue
+        except (TypeError, ValueError):
+            pass
+        row_time = _parse_datetime_value(row.get("normalized_published_at") or row.get("first_seen_at"))
+        if row_time is not None and _ensure_utc(row_time) > now:
+            continue
+        row_title = normalize_watch_term(str(row.get("normalized_title") or row.get("title") or ""))
+        row_signature = normalize_watch_term(str(row.get("title_signature") or _title_signature(str(row.get("title") or ""))))
+        row_cluster = str(row.get("story_cluster_key") or "").strip()
+        if current_title and row_title and current_title == row_title:
+            best, reason = max((best, reason or ""), (12, "same normalized title"), key=lambda item: item[0])
+            continue
+        if current_cluster and row_cluster and current_cluster == row_cluster:
+            best, reason = max((best, reason or ""), (8, "same story cluster"), key=lambda item: item[0])
+            continue
+        if current_signature and row_signature and current_signature == row_signature:
+            best, reason = max((best, reason or ""), (8, "same title signature"), key=lambda item: item[0])
+            continue
+        row_terms = _similarity_terms(str(row.get("title") or row.get("normalized_title") or ""))
+        overlap = _jaccard(current_terms, row_terms)
+        if overlap >= 0.72 and len(current_terms | row_terms) >= 4:
+            best, reason = max((best, reason or ""), (5, "similar title tokens"), key=lambda item: item[0])
+    return best, reason
 
 
 def _routine_dampener(text: str, tags: set[str]) -> tuple[int, str | None]:
@@ -440,18 +523,50 @@ def _routine_dampener(text: str, tags: set[str]) -> tuple[int, str | None]:
         return 0, None
     for name, pattern in ROUTINE_DAMPENER_PATTERNS:
         if pattern.search(text):
-            return 2, name
+            return 12, name
     return 0, None
 
 
 def _has_critical_signal(text_score: int, tags: set[str]) -> bool:
-    return text_score >= 4 or bool(tags & LOW_SIGNAL_CAP_EXEMPT_TAGS)
+    return text_score >= 24 or bool(tags & LOW_SIGNAL_CAP_EXEMPT_TAGS)
 
 
 def _ensure_utc(value: datetime) -> datetime:
     if value.tzinfo is None:
         return value.replace(tzinfo=UTC)
     return value.astimezone(UTC)
+
+
+def _parse_datetime_value(value: Any) -> datetime | None:
+    if value is None or value == "":
+        return None
+    if isinstance(value, datetime):
+        return _ensure_utc(value)
+    if not isinstance(value, str):
+        return None
+    try:
+        return _ensure_utc(datetime.fromisoformat(value.replace("Z", "+00:00")))
+    except ValueError:
+        return None
+
+
+def _signed(value: int) -> str:
+    return f"+{value}" if value >= 0 else str(value)
+
+
+def _title_signature(title: str | None) -> str:
+    tokens = [token for token in TOKEN_RE.findall((title or "").casefold()) if token not in {"the", "and", "for", "with"}]
+    return " ".join(tokens)
+
+
+def _similarity_terms(title: str | None) -> set[str]:
+    return {token for token in TOKEN_RE.findall((title or "").casefold()) if len(token) > 2}
+
+
+def _jaccard(left: set[str], right: set[str]) -> float:
+    if not left or not right:
+        return 0.0
+    return len(left & right) / len(left | right)
 
 
 def _limit_reasons(reasons: list[str]) -> tuple[str, ...]:

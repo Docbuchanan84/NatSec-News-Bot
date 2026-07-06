@@ -105,6 +105,17 @@ class SocialLinkEmbedSettings:
 
 
 @dataclass(frozen=True)
+class ImportanceSettings:
+    enabled: bool = True
+    codex_review_enabled: bool = True
+    codex_review_interval_hours: int = 6
+    codex_review_lookback_hours: int = 6
+    codex_worker_url: str = "http://host.docker.internal:8765/importance-review"
+    auto_apply_max_abs_weight: int = 25
+    auto_apply_max_expiration_hours: int = 72
+
+
+@dataclass(frozen=True)
 class Settings:
     polling: PollingSettings = field(default_factory=PollingSettings)
     failure_backoff: FailureBackoffSettings = field(default_factory=FailureBackoffSettings)
@@ -115,6 +126,7 @@ class Settings:
     routing: RoutingSettings = field(default_factory=RoutingSettings)
     maintenance: MaintenanceSettings = field(default_factory=MaintenanceSettings)
     social_link_embeds: SocialLinkEmbedSettings = field(default_factory=SocialLinkEmbedSettings)
+    importance: ImportanceSettings = field(default_factory=ImportanceSettings)
 
 
 @dataclass(frozen=True)

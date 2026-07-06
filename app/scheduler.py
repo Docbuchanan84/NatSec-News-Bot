@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import re
 import time
@@ -59,6 +60,7 @@ class SchedulerService:
         self._host_next_available: dict[str, datetime] = {}
         self._task: asyncio.Task[None] | None = None
         self._email_task: asyncio.Task[None] | None = None
+        self._importance_review_task: asyncio.Task[None] | None = None
         self._processor_tasks: list[asyncio.Task[None]] = []
         self._maintenance_task: asyncio.Task[None] | None = None
         self._result_queue: asyncio.Queue[FeedFetchResult] | None = None
@@ -69,6 +71,7 @@ class SchedulerService:
         self._result_processor_workers = 2
         self._backlog_drain_enabled = True
         self._next_maintenance_at = datetime.now(UTC) + timedelta(hours=2)
+        self._next_importance_review_at = datetime.now(UTC) + timedelta(minutes=5)
 
     def configure(self, config: AppConfig) -> None:
         self.config = config
@@ -164,17 +167,35 @@ class SchedulerService:
             self._task = asyncio.create_task(self._run_rss_loop())
         if self._email_task is None or self._email_task.done():
             self._email_task = asyncio.create_task(self._run_email_loop())
+        if (
+            self.config
+            and self.config.settings.importance.enabled
+            and self.config.settings.importance.codex_review_enabled
+            and (self._importance_review_task is None or self._importance_review_task.done())
+        ):
+            self._importance_review_task = asyncio.create_task(self._run_importance_review_loop())
+            logger.info(
+                "Importance Codex review scheduled: every %sh lookback=%sh worker=%s",
+                self.config.settings.importance.codex_review_interval_hours,
+                self.config.settings.importance.codex_review_lookback_hours,
+                self.config.settings.importance.codex_worker_url,
+            )
 
     async def shutdown(self) -> None:
         logger.info("Scheduler shutdown requested")
         self._stopping = True
-        poll_tasks = [task for task in (self._task, self._email_task) if task is not None]
+        poll_tasks = [
+            task
+            for task in (self._task, self._email_task, self._importance_review_task)
+            if task is not None
+        ]
         for task in poll_tasks:
             task.cancel()
         if poll_tasks:
             await asyncio.gather(*poll_tasks, return_exceptions=True)
         self._task = None
         self._email_task = None
+        self._importance_review_task = None
         if self._result_queue is not None:
             try:
                 await asyncio.wait_for(
@@ -231,6 +252,126 @@ class SchedulerService:
         except asyncio.CancelledError:
             logger.info("Email scheduler loop cancelled")
             raise
+
+    async def _run_importance_review_loop(self) -> None:
+        try:
+            while not self._stopping:
+                if not self.config or not self.config.settings.importance.codex_review_enabled:
+                    await asyncio.sleep(60)
+                    continue
+                now = datetime.now(UTC)
+                if now >= self._next_importance_review_at:
+                    settings = self.config.settings.importance
+                    self._next_importance_review_at = now + timedelta(hours=settings.codex_review_interval_hours)
+                    await self._run_importance_review()
+                await asyncio.sleep(60)
+        except asyncio.CancelledError:
+            logger.info("Importance review loop cancelled")
+            raise
+
+    async def _run_importance_review(self) -> None:
+        if not self.config:
+            return
+        settings = self.config.settings.importance
+        worker_url = settings.codex_worker_url.strip()
+        if not worker_url:
+            return
+        if not hasattr(self.db, "recent_articles_for_importance_review"):
+            return
+        articles = self.db.recent_articles_for_importance_review(hours=settings.codex_review_lookback_hours)
+        watch_terms = (
+            self.db.list_importance_watch_terms(include_disabled=True)
+            if hasattr(self.db, "list_importance_watch_terms")
+            else []
+        )
+        payload = {
+            "generated_at": datetime.now(UTC).isoformat(),
+            "lookback_hours": settings.codex_review_lookback_hours,
+            "active_watch_terms": watch_terms,
+            "recent_articles": articles,
+            "rules": {
+                "weight_min": -50,
+                "weight_max": 50,
+                "auto_apply_max_abs_weight": settings.auto_apply_max_abs_weight,
+                "auto_apply_max_expiration_hours": settings.auto_apply_max_expiration_hours,
+            },
+        }
+        try:
+            timeout = aiohttp.ClientTimeout(total=900)
+            async with aiohttp.ClientSession(timeout=timeout) as session:
+                async with session.post(worker_url, json=payload) as response:
+                    body = await response.text()
+                    if response.status >= 400:
+                        raise RuntimeError(f"importance worker HTTP {response.status}: {body[:1200]}")
+                    data = await response.json(content_type=None)
+            suggestions = _importance_suggestions_from_worker_response(data)
+            applied, staged = self._apply_importance_review_suggestions(suggestions)
+            audit_logger.info(
+                "importance_review_completed suggestions=%s applied=%s staged=%s worker_url=%s",
+                len(suggestions),
+                applied,
+                staged,
+                worker_url,
+            )
+        except Exception:
+            logger.exception("Importance watchlist Codex review failed")
+            audit_logger.exception("importance_review_failed worker_url=%s", worker_url)
+
+    def _apply_importance_review_suggestions(self, suggestions: list[dict[str, object]]) -> tuple[int, int]:
+        if not self.config:
+            return 0, 0
+        settings = self.config.settings.importance
+        applied = 0
+        staged = 0
+        now = datetime.now(UTC)
+        auto_expiration_limit = now + timedelta(hours=settings.auto_apply_max_expiration_hours)
+        for suggestion in suggestions:
+            try:
+                action = str(suggestion.get("action") or "add").strip().casefold()
+                term = str(suggestion.get("term") or "").strip()
+                weight_raw = suggestion.get("weight")
+                weight = int(weight_raw) if weight_raw is not None else None
+                category = str(suggestion.get("category") or "codex_trend").strip() or "codex_trend"
+                expires_at = _parse_worker_datetime(suggestion.get("expires_at"))
+                notes = str(suggestion.get("notes") or "").strip() or None
+                rationale = str(suggestion.get("rationale") or "").strip() or notes
+                if action not in {"add", "update", "disable"} or not term:
+                    continue
+                can_auto_apply = (
+                    action in {"add", "update"}
+                    and weight is not None
+                    and weight != 0
+                    and abs(weight) <= settings.auto_apply_max_abs_weight
+                    and expires_at is not None
+                    and now < expires_at <= auto_expiration_limit
+                )
+                if can_auto_apply:
+                    self.db.upsert_importance_watch_term(
+                        term,
+                        weight=weight,
+                        category=category,
+                        notes=notes or rationale,
+                        enabled=True,
+                        expires_at=expires_at,
+                        source="codex",
+                        last_reviewed_at=now,
+                    )
+                    applied += 1
+                    continue
+                self.db.create_importance_watch_term_proposal(
+                    action=action,
+                    term=term,
+                    weight=weight,
+                    category=category,
+                    expires_at=expires_at,
+                    notes=notes,
+                    rationale=rationale,
+                    source="codex",
+                )
+                staged += 1
+            except Exception:
+                logger.warning("Skipped malformed importance review suggestion: %r", suggestion, exc_info=True)
+        return applied, staged
 
     def _seconds_until_next_poll(self, sources: dict[str, object]) -> float:
         if not sources:
@@ -900,6 +1041,8 @@ class SchedulerService:
                 url=candidate.url,
                 source_url=source_url,
                 normalized_title=candidate.normalized_title,
+                title_signature=getattr(candidate, "title_signature", None),
+                story_cluster_key=getattr(candidate, "story_cluster_key", None),
                 routing_tags=candidate.routing_tags,
                 published_at=getattr(candidate, "normalized_published_at", None),
                 ingested_at=getattr(candidate, "ingested_at", None),
@@ -911,10 +1054,15 @@ class SchedulerService:
                 if hasattr(self.db, "list_importance_watch_terms")
                 else ()
             )
+            recent_articles = (
+                self.db.recent_articles_for_importance_similarity(article_id)
+                if hasattr(self.db, "recent_articles_for_importance_similarity")
+                else ()
+            )
             decision = apply_importance(
                 decision,
                 routing_article,
-                build_importance_config(watch_terms),
+                build_importance_config(watch_terms, recent_articles=recent_articles),
             )
             selected_ids = [self.channel_key_to_id[key] for key in decision.final_channel_keys if key in self.channel_key_to_id]
             if persist:
@@ -1159,6 +1307,40 @@ def _dedupe_channel_ids(channel_ids: tuple[str, ...]) -> tuple[str, ...]:
         seen.add(channel_id)
         unique.append(channel_id)
     return tuple(unique)
+
+
+def _importance_suggestions_from_worker_response(data: object) -> list[dict[str, object]]:
+    if not isinstance(data, dict):
+        return []
+    result = data.get("result", data)
+    if isinstance(result, str):
+        try:
+            result = json.loads(result)
+        except json.JSONDecodeError:
+            return []
+    if not isinstance(result, dict):
+        return []
+    suggestions = result.get("suggestions")
+    if not isinstance(suggestions, list):
+        return []
+    return [item for item in suggestions if isinstance(item, dict)]
+
+
+def _parse_worker_datetime(value: object) -> datetime | None:
+    if value is None or value == "":
+        return None
+    if isinstance(value, datetime):
+        parsed = value
+    elif isinstance(value, str):
+        try:
+            parsed = datetime.fromisoformat(value.strip().replace("Z", "+00:00"))
+        except ValueError:
+            return None
+    else:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=UTC)
+    return parsed.astimezone(UTC)
 
 
 def _should_review_no_match(source: FeedRuntime | EmailSourceRuntime, candidate) -> bool:

@@ -1796,6 +1796,90 @@
       ],
       "priority": 75,
       "phrase": "Crypto"
+    },
+    {
+      "id": "discord-the-kremlin-20260706",
+      "type": "literal",
+      "scores": {
+        "europe": 30
+      },
+      "fields": [
+        "title",
+        "summary",
+        "url_slug"
+      ],
+      "priority": 75,
+      "phrase": "The Kremlin"
+    },
+    {
+      "id": "discord-wwe-20260706",
+      "type": "literal",
+      "scores": {
+        "sports": 50
+      },
+      "fields": [
+        "title",
+        "summary",
+        "url_slug"
+      ],
+      "priority": 75,
+      "phrase": "WWE"
+    },
+    {
+      "id": "discord-tokyo-20260706",
+      "type": "literal",
+      "scores": {
+        "indo-pacific": 30
+      },
+      "fields": [
+        "title",
+        "summary",
+        "url_slug"
+      ],
+      "priority": 75,
+      "phrase": "Tokyo"
+    },
+    {
+      "id": "discord-hindu-20260706",
+      "type": "literal",
+      "scores": {
+        "indo-pacific": 30
+      },
+      "fields": [
+        "title",
+        "summary",
+        "url_slug"
+      ],
+      "priority": 75,
+      "phrase": "Hindu"
+    },
+    {
+      "id": "discord-garrison-20260706",
+      "type": "literal",
+      "scores": {
+        "land": 30
+      },
+      "fields": [
+        "title",
+        "summary",
+        "url_slug"
+      ],
+      "priority": 75,
+      "phrase": "Garrison"
+    },
+    {
+      "id": "discord-yankees-20260706",
+      "type": "literal",
+      "scores": {
+        "sports": 15
+      },
+      "fields": [
+        "title",
+        "summary",
+        "url_slug"
+      ],
+      "priority": 75,
+      "phrase": "Yankees"
     }
   ]
 }

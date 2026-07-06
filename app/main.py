@@ -201,11 +201,20 @@ def main() -> int:
                     source_class=row["source_class"],
                     url=row["url"],
                     normalized_title=row["normalized_title"],
+                    title_signature=row["title_signature"],
+                    story_cluster_key=row["story_cluster_key"],
                     published_at=_parse_datetime(row["normalized_published_at"]),
                     ingested_at=_parse_datetime(row["ingested_at"]),
                     timestamp_status=row["timestamp_status"] or "valid",
                 )
-                decision = apply_importance(engine.route(article), article, importance_config)
+                decision = apply_importance(
+                    engine.route(article),
+                    article,
+                    build_importance_config(
+                        db.list_importance_watch_terms(include_disabled=True),
+                        recent_articles=db.recent_articles_for_importance_similarity(int(row["id"])),
+                    ),
+                )
                 results.append((int(row["id"]), row["title"], decision))
             print(format_backtest_summary(results, limit=10000))
             return 0
