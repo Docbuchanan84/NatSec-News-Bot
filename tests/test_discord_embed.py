@@ -405,6 +405,47 @@ async def test_discord_embed_footer_marks_update_posts() -> None:
     assert channel.embed.color.value == 0x2ECC71
 
 
+@pytest.mark.asyncio
+async def test_discord_embed_formats_white_house_schedule_status_card() -> None:
+    channel = FakeChannel()
+    adapter = DiscordPublisherAdapter(FakeClient(channel))
+    event_start = datetime(2026, 7, 6, 22, 6, tzinfo=UTC)
+    job = PostJob(
+        article_id=1,
+        channel_id="111111111111111111",
+        title="Public Schedule: White House Press Office: Dinner lid until 8:30 PM (2026-07-06 22:06 UTC)",
+        url=None,
+        summary="Start: 2026-07-06 22:06 UTC\nLocation: The White House",
+        image_url=None,
+        image_source=None,
+        source_name="Factba.se White House Calendar",
+        source_id="factbase-white-house-calendar",
+        source_class="official_us_gov",
+        normalized_published_at=datetime(2026, 7, 7, 0, 25, tzinfo=UTC),
+        importance_score=44,
+        rich_metadata={
+            "source": "ical",
+            "calendar_event": True,
+            "event_start_utc": event_start.isoformat(),
+            "event_location": "The White House",
+            "event_kind": "status_lid",
+            "event_compact": True,
+        },
+    )
+
+    await adapter.send(job)
+
+    fields = {field.name: field.value for field in channel.embed.fields}
+    assert channel.embed.title == "Dinner lid until 8:30 PM"
+    assert channel.embed.description == "Schedule status update for the White House public schedule."
+    assert fields["Time"] == "<t:1783375560:F>\n<t:1783375560:R>"
+    assert fields["Location"] == "The White House"
+    assert fields["Type"] == "Schedule status"
+    assert channel.embed.footer.text == "Factba.se White House Calendar · Schedule status · New · Imp 44"
+    assert channel.embed.timestamp == event_start
+    assert channel.embed.color.value == 0x95A5A6
+
+
 def test_importance_color_stop_points() -> None:
     assert _importance_color(0) == 0x808080
     assert _importance_color(30) == 0x2ECC71

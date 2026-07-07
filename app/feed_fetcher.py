@@ -1171,6 +1171,18 @@ def _ical_entries(feed: FeedRuntime, body: bytes, entry_limit: int) -> tuple[Fee
             summary_parts.append(f"Location: {location}")
         if description:
             summary_parts.append(description)
+        event_kind = _schedule_event_kind(title, description)
+        rich_metadata = {
+            "source": "ical",
+            "calendar_event": True,
+            "calendar_source_id": feed.source_id,
+            "event_start_utc": start.isoformat(),
+            "event_start_label_utc": start_label,
+            "event_location": location,
+            "event_description": description,
+            "event_kind": event_kind,
+            "event_compact": event_kind in {"status_lid", "press_status"},
+        }
         events.append(
             (
                 start,
@@ -1187,6 +1199,7 @@ def _ical_entries(feed: FeedRuntime, body: bytes, entry_limit: int) -> tuple[Fee
                     parsed={"source": "ical", **event},
                     source_id=feed.source_id,
                     source_class=feed.source_class,
+                    rich_metadata=rich_metadata,
                 ),
             )
         )
@@ -1195,6 +1208,21 @@ def _ical_entries(feed: FeedRuntime, body: bytes, entry_limit: int) -> tuple[Fee
 
 def _is_vip_schedule_calendar(feed: FeedRuntime) -> bool:
     return feed.feed_key == "factbase-white-house-calendar" or feed.source_id == "factbase-white-house-calendar"
+
+
+def _schedule_event_kind(title: str, description: str | None) -> str:
+    text = f"{title} {description or ''}".casefold()
+    if "lid" in text:
+        return "status_lid"
+    if "press office" in text or "pool call time" in text or "pool report" in text:
+        return "press_status"
+    if any(term in text for term in ("remarks", "delivers remarks", "addresses", "statement")):
+        return "public_remarks"
+    if any(term in text for term in ("meets with", "meeting", "bilateral", "hosts")):
+        return "meeting"
+    if any(term in text for term in ("departs", "arrives", "travels", "travel")):
+        return "travel"
+    return "schedule_event"
 
 
 def _parse_ical_events(text: str) -> list[dict[str, str]]:

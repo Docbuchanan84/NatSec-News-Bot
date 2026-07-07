@@ -770,6 +770,49 @@ END:VCALENDAR
     assert result.entries[0].raw_url is None
     assert "Location: The White House" in (result.entries[0].summary or "")
     assert result.entries[0].source_id == "factbase-white-house-calendar"
+    assert result.entries[0].rich_metadata["calendar_event"] is True
+    assert result.entries[0].rich_metadata["event_kind"] == "meeting"
+    assert result.entries[0].rich_metadata["event_location"] == "The White House"
+    assert result.entries[0].rich_metadata["event_compact"] is False
+
+
+@pytest.mark.asyncio
+async def test_ical_feed_classifies_white_house_lid_status_for_compact_display() -> None:
+    service = FeedService(timeout_seconds=10, max_entries_per_feed=15)
+    future = datetime.now(UTC) + timedelta(hours=1)
+    session = FakeRssSession(
+        f"""
+BEGIN:VCALENDAR
+VERSION:2.0
+BEGIN:VEVENT
+UID:lid-event
+DTSTART:{future.strftime('%Y%m%dT%H%M%SZ')}
+SUMMARY:White House Press Office: Dinner lid until 8:30 PM
+LOCATION:The White House
+END:VEVENT
+END:VCALENDAR
+        """.encode()
+    )
+
+    result = await service.fetch(
+        session,
+        FeedRuntime(
+            feed_key="factbase-white-house-calendar",
+            display_name="Factba.se White House Calendar",
+            url="https://calendar.google.com/calendar/ical/example/public/basic.ics",
+            normalized_url="https://calendar.google.com/calendar/ical/example/public/basic.ics",
+            interval_seconds=300,
+            channel_ids=("111111111111111111",),
+            channel_keys=("the-white-house",),
+            source_id="factbase-white-house-calendar",
+            source_class="official_us_gov",
+        ),
+    )
+
+    assert len(result.entries) == 1
+    assert result.entries[0].rich_metadata["event_kind"] == "status_lid"
+    assert result.entries[0].rich_metadata["event_compact"] is True
+    assert result.entries[0].rich_metadata["event_start_utc"].endswith("+00:00")
 
 
 class FakeResponse:
