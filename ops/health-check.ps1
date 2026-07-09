@@ -39,6 +39,38 @@ Add-RssBotCommandReport -Lines $lines -Title "Recent Bot Log Signals" -Command @
     "docker compose logs --since 24h rssbot | Select-String -Pattern 'Connected to Discord|heartbeat blocked|disk I/O error|database disk image|Runtime DB maintenance|Feed failed' | Select-Object -Last 80"
 ) | Out-Null
 
+Write-RssBotSection -Title "Codex Draft Worker" -Lines $lines
+$draftWorkerProcess = Get-CimInstance Win32_Process |
+    Where-Object { $_.CommandLine -like "*codex-draft-worker.py*" -and $_.CommandLine -like "*--port 8765*" }
+$lines.Add("process_running=$([bool]$draftWorkerProcess)")
+if ($draftWorkerProcess) {
+    $lines.Add("process_ids=$($draftWorkerProcess.ProcessId -join ',')")
+}
+try {
+    $hostResponse = Invoke-RestMethod -Uri "http://127.0.0.1:8765/health" -TimeoutSec 5
+    $lines.Add("host_health_ok=$([bool]$hostResponse.ok)")
+} catch {
+    $lines.Add("host_health_ok=False")
+    $lines.Add("host_health_error=$($_.Exception.Message)")
+    $hadFailure = $true
+}
+if ($botRunning) {
+    $workerResult = Add-RssBotCommandReport -Lines $lines -Title "Codex Draft Worker From Container" -Command @(
+        "docker",
+        "exec",
+        "rss-discord-bot",
+        "python",
+        "-c",
+        "import urllib.request; print(urllib.request.urlopen('http://host.docker.internal:8765/health', timeout=5).read().decode())"
+    )
+    if ($workerResult.ExitCode -ne 0) {
+        $hadFailure = $true
+    }
+} else {
+    $lines.Add("container_worker_health=skipped")
+    $lines.Add("reason=bot container is not running")
+}
+
 Write-RssBotSection -Title "Runtime Database" -Lines $lines
 if ($botRunning) {
     $lines.Add("offline_integrity_check=skipped")

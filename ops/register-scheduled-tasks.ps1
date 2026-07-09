@@ -12,8 +12,21 @@ $principal = New-ScheduledTaskPrincipal -UserId $env:USERNAME -LogonType Interac
 $healthActionText = "`"powershell.exe`" -NoProfile -ExecutionPolicy Bypass -File `"$repoRoot\ops\health-check.ps1`""
 $weeklyActionText = "`"powershell.exe`" -NoProfile -ExecutionPolicy Bypass -File `"$repoRoot\ops\weekly-maintenance.ps1`""
 $postRebootActionText = "`"powershell.exe`" -NoProfile -ExecutionPolicy Bypass -File `"$repoRoot\ops\post-reboot-check.ps1`""
+$draftWorkerActionText = "`"powershell.exe`" -NoProfile -ExecutionPolicy Bypass -File `"$repoRoot\ops\start-codex-draft-worker.ps1`""
+
+$draftWorkerTrigger = New-ScheduledTaskTrigger `
+    -Once `
+    -At ((Get-Date).Date) `
+    -RepetitionInterval (New-TimeSpan -Minutes 5) `
+    -RepetitionDuration (New-TimeSpan -Days 3650)
 
 $tasks = @(
+    @{
+        Name = "RSS Bot Codex Draft Worker Watchdog"
+        Trigger = $draftWorkerTrigger
+        Action = New-ScheduledTaskAction -Execute "powershell.exe" -Argument "-NoProfile -ExecutionPolicy Bypass -File `"$repoRoot\ops\start-codex-draft-worker.ps1`""
+        SchtasksArgs = @("/Create", "/TN", "RSS Bot Codex Draft Worker Watchdog", "/SC", "MINUTE", "/MO", "5", "/TR", $draftWorkerActionText, "/F")
+    },
     @{
         Name = "RSS Bot Daily Health Check"
         Trigger = New-ScheduledTaskTrigger -Daily -At 9:00am

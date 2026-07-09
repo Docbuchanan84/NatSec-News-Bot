@@ -615,6 +615,70 @@ async def test_state_public_schedule_collection_page_is_parsed() -> None:
 
 
 @pytest.mark.asyncio
+async def test_bno_white_house_schedule_page_is_parsed_as_daily_digest() -> None:
+    service = FeedService(timeout_seconds=10, max_entries_per_feed=15)
+    session = FakeRssSession(
+        b"""
+        <html><body>
+          <section class="schedule-day">
+            <div class="schedule-day-header">
+              <h2>Wednesday, July 8, 2026</h2>
+            </div>
+            <div class="event-list">
+              <div class="zone-header">EDT  Eastern Time</div>
+              <div class="event">
+                <div class="event-time">9:00 AM</div>
+                <div class="event-content">
+                  <div class="event-desc">Out-of-Town Travel Pool Call Time</div>
+                </div>
+              </div>
+              <div class="event">
+                <div class="event-time">10:30 AM</div>
+                <div class="event-content">
+                  <div class="event-desc">THE PRESIDENT participates in a Policy Meeting</div>
+                  <div class="event-details">Oval Office  Closed Press</div>
+                </div>
+              </div>
+            </div>
+            <a href="/whpool/E3spNcuS" class="schedule-source-link">View full email</a>
+          </section>
+        </body></html>
+        """
+    )
+
+    result = await service.fetch(
+        session,
+        FeedRuntime(
+            feed_key="bno-white-house-pool-schedule",
+            display_name="BNO White House Pool Daily Schedule",
+            url="https://bnonews.com/whpool/schedule",
+            normalized_url="https://bnonews.com/whpool/schedule",
+            interval_seconds=300,
+            channel_ids=("111111111111111111",),
+            channel_keys=("the-white-house",),
+            source_id="bno-white-house-pool-schedule",
+            source_class="schedule_tracker",
+            routing_tags=("united_states", "north_america", "government"),
+        ),
+    )
+
+    assert len(result.entries) == 1
+    entry = result.entries[0]
+    assert entry.raw_guid == "https://bnonews.com/whpool/schedule#2026-07-08"
+    assert entry.raw_title == "Upcoming Presidential Schedule - Wednesday, July 8, 2026"
+    assert entry.raw_url == "https://bnonews.com/whpool/E3spNcuS"
+    assert entry.raw_published_at == "08 Jul 2026 00:00 +0000"
+    assert "Time zone: EDT Eastern Time" in (entry.summary or "")
+    assert "10:30 AM - THE PRESIDENT participates in a Policy Meeting (Oval Office Closed Press)" in (
+        entry.summary or ""
+    )
+    assert entry.rich_metadata["schedule_digest"] is True
+    assert entry.rich_metadata["schedule_date"] == "Wednesday, July 8, 2026"
+    assert entry.rich_metadata["event_kind"] == "schedule_digest"
+    assert entry.routing_tags == ("united_states", "north_america", "government")
+
+
+@pytest.mark.asyncio
 async def test_mscio_document_folder_page_is_parsed() -> None:
     service = FeedService(timeout_seconds=10, max_entries_per_feed=15)
     session = FakeRssSession(
@@ -813,6 +877,41 @@ END:VCALENDAR
     assert result.entries[0].rich_metadata["event_kind"] == "status_lid"
     assert result.entries[0].rich_metadata["event_compact"] is True
     assert result.entries[0].rich_metadata["event_start_utc"].endswith("+00:00")
+
+
+@pytest.mark.asyncio
+async def test_white_house_calendar_ignores_events_that_already_started() -> None:
+    service = FeedService(timeout_seconds=10, max_entries_per_feed=15)
+    started = datetime.now(UTC) - timedelta(minutes=1)
+    session = FakeRssSession(
+        f"""
+BEGIN:VCALENDAR
+VERSION:2.0
+BEGIN:VEVENT
+UID:started-event
+DTSTART:{started.strftime('%Y%m%dT%H%M%SZ')}
+SUMMARY:The President delivers remarks
+END:VEVENT
+END:VCALENDAR
+        """.encode()
+    )
+
+    result = await service.fetch(
+        session,
+        FeedRuntime(
+            feed_key="factbase-white-house-calendar",
+            display_name="Factba.se White House Calendar",
+            url="https://calendar.google.com/calendar/ical/example/public/basic.ics",
+            normalized_url="https://calendar.google.com/calendar/ical/example/public/basic.ics",
+            interval_seconds=300,
+            channel_ids=("111111111111111111",),
+            channel_keys=("the-white-house",),
+            source_id="factbase-white-house-calendar",
+            source_class="official_us_gov",
+        ),
+    )
+
+    assert result.entries == ()
 
 
 class FakeResponse:

@@ -82,9 +82,8 @@ MARKETING_CONTINUATION_URL_RE = re.compile(
 REVIEW_CHANNEL_ID = "1511541774642843789"
 DEFAULT_CODEX_DRAFT_WORKER_URL = "http://host.docker.internal:8765/draft"
 IMPORTANCE_COLOR_STOPS = (
-    (0, 0x808080),
-    (30, 0x2ECC71),
-    (70, 0xF1C40F),
+    (0, 0x2ECC71),
+    (50, 0xF1C40F),
     (100, 0xE74C3C),
 )
 SCHEDULE_EVENT_COLORS = {
@@ -93,6 +92,7 @@ SCHEDULE_EVENT_COLORS = {
     "public_remarks": 0x1F6FEB,
     "meeting": 0x2E86C1,
     "travel": 0x8E44AD,
+    "schedule_digest": 0x1F6FEB,
     "schedule_event": 0x3498DB,
 }
 SCHEDULE_EVENT_LABELS = {
@@ -101,6 +101,7 @@ SCHEDULE_EVENT_LABELS = {
     "public_remarks": "Public remarks",
     "meeting": "Meeting",
     "travel": "Travel",
+    "schedule_digest": "Advance daily schedule",
     "schedule_event": "Schedule event",
 }
 TRACKING_TITLE_HOST_FRAGMENTS = (
@@ -2867,7 +2868,7 @@ def _is_email_post(job: PostJob) -> bool:
 
 def _is_public_schedule_post(job: PostJob) -> bool:
     metadata = job.rich_metadata or {}
-    if metadata.get("calendar_event") is True:
+    if metadata.get("calendar_event") is True or metadata.get("schedule_digest") is True:
         return True
     return job.source_id == "factbase-white-house-calendar" and str(metadata.get("source") or "").casefold() == "ical"
 

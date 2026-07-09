@@ -376,7 +376,7 @@ async def test_discord_embed_footer_uses_local_timestamp_and_new_article_state()
 
     assert channel.embed.footer.text == "Example · New · Imp 70"
     assert channel.embed.timestamp == published_at
-    assert channel.embed.color.value == 0xF1C40F
+    assert channel.embed.color.value == 0xED9421
 
 
 @pytest.mark.asyncio
@@ -402,7 +402,7 @@ async def test_discord_embed_footer_marks_update_posts() -> None:
 
     assert channel.embed.footer.text == "Example · Update · Imp 30"
     assert channel.embed.timestamp == updated_at
-    assert channel.embed.color.value == 0x2ECC71
+    assert channel.embed.color.value == 0xA3C736
 
 
 @pytest.mark.asyncio
@@ -446,11 +446,61 @@ async def test_discord_embed_formats_white_house_schedule_status_card() -> None:
     assert channel.embed.color.value == 0x95A5A6
 
 
+@pytest.mark.asyncio
+async def test_discord_embed_formats_advance_presidential_schedule() -> None:
+    channel = FakeChannel()
+    adapter = DiscordPublisherAdapter(FakeClient(channel))
+    published_at = datetime(2026, 7, 9, 0, 0, tzinfo=UTC)
+    summary = (
+        "Time zone: EDT - Eastern Time\n"
+        "8:00 AM - THE PRESIDENT participates in Executive Time\n"
+        "1:00 PM - THE PRESIDENT receives his Intelligence Briefing"
+    )
+    job = PostJob(
+        article_id=1,
+        channel_id="111111111111111111",
+        title="Upcoming Presidential Schedule - Thursday, July 9, 2026",
+        url="https://bnonews.com/whpool/schedule",
+        summary=summary,
+        image_url=None,
+        image_source=None,
+        source_name="BNO White House Pool Daily Schedule",
+        source_id="bno-white-house-pool-schedule",
+        source_class="schedule_tracker",
+        normalized_published_at=published_at,
+        importance_score=55,
+        rich_metadata={
+            "source": "bno_white_house_schedule",
+            "schedule_digest": True,
+            "schedule_date": "Thursday, July 9, 2026",
+            "event_kind": "schedule_digest",
+        },
+    )
+
+    await adapter.send(job)
+
+    fields = {field.name: field.value for field in channel.embed.fields}
+    assert channel.embed.title == "Upcoming Presidential Schedule - Thursday, July 9, 2026"
+    assert channel.embed.description == summary
+    assert fields["Type"] == "Advance daily schedule"
+    assert channel.embed.footer.text == (
+        "BNO White House Pool Daily Schedule · Advance daily schedule · New · Imp 55"
+    )
+    assert channel.embed.timestamp == published_at
+    assert channel.embed.color.value == 0x1F6FEB
+
+
 def test_importance_color_stop_points() -> None:
-    assert _importance_color(0) == 0x808080
-    assert _importance_color(30) == 0x2ECC71
-    assert _importance_color(70) == 0xF1C40F
+    assert _importance_color(-10) == 0x2ECC71
+    assert _importance_color(0) == 0x2ECC71
+    assert _importance_color(50) == 0xF1C40F
     assert _importance_color(100) == 0xE74C3C
+    assert _importance_color(120) == 0xE74C3C
+
+
+def test_importance_color_interpolates_heatmap_granularity() -> None:
+    assert _importance_color(25) == 0x90C840
+    assert _importance_color(75) == 0xEC8826
 
 
 def test_format_importance_terms_lists_active_terms() -> None:

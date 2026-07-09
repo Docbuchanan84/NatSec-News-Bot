@@ -57,9 +57,10 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\ops\register-scheduled-tas
 
 Default tasks:
 
+- `RSS Bot Codex Draft Worker Watchdog`: every 5 minutes. Starts the host-side Codex worker used by `/rss draft-post` and importance review if it is not already running.
 - `RSS Bot Daily Health Check`: daily at 9:00 AM.
 - `RSS Bot Weekly Maintenance`: Sunday at 3:30 AM.
-- `RSS Bot Post Reboot Check`: at user logon. If Windows denies logon-task registration, the setup script creates an equivalent Startup folder shortcut for the current user.
+- `RSS Bot Post Reboot Check`: at user logon. Ensures the bot container and Codex draft worker are up. If Windows denies logon-task registration, the setup script creates an equivalent Startup folder shortcut for the current user.
 
 ## Pause Or Resume Automation
 

@@ -38,8 +38,13 @@ try {
         "Error log: $ErrorLogPath"
         return
     }
+    "Worker start attempted, but health check returned an unexpected response."
+    "Log: $LogPath"
+    "Error log: $ErrorLogPath"
+    exit 1
 } catch {
     "Worker start attempted, but health check failed: $($_.Exception.Message)"
     "Log: $LogPath"
     "Error log: $ErrorLogPath"
+    exit 1
 }
