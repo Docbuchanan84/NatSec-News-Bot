@@ -37,6 +37,7 @@ DVIDS_HOST = "www.dvidshub.net"
 DVIDS_API_HOST = "api.dvidshub.net"
 DVIDS_SEARCH_URL = "https://api.dvidshub.net/search"
 DVIDS_MAX_ENTRIES_PER_FEED = 50
+BNO_HOST = "bnonews.com"
 ICAL_LOOKAHEAD_DAYS = 14
 ICAL_RECENT_STARTED_HOURS = 24
 STATE_HOST = "www.state.gov"
@@ -115,6 +116,11 @@ class FeedService:
         state_collection_entries = _state_collection_entries(feed, body, _entry_limit(feed, self.max_entries_per_feed))
         if state_collection_entries is not None:
             return FeedFetchResult(feed=feed, entries=state_collection_entries)
+        bno_schedule_entries = _bno_white_house_schedule_entries(
+            feed, body, _entry_limit(feed, self.max_entries_per_feed)
+        )
+        if bno_schedule_entries is not None:
+            return FeedFetchResult(feed=feed, entries=bno_schedule_entries)
         mscio_document_entries = await _mscio_document_folder_entries(
             session,
             feed,
@@ -446,6 +452,97 @@ class _StateCollectionParser(HTMLParser):
             self._current["title_parts"].append(data)  # type: ignore[union-attr]
         elif self._in_date:
             self._current["date_parts"].append(data)  # type: ignore[union-attr]
+
+
+class _BnoWhiteHouseScheduleParser(HTMLParser):
+    def __init__(self, base_url: str) -> None:
+        super().__init__(convert_charrefs=True)
+        self.base_url = base_url
+        self.results: list[dict[str, object]] = []
+        self._current_day: dict[str, object] | None = None
+        self._current_event: dict[str, str] | None = None
+        self._day_depth = 0
+        self._event_depth = 0
+        self._field: str | None = None
+        self._field_parts: list[str] = []
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        tag = tag.casefold()
+        attr_map = {name.casefold(): value or "" for name, value in attrs}
+        classes = attr_map.get("class", "")
+        if tag == "section" and _class_contains(classes, "schedule-day"):
+            self._current_day = {"date": "", "zone": "", "source_url": "", "events": []}
+            self._current_event = None
+            self._day_depth = 1
+            return
+        if self._current_day is None:
+            return
+        self._day_depth += 1
+        if tag == "h2":
+            self._start_field("date")
+            return
+        if tag == "a" and _class_contains(classes, "schedule-source-link"):
+            self._current_day["source_url"] = urljoin(self.base_url, attr_map.get("href", ""))
+            return
+        if tag == "div" and _class_contains(classes, "zone-header"):
+            self._start_field("zone")
+            return
+        if tag == "div" and _class_contains(classes, "event"):
+            self._current_event = {"time": "", "desc": "", "details": ""}
+            self._event_depth = 1
+            return
+        if self._current_event is None:
+            return
+        self._event_depth += 1
+        if tag == "div" and _class_contains(classes, "event-time"):
+            self._start_field("time")
+        elif tag == "div" and _class_contains(classes, "event-desc"):
+            self._start_field("desc")
+        elif tag == "div" and _class_contains(classes, "event-details"):
+            self._start_field("details")
+
+    def handle_endtag(self, tag: str) -> None:
+        tag = tag.casefold()
+        if self._current_day is None:
+            return
+        if self._field and tag in {"h2", "div"}:
+            self._finish_field()
+        if self._current_event is not None and tag == "div":
+            self._event_depth -= 1
+            if self._event_depth <= 0:
+                events = self._current_day.get("events")
+                if isinstance(events, list) and self._current_event.get("desc"):
+                    events.append(self._current_event)
+                self._current_event = None
+        self._day_depth -= 1
+        if tag == "section" and self._day_depth <= 0:
+            events = self._current_day.get("events")
+            if isinstance(events, list) and events:
+                self.results.append(self._current_day)
+            self._current_day = None
+            self._current_event = None
+            self._field = None
+            self._field_parts = []
+
+    def handle_data(self, data: str) -> None:
+        if self._field:
+            self._field_parts.append(data)
+
+    def _start_field(self, field: str) -> None:
+        self._field = field
+        self._field_parts = []
+
+    def _finish_field(self) -> None:
+        field = self._field
+        value = _clean_bno_schedule_text(" ".join(self._field_parts))
+        self._field = None
+        self._field_parts = []
+        if not field:
+            return
+        if self._current_event is not None and field in {"time", "desc", "details"}:
+            self._current_event[field] = value
+        elif self._current_day is not None and field in {"date", "zone"}:
+            self._current_day[field] = value
 
 
 class _MscioDocumentFolderParser(HTMLParser):
@@ -1154,14 +1251,15 @@ def _ical_entries(feed: FeedRuntime, body: bytes, entry_limit: int) -> tuple[Fee
     if not text.lstrip().startswith("BEGIN:VCALENDAR"):
         return None
     now = datetime.now(UTC)
+    vip_schedule = _is_vip_schedule_calendar(feed)
     events = []
     for event in _parse_ical_events(text):
         start = _parse_ical_datetime(event.get("DTSTART"), event.get("DTSTART_PARAMS"))
-        if start is None or not _ical_in_window(start, now):
+        if start is None or not _ical_in_window(start, now, include_recent=not vip_schedule):
             continue
         uid = event.get("UID") or event.get("URL") or f"{event.get('SUMMARY', 'event')}:{event.get('DTSTART', '')}"
         title = clean_html_text(event.get("SUMMARY")) or "Calendar event"
-        if _is_vip_schedule_calendar(feed) and "public schedule" not in title.casefold():
+        if vip_schedule and "public schedule" not in title.casefold():
             title = f"Public Schedule: {title}"
         location = clean_html_text(event.get("LOCATION"))
         description = clean_html_text(event.get("DESCRIPTION"))
@@ -1171,6 +1269,18 @@ def _ical_entries(feed: FeedRuntime, body: bytes, entry_limit: int) -> tuple[Fee
             summary_parts.append(f"Location: {location}")
         if description:
             summary_parts.append(description)
+        event_kind = _schedule_event_kind(title, description)
+        rich_metadata = {
+            "source": "ical",
+            "calendar_event": True,
+            "calendar_source_id": feed.source_id,
+            "event_start_utc": start.isoformat(),
+            "event_start_label_utc": start_label,
+            "event_location": location,
+            "event_description": description,
+            "event_kind": event_kind,
+            "event_compact": event_kind in {"status_lid", "press_status"},
+        }
         events.append(
             (
                 start,
@@ -1187,6 +1297,7 @@ def _ical_entries(feed: FeedRuntime, body: bytes, entry_limit: int) -> tuple[Fee
                     parsed={"source": "ical", **event},
                     source_id=feed.source_id,
                     source_class=feed.source_class,
+                    rich_metadata=rich_metadata,
                 ),
             )
         )
@@ -1195,6 +1306,21 @@ def _ical_entries(feed: FeedRuntime, body: bytes, entry_limit: int) -> tuple[Fee
 
 def _is_vip_schedule_calendar(feed: FeedRuntime) -> bool:
     return feed.feed_key == "factbase-white-house-calendar" or feed.source_id == "factbase-white-house-calendar"
+
+
+def _schedule_event_kind(title: str, description: str | None) -> str:
+    text = f"{title} {description or ''}".casefold()
+    if "lid" in text:
+        return "status_lid"
+    if "press office" in text or "pool call time" in text or "pool report" in text:
+        return "press_status"
+    if any(term in text for term in ("remarks", "delivers remarks", "addresses", "statement")):
+        return "public_remarks"
+    if any(term in text for term in ("meets with", "meeting", "bilateral", "hosts")):
+        return "meeting"
+    if any(term in text for term in ("departs", "arrives", "travels", "travel")):
+        return "travel"
+    return "schedule_event"
 
 
 def _parse_ical_events(text: str) -> list[dict[str, str]]:
@@ -1258,9 +1384,9 @@ def _ical_timezone(params: str | None):
         return UTC
 
 
-def _ical_in_window(start: datetime, now: datetime) -> bool:
+def _ical_in_window(start: datetime, now: datetime, *, include_recent: bool = True) -> bool:
     start_utc = start.astimezone(UTC)
-    earliest = now - timedelta(hours=ICAL_RECENT_STARTED_HOURS)
+    earliest = now - timedelta(hours=ICAL_RECENT_STARTED_HOURS) if include_recent else now
     latest = now + timedelta(days=ICAL_LOOKAHEAD_DAYS)
     return earliest <= start_utc <= latest
 
@@ -1305,6 +1431,84 @@ def _state_collection_entries(feed: FeedRuntime, body: bytes, entry_limit: int) 
             )
         )
     return tuple(entries)
+
+
+def _bno_white_house_schedule_entries(feed: FeedRuntime, body: bytes, entry_limit: int) -> tuple[FeedEntry, ...] | None:
+    if not _is_bno_white_house_schedule(feed.url):
+        return None
+    parser = _BnoWhiteHouseScheduleParser(feed.url)
+    try:
+        parser.feed(body.decode("utf-8", errors="ignore"))
+        parser.close()
+    except Exception as exc:
+        raise FeedFetchError(f"BNO White House schedule parse failed: {exc}") from exc
+    entries: list[FeedEntry] = []
+    for result in parser.results[:entry_limit]:
+        date_label = str(result.get("date") or "").strip()
+        if not date_label:
+            continue
+        source_url = str(result.get("source_url") or feed.url)
+        summary = _bno_schedule_summary(result)
+        entries.append(
+            FeedEntry(
+                feed_key=feed.feed_key,
+                feed_name=feed.display_name,
+                raw_guid=f"{feed.url}#{_bno_schedule_date_key(date_label)}",
+                raw_title=f"Upcoming Presidential Schedule - {date_label}",
+                raw_url=source_url,
+                summary=summary,
+                image_url=None,
+                image_source=None,
+                raw_published_at=_bno_schedule_date_to_rfc(date_label),
+                parsed={"source": "bno_white_house_schedule", "date": date_label, "source_url": source_url},
+                source_id=feed.source_id,
+                source_class=feed.source_class,
+                rich_metadata={
+                    "source": "bno_white_house_schedule",
+                    "schedule_digest": True,
+                    "schedule_date": date_label,
+                    "event_kind": "schedule_digest",
+                    "routing_summary": summary,
+                },
+                routing_tags=feed.routing_tags,
+            )
+        )
+    return tuple(entries)
+
+
+def _bno_schedule_summary(result: dict[str, object]) -> str:
+    lines: list[str] = []
+    zone = str(result.get("zone") or "").strip()
+    if zone:
+        lines.append(f"Time zone: {zone}")
+    events = result.get("events")
+    if isinstance(events, list):
+        sorted_events = sorted(events, key=_bno_schedule_time_sort_key)
+        for raw_event in sorted_events[:16]:
+            if not isinstance(raw_event, dict):
+                continue
+            time_label = str(raw_event.get("time") or "").strip()
+            description = str(raw_event.get("desc") or "").strip()
+            details = str(raw_event.get("details") or "").strip()
+            if not description:
+                continue
+            prefix = f"{time_label} - " if time_label else ""
+            suffix = f" ({details})" if details else ""
+            lines.append(f"{prefix}{description}{suffix}")
+    return "\n".join(lines) or "White House daily public schedule."
+
+
+def _bno_schedule_time_sort_key(raw_event: object) -> tuple[int, int]:
+    if not isinstance(raw_event, dict):
+        return (1, 0)
+    value = str(raw_event.get("time") or "").strip()
+    match = re.fullmatch(r"(\d{1,2}):(\d{2})\s*([AP]M)", value, flags=re.IGNORECASE)
+    if not match:
+        return (1, 0)
+    hour = int(match.group(1)) % 12
+    if match.group(3).casefold() == "pm":
+        hour += 12
+    return (0, hour * 60 + int(match.group(2)))
 
 
 async def _mscio_document_folder_entries(
@@ -1391,6 +1595,11 @@ def _is_state_public_schedule_collection(url: str) -> bool:
     return parsed.netloc.casefold() == STATE_HOST and parsed.path.rstrip("/") == "/public-schedule"
 
 
+def _is_bno_white_house_schedule(url: str) -> bool:
+    parsed = urlparse(url)
+    return parsed.netloc.casefold() == BNO_HOST and parsed.path.rstrip("/") == "/whpool/schedule"
+
+
 def _is_mscio_document_folder(url: str) -> bool:
     parsed = urlparse(url)
     path = parsed.path.rstrip("/").casefold()
@@ -1405,6 +1614,26 @@ def _state_collection_date_to_rfc(value: str) -> str | None:
     if not month:
         return None
     return f"{int(match.group(2)):02d} {month} {match.group(3)} 00:00 +0000"
+
+
+def _bno_schedule_date_to_rfc(value: str) -> str | None:
+    try:
+        parsed = datetime.strptime(value.strip(), "%A, %B %d, %Y")
+    except ValueError:
+        return None
+    return f"{parsed.day:02d} {parsed.strftime('%b')} {parsed.year} 00:00 +0000"
+
+
+def _bno_schedule_date_key(value: str) -> str:
+    try:
+        parsed = datetime.strptime(value.strip(), "%A, %B %d, %Y")
+    except ValueError:
+        return re.sub(r"[^a-z0-9]+", "-", value.casefold()).strip("-")
+    return parsed.strftime("%Y-%m-%d")
+
+
+def _clean_bno_schedule_text(value: str) -> str:
+    return re.sub(r"\s+", " ", html.unescape(value or "")).strip()
 
 
 def _mscio_folder_date_to_rfc(value: str) -> str | None:

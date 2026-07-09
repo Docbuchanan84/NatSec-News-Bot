@@ -11,6 +11,14 @@ $lines.Add("Generated: $(Get-Date -Format o)")
 
 Add-RssBotCommandReport -Lines $lines -Title "Docker Status Before Start" -Command @("docker", "compose", "ps") | Out-Null
 Add-RssBotCommandReport -Lines $lines -Title "Ensure Bot Is Up" -Command @("docker", "compose", "up", "-d", "rssbot") | Out-Null
+Add-RssBotCommandReport -Lines $lines -Title "Ensure Codex Draft Worker Is Up" -Command @(
+    "powershell",
+    "-NoProfile",
+    "-ExecutionPolicy",
+    "Bypass",
+    "-File",
+    ".\ops\start-codex-draft-worker.ps1"
+) | Out-Null
 Start-Sleep -Seconds 12
 Add-RssBotCommandReport -Lines $lines -Title "Docker Status After Start" -Command @("docker", "compose", "ps") | Out-Null
 Add-RssBotCommandReport -Lines $lines -Title "Startup Log Signals" -Command @(

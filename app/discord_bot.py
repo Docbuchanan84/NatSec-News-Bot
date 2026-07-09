@@ -82,11 +82,28 @@ MARKETING_CONTINUATION_URL_RE = re.compile(
 REVIEW_CHANNEL_ID = "1511541774642843789"
 DEFAULT_CODEX_DRAFT_WORKER_URL = "http://host.docker.internal:8765/draft"
 IMPORTANCE_COLOR_STOPS = (
-    (0, 0x808080),
-    (30, 0x2ECC71),
-    (70, 0xF1C40F),
+    (0, 0x2ECC71),
+    (50, 0xF1C40F),
     (100, 0xE74C3C),
 )
+SCHEDULE_EVENT_COLORS = {
+    "status_lid": 0x95A5A6,
+    "press_status": 0x5D8AA8,
+    "public_remarks": 0x1F6FEB,
+    "meeting": 0x2E86C1,
+    "travel": 0x8E44AD,
+    "schedule_digest": 0x1F6FEB,
+    "schedule_event": 0x3498DB,
+}
+SCHEDULE_EVENT_LABELS = {
+    "status_lid": "Schedule status",
+    "press_status": "Press logistics",
+    "public_remarks": "Public remarks",
+    "meeting": "Meeting",
+    "travel": "Travel",
+    "schedule_digest": "Advance daily schedule",
+    "schedule_event": "Schedule event",
+}
 TRACKING_TITLE_HOST_FRAGMENTS = (
     "hubspotlinks.com",
     "pardot.",
@@ -166,6 +183,20 @@ def _build_post_embed(job: PostJob, client: discord.Client) -> discord.Embed:
         title = social_post["account_name"]
         description = social_post["body"]
         embed_url = social_post["post_url"] or job.url
+    elif _is_public_schedule_post(job):
+        embed = _build_public_schedule_embed(job)
+        if getattr(client, "debug_mode_enabled", False) or job.channel_id == REVIEW_CHANNEL_ID:
+            debug_text = _format_routing_debug_field(client.db, job.article_id)
+            if debug_text:
+                embed.add_field(name="Routing Debug", value=debug_text[:1024], inline=False)
+                audit_logger.info(
+                    "routing_debug_embed article_id=%s channel_id=%s title=%r debug=%r",
+                    job.article_id,
+                    job.channel_id,
+                    job.title,
+                    debug_text,
+                )
+        return embed
     elif _is_email_post(job):
         title = _clean_embed_title(clean_html_text(job.title) or job.title, job.url, job.source_name)
         description = _format_email_post_description(job)
@@ -2835,6 +2866,88 @@ def _is_email_post(job: PostJob) -> bool:
     return str(metadata.get("source") or "").casefold() == "email"
 
 
+def _is_public_schedule_post(job: PostJob) -> bool:
+    metadata = job.rich_metadata or {}
+    if metadata.get("calendar_event") is True or metadata.get("schedule_digest") is True:
+        return True
+    return job.source_id == "factbase-white-house-calendar" and str(metadata.get("source") or "").casefold() == "ical"
+
+
+def _build_public_schedule_embed(job: PostJob) -> discord.Embed:
+    metadata = job.rich_metadata or {}
+    event_kind = str(metadata.get("event_kind") or "schedule_event")
+    label = SCHEDULE_EVENT_LABELS.get(event_kind, SCHEDULE_EVENT_LABELS["schedule_event"])
+    event_start = _schedule_event_start(metadata)
+    display_timestamp = event_start or job.normalized_published_at.astimezone(UTC)
+    title = _clean_schedule_title(clean_html_text(job.title) or job.title)
+    description = _format_schedule_description(job, label)
+    embed = discord.Embed(
+        title=title[:256],
+        url=job.url,
+        description=description[:4096] if description else None,
+        timestamp=display_timestamp,
+        color=SCHEDULE_EVENT_COLORS.get(event_kind, SCHEDULE_EVENT_COLORS["schedule_event"]),
+    )
+    time_text = _schedule_time_field(event_start)
+    if time_text:
+        embed.add_field(name="Time", value=time_text, inline=True)
+    location = str(metadata.get("event_location") or "").strip()
+    if location:
+        embed.add_field(name="Location", value=location[:1024], inline=True)
+    embed.add_field(name="Type", value=label, inline=True)
+    embed.set_footer(text=_post_footer(job, display_timestamp))
+    return embed
+
+
+def _schedule_event_start(metadata: dict[str, Any]) -> datetime | None:
+    value = str(metadata.get("event_start_utc") or "").strip()
+    if not value:
+        return None
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=UTC)
+    return parsed.astimezone(UTC)
+
+
+def _schedule_time_field(event_start: datetime | None) -> str | None:
+    if event_start is None:
+        return None
+    unix_seconds = int(event_start.timestamp())
+    return f"<t:{unix_seconds}:F>\n<t:{unix_seconds}:R>"
+
+
+def _clean_schedule_title(title: str) -> str:
+    cleaned = " ".join(title.replace("**", "").split()).strip() or "Public schedule update"
+    cleaned = re.sub(r"\s*\(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}\s+UTC\)\s*$", "", cleaned)
+    cleaned = re.sub(r"^Public Schedule:\s*", "", cleaned, flags=re.IGNORECASE)
+    cleaned = re.sub(r"^White House Press Office:\s*", "", cleaned, flags=re.IGNORECASE)
+    return cleaned.strip(" -:") or "Public schedule update"
+
+
+def _format_schedule_description(job: PostJob, label: str) -> str | None:
+    metadata = job.rich_metadata or {}
+    description = clean_html_text(str(metadata.get("event_description") or ""))
+    compact = bool(metadata.get("event_compact"))
+    if compact:
+        if description and not _same_display_text(description, job.title):
+            return f"{label}: {description}"
+        return f"{label} update for the White House public schedule."
+    if description:
+        return description
+    if not job.summary:
+        return None
+    useful_lines: list[str] = []
+    for raw_line in job.summary.replace("\r\n", "\n").replace("\r", "\n").splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith(("Start:", "Location:")):
+            continue
+        useful_lines.append(line)
+    return "\n".join(useful_lines).strip() or None
+
+
 def _format_email_post_description(job: PostJob) -> str | None:
     if not job.summary:
         return None
@@ -2856,6 +2969,10 @@ def _format_email_post_description(job: PostJob) -> str | None:
 def _post_footer(job: PostJob, display_timestamp: datetime) -> str:
     article_state = "New" if job.is_new_article else "Update"
     status = f"{article_state} · Imp {_clamp_importance(job.importance_score)}"
+    if _is_public_schedule_post(job):
+        event_kind = str((job.rich_metadata or {}).get("event_kind") or "schedule_event")
+        label = SCHEDULE_EVENT_LABELS.get(event_kind, SCHEDULE_EVENT_LABELS["schedule_event"])
+        return f"{job.source_name} · {label} · {status}"
     if not _is_email_post(job):
         return f"{job.source_name} · {status}"
     metadata = job.rich_metadata or {}

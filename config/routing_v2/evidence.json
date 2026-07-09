@@ -1880,6 +1880,34 @@
       ],
       "priority": 75,
       "phrase": "Yankees"
+    },
+    {
+      "id": "discord-kotaku-20260707",
+      "type": "literal",
+      "scores": {
+        "science-technology": 25
+      },
+      "fields": [
+        "title",
+        "summary",
+        "url_slug"
+      ],
+      "priority": 75,
+      "phrase": "Kotaku"
+    },
+    {
+      "id": "discord-severe-flooding-20260707",
+      "type": "literal",
+      "scores": {
+        "weather": 40
+      },
+      "fields": [
+        "title",
+        "summary",
+        "url_slug"
+      ],
+      "priority": 75,
+      "phrase": "severe flooding"
     }
   ]
 }

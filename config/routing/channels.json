@@ -1302,7 +1302,9 @@
       },
       "required_source_ids": [
         "white-house-news",
-        "factbase-white-house-calendar"
+        "factbase-white-house-calendar",
+        "bno-white-house-pool-schedule",
+        "presidential-prayer-team-daily-schedule"
       ]
     },
     {

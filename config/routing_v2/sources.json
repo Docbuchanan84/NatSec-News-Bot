@@ -38,7 +38,12 @@
     },
     {
       "id": "source-white-house",
-      "source_ids": ["white-house-news", "factbase-white-house-calendar"],
+      "source_ids": [
+        "white-house-news",
+        "factbase-white-house-calendar",
+        "bno-white-house-pool-schedule",
+        "presidential-prayer-team-daily-schedule"
+      ],
       "scores": { "the-white-house": 55, "the-hill": 10 }
     },
     {

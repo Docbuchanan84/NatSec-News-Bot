@@ -376,7 +376,7 @@ async def test_discord_embed_footer_uses_local_timestamp_and_new_article_state()
 
     assert channel.embed.footer.text == "Example · New · Imp 70"
     assert channel.embed.timestamp == published_at
-    assert channel.embed.color.value == 0xF1C40F
+    assert channel.embed.color.value == 0xED9421
 
 
 @pytest.mark.asyncio
@@ -402,14 +402,105 @@ async def test_discord_embed_footer_marks_update_posts() -> None:
 
     assert channel.embed.footer.text == "Example · Update · Imp 30"
     assert channel.embed.timestamp == updated_at
-    assert channel.embed.color.value == 0x2ECC71
+    assert channel.embed.color.value == 0xA3C736
+
+
+@pytest.mark.asyncio
+async def test_discord_embed_formats_white_house_schedule_status_card() -> None:
+    channel = FakeChannel()
+    adapter = DiscordPublisherAdapter(FakeClient(channel))
+    event_start = datetime(2026, 7, 6, 22, 6, tzinfo=UTC)
+    job = PostJob(
+        article_id=1,
+        channel_id="111111111111111111",
+        title="Public Schedule: White House Press Office: Dinner lid until 8:30 PM (2026-07-06 22:06 UTC)",
+        url=None,
+        summary="Start: 2026-07-06 22:06 UTC\nLocation: The White House",
+        image_url=None,
+        image_source=None,
+        source_name="Factba.se White House Calendar",
+        source_id="factbase-white-house-calendar",
+        source_class="official_us_gov",
+        normalized_published_at=datetime(2026, 7, 7, 0, 25, tzinfo=UTC),
+        importance_score=44,
+        rich_metadata={
+            "source": "ical",
+            "calendar_event": True,
+            "event_start_utc": event_start.isoformat(),
+            "event_location": "The White House",
+            "event_kind": "status_lid",
+            "event_compact": True,
+        },
+    )
+
+    await adapter.send(job)
+
+    fields = {field.name: field.value for field in channel.embed.fields}
+    assert channel.embed.title == "Dinner lid until 8:30 PM"
+    assert channel.embed.description == "Schedule status update for the White House public schedule."
+    assert fields["Time"] == "<t:1783375560:F>\n<t:1783375560:R>"
+    assert fields["Location"] == "The White House"
+    assert fields["Type"] == "Schedule status"
+    assert channel.embed.footer.text == "Factba.se White House Calendar · Schedule status · New · Imp 44"
+    assert channel.embed.timestamp == event_start
+    assert channel.embed.color.value == 0x95A5A6
+
+
+@pytest.mark.asyncio
+async def test_discord_embed_formats_advance_presidential_schedule() -> None:
+    channel = FakeChannel()
+    adapter = DiscordPublisherAdapter(FakeClient(channel))
+    published_at = datetime(2026, 7, 9, 0, 0, tzinfo=UTC)
+    summary = (
+        "Time zone: EDT - Eastern Time\n"
+        "8:00 AM - THE PRESIDENT participates in Executive Time\n"
+        "1:00 PM - THE PRESIDENT receives his Intelligence Briefing"
+    )
+    job = PostJob(
+        article_id=1,
+        channel_id="111111111111111111",
+        title="Upcoming Presidential Schedule - Thursday, July 9, 2026",
+        url="https://bnonews.com/whpool/schedule",
+        summary=summary,
+        image_url=None,
+        image_source=None,
+        source_name="BNO White House Pool Daily Schedule",
+        source_id="bno-white-house-pool-schedule",
+        source_class="schedule_tracker",
+        normalized_published_at=published_at,
+        importance_score=55,
+        rich_metadata={
+            "source": "bno_white_house_schedule",
+            "schedule_digest": True,
+            "schedule_date": "Thursday, July 9, 2026",
+            "event_kind": "schedule_digest",
+        },
+    )
+
+    await adapter.send(job)
+
+    fields = {field.name: field.value for field in channel.embed.fields}
+    assert channel.embed.title == "Upcoming Presidential Schedule - Thursday, July 9, 2026"
+    assert channel.embed.description == summary
+    assert fields["Type"] == "Advance daily schedule"
+    assert channel.embed.footer.text == (
+        "BNO White House Pool Daily Schedule · Advance daily schedule · New · Imp 55"
+    )
+    assert channel.embed.timestamp == published_at
+    assert channel.embed.color.value == 0x1F6FEB
 
 
 def test_importance_color_stop_points() -> None:
-    assert _importance_color(0) == 0x808080
-    assert _importance_color(30) == 0x2ECC71
-    assert _importance_color(70) == 0xF1C40F
+    assert _importance_color(-10) == 0x2ECC71
+    assert _importance_color(0) == 0x2ECC71
+    assert _importance_color(50) == 0xF1C40F
     assert _importance_color(100) == 0xE74C3C
+    assert _importance_color(120) == 0xE74C3C
+
+
+def test_importance_color_interpolates_heatmap_granularity() -> None:
+    assert _importance_color(25) == 0x90C840
+    assert _importance_color(75) == 0xEC8826
 
 
 def test_format_importance_terms_lists_active_terms() -> None:
