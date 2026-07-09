@@ -8,15 +8,15 @@ $RepoRoot = Resolve-Path (Join-Path $PSScriptRoot "..")
 $LogDir = Join-Path $RepoRoot "logs"
 New-Item -ItemType Directory -Force -Path $LogDir | Out-Null
 
-$Worker = Join-Path $PSScriptRoot "codex-draft-worker.py"
-$LogPath = Join-Path $LogDir "codex-draft-worker.log"
-$ErrorLogPath = Join-Path $LogDir "codex-draft-worker.err.log"
+$Worker = Join-Path $PSScriptRoot "draft-worker.py"
+$LogPath = Join-Path $LogDir "draft-worker.log"
+$ErrorLogPath = Join-Path $LogDir "draft-worker.err.log"
 
 $existing = Get-CimInstance Win32_Process |
-    Where-Object { $_.CommandLine -like "*codex-draft-worker.py*" -and $_.CommandLine -like "*--port $Port*" }
+    Where-Object { $_.CommandLine -like "*draft-worker.py*" -and $_.CommandLine -like "*--port $Port*" }
 
 if ($existing) {
-    "Codex draft worker already running on port $Port (PID $($existing.ProcessId -join ', '))."
+    "Draft worker already running on port $Port (PID $($existing.ProcessId -join ', '))."
     return
 }
 
@@ -33,7 +33,12 @@ Start-Sleep -Seconds 2
 try {
     $response = Invoke-RestMethod -Uri "http://$HostAddress`:$Port/health" -TimeoutSec 5
     if ($response.ok) {
-        "Codex draft worker started on http://$HostAddress`:$Port/draft"
+        if ($response.draft_backend -eq "openai" -and (-not $response.openai_configured -or -not $response.openai_sdk_available)) {
+            throw "OpenAI backend selected but key or SDK is unavailable."
+        }
+        "Draft worker started on http://$HostAddress`:$Port/draft"
+        "Draft backend: $($response.draft_backend)"
+        "Importance backend: $($response.importance_backend)"
         "Log: $LogPath"
         "Error log: $ErrorLogPath"
         return

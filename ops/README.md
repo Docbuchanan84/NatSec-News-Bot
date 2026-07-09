@@ -57,10 +57,34 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\ops\register-scheduled-tas
 
 Default tasks:
 
-- `RSS Bot Codex Draft Worker Watchdog`: every 5 minutes. Starts the host-side Codex worker used by `/rss draft-post` and importance review if it is not already running.
+- `RSS Bot Draft Worker Watchdog`: every 5 minutes. Starts the host-side worker used by `/rss draft-post` and importance review if it is not already running. Drafts use the configured OpenAI or Codex backend; importance review remains on Codex.
 - `RSS Bot Daily Health Check`: daily at 9:00 AM.
 - `RSS Bot Weekly Maintenance`: Sunday at 3:30 AM.
-- `RSS Bot Post Reboot Check`: at user logon. Ensures the bot container and Codex draft worker are up. If Windows denies logon-task registration, the setup script creates an equivalent Startup folder shortcut for the current user.
+- `RSS Bot Post Reboot Check`: at user logon. Ensures the bot container and draft worker are up. If Windows denies logon-task registration, the setup script creates an equivalent Startup folder shortcut for the current user.
+
+## Draft Worker
+
+Copy `.env.openai.example` to the ignored `.env.openai`, add the project API key, and select the live backend:
+
+```text
+OPENAI_API_KEY=replace_with_project_api_key
+DRAFT_BACKEND=openai
+```
+
+Start or stop the worker:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\ops\start-draft-worker.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File .\ops\stop-draft-worker.ps1
+```
+
+Set `DRAFT_BACKEND=codex` in `.env.openai` and restart the worker for an immediate rollback. `/importance-review` uses Codex under either setting.
+
+OpenAI draft metrics are written to ignored `logs\openai-draft-metrics.jsonl`. Summarize latency, usage, and estimated cost with:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\ops\openai-draft-cost-report.ps1
+```
 
 ## Pause Or Resume Automation
 

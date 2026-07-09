@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib.util
+import sys
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -60,14 +61,15 @@ def test_related_article_candidates_uses_title_overlap() -> None:
     assert [row["id"] for row in related_article_candidates(target, rows)] == [99]
 
 
-def test_worker_prompt_invokes_skill_and_embeds_payload() -> None:
-    worker_path = Path(__file__).resolve().parents[1] / "ops" / "codex-draft-worker.py"
-    spec = importlib.util.spec_from_file_location("codex_draft_worker", worker_path)
+def test_worker_codex_fallback_prompt_invokes_skill_and_embeds_payload() -> None:
+    worker_path = Path(__file__).resolve().parents[1] / "ops" / "draft-worker.py"
+    spec = importlib.util.spec_from_file_location("draft_worker", worker_path)
     assert spec and spec.loader
     module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
     spec.loader.exec_module(module)
 
-    prompt = module.build_prompt({"article": {"id": 42, "title": "Test story"}})
+    prompt = module.build_codex_prompt({"article": {"id": 42, "title": "Test story"}})
 
     assert "$natsec-x-draft" in prompt
     assert '"id": 42' in prompt

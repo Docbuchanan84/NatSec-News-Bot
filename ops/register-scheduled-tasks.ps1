@@ -12,7 +12,7 @@ $principal = New-ScheduledTaskPrincipal -UserId $env:USERNAME -LogonType Interac
 $healthActionText = "`"powershell.exe`" -NoProfile -ExecutionPolicy Bypass -File `"$repoRoot\ops\health-check.ps1`""
 $weeklyActionText = "`"powershell.exe`" -NoProfile -ExecutionPolicy Bypass -File `"$repoRoot\ops\weekly-maintenance.ps1`""
 $postRebootActionText = "`"powershell.exe`" -NoProfile -ExecutionPolicy Bypass -File `"$repoRoot\ops\post-reboot-check.ps1`""
-$draftWorkerActionText = "`"powershell.exe`" -NoProfile -ExecutionPolicy Bypass -File `"$repoRoot\ops\start-codex-draft-worker.ps1`""
+$draftWorkerActionText = "`"powershell.exe`" -NoProfile -ExecutionPolicy Bypass -File `"$repoRoot\ops\start-draft-worker.ps1`""
 
 $draftWorkerTrigger = New-ScheduledTaskTrigger `
     -Once `
@@ -22,10 +22,10 @@ $draftWorkerTrigger = New-ScheduledTaskTrigger `
 
 $tasks = @(
     @{
-        Name = "RSS Bot Codex Draft Worker Watchdog"
+        Name = "RSS Bot Draft Worker Watchdog"
         Trigger = $draftWorkerTrigger
-        Action = New-ScheduledTaskAction -Execute "powershell.exe" -Argument "-NoProfile -ExecutionPolicy Bypass -File `"$repoRoot\ops\start-codex-draft-worker.ps1`""
-        SchtasksArgs = @("/Create", "/TN", "RSS Bot Codex Draft Worker Watchdog", "/SC", "MINUTE", "/MO", "5", "/TR", $draftWorkerActionText, "/F")
+        Action = New-ScheduledTaskAction -Execute "powershell.exe" -Argument "-NoProfile -ExecutionPolicy Bypass -File `"$repoRoot\ops\start-draft-worker.ps1`""
+        SchtasksArgs = @("/Create", "/TN", "RSS Bot Draft Worker Watchdog", "/SC", "MINUTE", "/MO", "5", "/TR", $draftWorkerActionText, "/F")
     },
     @{
         Name = "RSS Bot Daily Health Check"
@@ -46,6 +46,10 @@ $tasks = @(
         SchtasksArgs = @("/Create", "/TN", "RSS Bot Post Reboot Check", "/SC", "ONLOGON", "/TR", $postRebootActionText, "/F")
     }
 )
+
+if (-not $WhatIf) {
+    Unregister-ScheduledTask -TaskName "RSS Bot Codex Draft Worker Watchdog" -Confirm:$false -ErrorAction SilentlyContinue
+}
 
 foreach ($task in $tasks) {
     if ($WhatIf) {

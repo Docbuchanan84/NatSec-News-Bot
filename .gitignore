@@ -1,4 +1,5 @@
 .env
+.env.openai
 config/config.json
 config/config.pre-*.json
 __pycache__/
@@ -10,6 +11,7 @@ venv/
 data/
 logs/
 ops/reports/
+ops/fixtures/live/
 config/routing/.editor_backups/
 config/routing/editor_settings.json
 config/routing_v2/.discord_backups/

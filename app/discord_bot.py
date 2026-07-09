@@ -80,7 +80,8 @@ MARKETING_CONTINUATION_URL_RE = re.compile(
     re.IGNORECASE,
 )
 REVIEW_CHANNEL_ID = "1511541774642843789"
-DEFAULT_CODEX_DRAFT_WORKER_URL = "http://host.docker.internal:8765/draft"
+DEFAULT_DRAFT_WORKER_URL = "http://host.docker.internal:8765/draft"
+DRAFT_PROFILES = ("fast", "quality")
 IMPORTANCE_COLOR_STOPS = (
     (0, 0x2ECC71),
     (50, 0xF1C40F),
@@ -783,12 +784,20 @@ class RSSDiscordClient(discord.Client):
             article_id="Article ID from the RSS bot",
             message_id="Discord message ID for a bot article post",
             tweet_only="Return only the tweet text instead of a full draft pack",
+            profile="Draft model profile: fast is the default; quality uses the frontier model",
+        )
+        @app_commands.choices(
+            profile=[
+                app_commands.Choice(name="Fast", value="fast"),
+                app_commands.Choice(name="Quality", value="quality"),
+            ]
         )
         async def draft_post(
             interaction: discord.Interaction,
             article_id: int | None = None,
             message_id: str | None = None,
             tweet_only: bool = False,
+            profile: app_commands.Choice[str] | None = None,
         ) -> None:
             await interaction.response.defer(ephemeral=False, thinking=True)
             try:
@@ -803,6 +812,7 @@ class RSSDiscordClient(discord.Client):
                     source_channel_id=str(interaction.channel_id) if interaction.channel_id else None,
                     guild_id=str(interaction.guild_id) if interaction.guild_id else None,
                     tweet_only=tweet_only,
+                    profile=profile.value if profile is not None else "fast",
                 )
             except Exception as exc:
                 await interaction.followup.send("Draft failed: " + truncate(str(exc), 1800), ephemeral=False)
@@ -889,6 +899,7 @@ class RSSDiscordClient(discord.Client):
                     source_channel_id=matched_channel_id,
                     guild_id=str(interaction.guild_id) if interaction.guild_id else None,
                     tweet_only=False,
+                    profile="fast",
                 )
             except Exception as exc:
                 await interaction.followup.send("Draft failed: " + truncate(str(exc), 1800), ephemeral=False)
@@ -1580,11 +1591,22 @@ class RSSDiscordClient(discord.Client):
         source_channel_id: str | None,
         guild_id: str | None,
         tweet_only: bool,
+        profile: str,
     ) -> str:
-        worker_url = os.environ.get("CODEX_DRAFT_WORKER_URL", DEFAULT_CODEX_DRAFT_WORKER_URL).strip()
+        profile = profile.strip().casefold()
+        if profile not in DRAFT_PROFILES:
+            raise RuntimeError(f"Unknown draft profile: {profile}")
+        worker_url = (
+            os.environ.get("DRAFT_WORKER_URL")
+            or os.environ.get("CODEX_DRAFT_WORKER_URL")
+            or DEFAULT_DRAFT_WORKER_URL
+        ).strip()
         if not worker_url:
-            raise RuntimeError("CODEX_DRAFT_WORKER_URL is not configured.")
-        timeout_seconds = _env_int("CODEX_DRAFT_TIMEOUT_SECONDS", 900)
+            raise RuntimeError("DRAFT_WORKER_URL is not configured.")
+        timeout_seconds = _env_int(
+            "DRAFT_TIMEOUT_SECONDS",
+            _env_int("CODEX_DRAFT_TIMEOUT_SECONDS", 900),
+        )
         job = self.db.get_post_job(article_id, source_channel_id or REVIEW_CHANNEL_ID, is_new_article=False)
         routing_row = self.db.latest_routing_decision_for_article(article_id)
         routing = _routing_row_to_payload(routing_row)
@@ -1601,6 +1623,7 @@ class RSSDiscordClient(discord.Client):
                 "source_message_id": source_message_id,
                 "source_channel_id": source_channel_id,
                 "source_message_url": discord_message_url(guild_id, source_channel_id, source_message_id),
+                "profile": profile,
             },
         )
         client_timeout = aiohttp.ClientTimeout(total=timeout_seconds)
@@ -1618,12 +1641,19 @@ class RSSDiscordClient(discord.Client):
         result = str(data.get("result") or "").strip()
         if not result:
             raise RuntimeError("worker returned an empty draft")
+        meta = data.get("meta") if isinstance(data.get("meta"), dict) else {}
         audit_logger.info(
-            "codex_draft_completed article_id=%s channel_id=%s message_id=%s worker_url=%s",
+            "draft_completed article_id=%s channel_id=%s message_id=%s worker_url=%s "
+            "backend=%s profile=%s model=%s elapsed_ms=%s estimated_cost_usd=%s",
             article_id,
             source_channel_id,
             source_message_id,
             worker_url,
+            meta.get("backend"),
+            meta.get("profile") or profile,
+            meta.get("model"),
+            meta.get("elapsed_ms"),
+            meta.get("estimated_cost_usd"),
         )
         return result
 

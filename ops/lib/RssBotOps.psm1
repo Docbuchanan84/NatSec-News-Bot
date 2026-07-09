@@ -112,6 +112,7 @@ function Add-RssBotOfflineIntegrityReport {
 
 function Get-RssBotTaskNames {
     return @(
+        "RSS Bot Draft Worker Watchdog",
         "RSS Bot Codex Draft Worker Watchdog",
         "RSS Bot Daily Health Check",
         "RSS Bot Weekly Maintenance",

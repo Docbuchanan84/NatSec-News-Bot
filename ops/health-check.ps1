@@ -39,9 +39,12 @@ Add-RssBotCommandReport -Lines $lines -Title "Recent Bot Log Signals" -Command @
     "docker compose logs --since 24h rssbot | Select-String -Pattern 'Connected to Discord|heartbeat blocked|disk I/O error|database disk image|Runtime DB maintenance|Feed failed' | Select-Object -Last 80"
 ) | Out-Null
 
-Write-RssBotSection -Title "Codex Draft Worker" -Lines $lines
+Write-RssBotSection -Title "Draft Worker" -Lines $lines
 $draftWorkerProcess = Get-CimInstance Win32_Process |
-    Where-Object { $_.CommandLine -like "*codex-draft-worker.py*" -and $_.CommandLine -like "*--port 8765*" }
+    Where-Object {
+        ($_.CommandLine -like "*draft-worker.py*" -or $_.CommandLine -like "*codex-draft-worker.py*") -and
+        $_.CommandLine -like "*--port 8765*"
+    }
 $lines.Add("process_running=$([bool]$draftWorkerProcess)")
 if ($draftWorkerProcess) {
     $lines.Add("process_ids=$($draftWorkerProcess.ProcessId -join ',')")
@@ -49,13 +52,20 @@ if ($draftWorkerProcess) {
 try {
     $hostResponse = Invoke-RestMethod -Uri "http://127.0.0.1:8765/health" -TimeoutSec 5
     $lines.Add("host_health_ok=$([bool]$hostResponse.ok)")
+    $lines.Add("draft_backend=$($hostResponse.draft_backend)")
+    $lines.Add("importance_backend=$($hostResponse.importance_backend)")
+    $lines.Add("openai_configured=$($hostResponse.openai_configured)")
+    $lines.Add("openai_sdk_available=$($hostResponse.openai_sdk_available)")
+    if ($hostResponse.draft_backend -eq "openai" -and (-not $hostResponse.openai_configured -or -not $hostResponse.openai_sdk_available)) {
+        $hadFailure = $true
+    }
 } catch {
     $lines.Add("host_health_ok=False")
     $lines.Add("host_health_error=$($_.Exception.Message)")
     $hadFailure = $true
 }
 if ($botRunning) {
-    $workerResult = Add-RssBotCommandReport -Lines $lines -Title "Codex Draft Worker From Container" -Command @(
+    $workerResult = Add-RssBotCommandReport -Lines $lines -Title "Draft Worker From Container" -Command @(
         "docker",
         "exec",
         "rss-discord-bot",

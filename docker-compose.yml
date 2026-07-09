@@ -14,8 +14,8 @@ services:
       DATABASE_PATH: /app/data/rssbot.sqlite
       LOG_LEVEL: INFO
       ROUTING_DEBUG_EMBEDS: "false"
-      CODEX_DRAFT_WORKER_URL: "http://host.docker.internal:8765/draft"
-      CODEX_DRAFT_TIMEOUT_SECONDS: "900"
+      DRAFT_WORKER_URL: "http://host.docker.internal:8765/draft"
+      DRAFT_TIMEOUT_SECONDS: "120"
     logging:
       driver: json-file
       options:
